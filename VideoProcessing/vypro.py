@@ -832,3 +832,5 @@ def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legen
         plt.savefig(os.path.join(movie_stack, 'fig%d.png' % i))
 
     encode_video(ppath, name, stack='MStack', ending='.png', fr=5, outpath=os.path.join(ppath, name), ffmpeg_path=ffmpeg_path)
+
+    #bla
