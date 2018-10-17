@@ -256,6 +256,7 @@ def intan_video_timing(ppath, rec, tscale=0):
     so.savemat(os.path.join(ppath, rec, 'video_timing.mat'), {'onset':onset, 'tick_onset':tick_onset})
 
 
+
 def intan_correct_videotiming(ppath, rec, timestamp='timestamp1.mat', fr=1):
     sr = sleepy.get_snr(ppath, rec)
     dt = 1.0/sr
