@@ -435,32 +435,6 @@ def zipdir(path, zip_file):
 
 
 
-def downsample_states(M, nbin, ptie_break=True):
-    """
-    downsample brain state sequency by replacing $nbin consecutive bins by the most frequent state
-    ptie_break     -    tie break rule:
-                        if 1, wake wins over NREM which wins over REM (Wake>NREM>REM) in case of tie
-    """
-    n = int(np.floor(len(M)) / (1.0 * nbin))
-    Mds = np.zeros((n,))
-
-    for i in range(n):
-        m = M[i * nbin:(i + 1) * nbin]
-
-        S = np.array([len(np.where(m == s)[0]) for s in [1, 2, 3]])
-
-        if not ptie_break:
-            Mds[i] = np.argmax(S) + 1
-        else:
-            tmp = S[[1, 2, 0]]
-            ii = np.argmax(tmp)
-            ii = [1, 2, 0][ii]
-            Mds[i] = ii + 1
-
-    return Mds
-
-
-
 def fibpho_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legend=10, dff_legend=10, ffmpeg_path='ffmpeg'):
     """
     Generate video for fiber photometry recording.
@@ -665,7 +639,23 @@ def fibpho_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_leg
 
 
 def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legend=10, ffmpeg_path='ffmpeg'):
+    """
+    Generate video for optogenetic sleep recording.
+    The function requires that ffmpeg is installed on your system (http://ffmpeg.org).
+    Windows Users: Specify the full path to the ffmpeg program
 
+    The resulting video has 1 Hz resolution and will be saved in folder $ppath/$name
+    :param ppath: base folder
+    :param name: name of recording
+    :param ts: start time in seconds
+    :param te: end time in second
+    :param fmax: maximum frequency on EEG spectrogram
+    :param emg_legend: EMG legend in micro Volts
+    :param vm: controls saturation of EEG spectrogram; a value in the range from 1 to 2 should work best
+    :param time_legend: time legend in seconds
+    :param ffmpeg_path: full, absolute path to ffmpeg program; important for to set in Windows
+    :return: n/a
+    """
     # helper function ######################
     def closest_neighbor(vec, x):
         d = np.abs(vec-x)
@@ -771,7 +761,6 @@ def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legen
     # write "Laser"
     plt.gcf().text(0.11, 0.46, 'Laser', color=laser_map[1])
 
-
     # legend for brain states
     plt.gcf().text(0.7, 0.01,  'REM',  color=state_map[0])
     plt.gcf().text(0.77, 0.01,  'Wake', color=state_map[1])
@@ -832,5 +821,3 @@ def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legen
         plt.savefig(os.path.join(movie_stack, 'fig%d.png' % i))
 
     encode_video(ppath, name, stack='MStack', ending='.png', fr=5, outpath=os.path.join(ppath, name), ffmpeg_path=ffmpeg_path)
-
-    #bla
