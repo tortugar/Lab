@@ -154,7 +154,7 @@ class MainWindow(QtGui.QMainWindow):
         # Variables related to EEG representation
         # maximum length of shown EEG
     
-        self.twin_eeg = 5
+        self.twin_eeg = 2.5
         self.twin_view = self.twin_eeg
         # number of time point in EEG; set in self.load_session()
         self.len_eeg = 0
@@ -199,7 +199,8 @@ class MainWindow(QtGui.QMainWindow):
         self.name = name
         self.ppath = ppath        
         if self.name == '':
-            self.openFileNameDialog()        
+            self.openFileNameDialog()
+        pdb.set_trace()
         self.mouse = re.split('_', self.name)[0]
         self.load_video_timing()
         self.curr_time = self.tscale_ann[self.tscale_index]
@@ -338,7 +339,7 @@ class MainWindow(QtGui.QMainWindow):
 
     
     def load_video_timing(self):
-        vid = so.loadmat(os.path.join(ppath, name, 'video_timing.mat'), squeeze_me=True)
+        vid = so.loadmat(os.path.join(self.ppath, self.name, 'video_timing.mat'), squeeze_me=True)
         self.frame_onset = vid['onset']
         self.tscale_ann = vid['tick_onset']
         #self.image_idx = np.argmin(np.abs(self.frame_onset-self.curr_time))
@@ -1041,6 +1042,14 @@ class MainWindow(QtGui.QMainWindow):
                 
 args = sys.argv[1:]
 params = param_check(args)
+
+#if (len(params) == 0) :
+#    print "No recording specified!\n"
+#    print "If you call a recording for the first time or want to inspect it only in view mode:"
+#    print ">> python video_processor_stack -r recording/directory"
+#    print "If you want to re-visit a previous annotation file:\n" \
+#          ">> python video_processor_stack -r recording/directory -c config_file"
+#    sys.exit(1)
 if params.has_key('-r'):
     ddir = params['-r']
     if re.match('.*\/$', ddir):
