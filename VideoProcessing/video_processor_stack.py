@@ -5,13 +5,12 @@ Created on Sun Mar  4 16:48:55 2018
 
 @author: Franz
 """
-
 import sys
-from PyQt5.QtCore import QDir, Qt, QUrl
+#from PyQt5.QtCore import QDir, Qt, QUrl
 from PyQt5 import QtGui, QtCore
 from PyQt5.QtWidgets import QFileDialog
-from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
-from PyQt5.QtMultimediaWidgets import QVideoWidget
+#from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
+#from PyQt5.QtMultimediaWidgets import QVideoWidget
 import pyqtgraph as pg
 import numpy as np
 import scipy.io as so
@@ -30,7 +29,7 @@ def param_check(x) :
     params = {}
     for i in range(0, len(x)) :
         a = x[i]
-        if re.match('^-', a) > 0 :
+        if re.match('^-', a):
             if i < len(x)-1 :
                 params[a] = x[i+1]
 
@@ -111,7 +110,7 @@ def unpack_unit(ppath, name, grp, un):
         # which starts counting from 1
         # un += 1
         Spk = np.load(sfile + '.npz')
-        print "Loaded %s" % sfile + '.npz'
+        print("Loaded %s" % sfile + '.npz')
         # explanation of why this is necessary:
         # https://stackoverflow.com/questions/22661764/storing-a-dict-with-np-savez-gives-unexpected-result/41566840
         Spk = {key: Spk[key].item() for key in Spk if Spk[key].dtype == 'O'}
@@ -135,7 +134,7 @@ def downsample_vec(x, nbin):
 
     # 0 1 2 | 3 4 5 | 6 7 8 
     for i in range(nbin) :
-        idx = range(i, int(n_down*nbin), int(nbin))
+        idx = list(range(i, int(n_down*nbin), int(nbin)))
         x_down += x[idx]
 
     return x_down / nbin
@@ -165,7 +164,7 @@ class MainWindow(QtGui.QMainWindow):
         self.act_list = []
     
         # Variables related to behavior annotation
-        self.tstep = 0.1
+        self.tstep = 1.0
         # time series of annotated time points
         # list is set in load_video_timing and/or load_config
         self.tscale_ann = []
@@ -179,6 +178,8 @@ class MainWindow(QtGui.QMainWindow):
         self.curr_time = 0
         # the currently shown image frame
         self.image_frame = 0
+        # show video or not
+        self.show_video = True
 
         # in annotation mode each time series point in self.tscale_ann can be assigned a behavior
         self.pann_mode = False
@@ -193,14 +194,15 @@ class MainWindow(QtGui.QMainWindow):
         self.index_list = []
 
         # ndarray of currently displayed video frame
-        self.curr_image = np.array([])
+        #self.curr_image = np.array([])
+        # dummy image
+        self.curr_image = np.zeros((1,1))
 
         # setup names for recording folder / mouse     
         self.name = name
         self.ppath = ppath        
         if self.name == '':
             self.openFileNameDialog()
-        pdb.set_trace()
         self.mouse = re.split('_', self.name)[0]
         self.load_video_timing()
         self.curr_time = self.tscale_ann[self.tscale_index]
@@ -237,7 +239,7 @@ class MainWindow(QtGui.QMainWindow):
             if os.path.isfile(os.path.join(self.ppath, self.name, 'stack.zip')):
                 vypro.unpack_zipstack(self.ppath, self.name)
             else:
-                print "no video stack available for recording %s" % self.name
+                print("no video stack available for recording %s" % self.name)
 
         # now that the configuration is loaded, set image index
         self.set_image_idx()
@@ -268,7 +270,7 @@ class MainWindow(QtGui.QMainWindow):
 
         # Row 1
         self.layout_annotation.addWidget(QtGui.QLabel("Symbols"), row=1, col=0)
-        self.label_symbols = QtGui.QLineEdit(', '.join(k+'-'+self.symbols[k] for k in self.symbols.keys()))        
+        self.label_symbols = QtGui.QLineEdit(', '.join(k+'-'+self.symbols[k] for k in self.symbols))        
         self.layout_annotation.addWidget(self.label_symbols,            row=1, col=1, colspan=2)        
         self.button_create = QtGui.QPushButton('Create')
         self.layout_annotation.addWidget(self.button_create,            row=1, col=3)
@@ -287,7 +289,7 @@ class MainWindow(QtGui.QMainWindow):
 
         # Row 3
         self.layout_annotation.addWidget(QtGui.QLabel("t step[s]"), row=3, col=0)
-        self.edit_tstep = QtGui.QLineEdit('0.1')
+        self.edit_tstep = QtGui.QLineEdit('1')
         self.layout_annotation.addWidget(self.edit_tstep,           row=3, col=1)
         self.button_tstep = QtGui.QPushButton('Set')
         self.layout_annotation.addWidget(self.button_tstep,         row=3, col=2)
@@ -318,12 +320,12 @@ class MainWindow(QtGui.QMainWindow):
 
     def set_image(self):
         self.load_image()
-        self.image_frame = pg.ImageItem() 
+        self.image_frame = pg.ImageItem()
         self.graph_frame.clear()
-        self.graph_frame.addItem(self.image_frame)   
-        
-        self.image_frame.clear()             
-        self.image_frame.setImage(self.curr_image)     
+        self.graph_frame.addItem(self.image_frame)
+
+        self.image_frame.clear()
+        self.image_frame.setImage(self.curr_image)
         self.graph_frame.getViewBox().setAspectLocked(True)
         self.graph_frame.hideAxis('bottom')
         self.graph_frame.hideAxis('left')
@@ -334,8 +336,9 @@ class MainWindow(QtGui.QMainWindow):
 
 
     def load_image(self):
-        image = cv2.imread(os.path.join(self.ppath, self.name, 'Stack', 'fig%d.jpg' % (self.image_idx+self.img_offset)))
-        self.curr_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        if self.show_video:
+            image = cv2.imread(os.path.join(self.ppath, self.name, 'Stack', 'fig%d.jpg' % (self.image_idx+self.img_offset)))
+            self.curr_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     
     def load_video_timing(self):
@@ -351,7 +354,7 @@ class MainWindow(QtGui.QMainWindow):
             self.symbols, self.tann = vypro.load_config(self.config_file)
             #self.annotation = vypro.load_behann_file(self.config_file)
             self.annotation, self.Kann = vypro.load_behann_file(self.config_file)
-            self.tscale_ann = np.array(self.annotation.keys())
+            self.tscale_ann = np.array(list(self.annotation.keys()))
             self.tscale_ann.sort()
             self.symbol_series = [self.annotation[k] for k in self.tscale_ann]
             self.pconfig = True
@@ -372,7 +375,7 @@ class MainWindow(QtGui.QMainWindow):
                 self.symbol_num[s] = i
                 i += 1
             # reverse self.symbol_num
-            self.num_symbol = {self.symbol_num[k]:k for k in self.symbol_num.keys()}
+            self.num_symbol = {self.symbol_num[k]:k for k in self.symbol_num}
 
             #translate string series to array
             self.symbol_array = np.zeros((len(self.symbol_series),), dtype='int')
@@ -458,6 +461,10 @@ class MainWindow(QtGui.QMainWindow):
         spec = so.loadmat(os.path.join(self.ppath, self.name, 'sp_' + self.name + '.mat'))
         self.ftime = spec['t'][0]
         self.fdt = spec['dt'][0][0]
+        # the first time bin of the spectrogram goes from 0 to 5s; therefore
+        # I add the self.fdt (= 2.5 s)
+        #self.ftime += self.fdt
+
         # New lines
         self.fbin = np.round((1 / self.dt) * self.fdt)
         if self.fbin % 2 == 1:
@@ -465,7 +472,7 @@ class MainWindow(QtGui.QMainWindow):
         # END new lines
         self.eeg_spec = spec['SP']
         self.eeg_spec_list.append(spec['SP'])
-        if spec.has_key('SP2'):
+        if 'SP2' in spec:
             self.eeg_spec_list.append(spec['SP2'])
         # max color for spectrogram color-range
         self.color_max = np.max(self.eeg_spec)
@@ -478,7 +485,7 @@ class MainWindow(QtGui.QMainWindow):
         EMGAmpl = np.sqrt(emg_spec['mSP'][self.mfreq,:].sum(axis=0))
         self.EMGAmpl = EMGAmpl
         self.emg_amp_list.append(EMGAmpl)
-        if emg_spec.has_key('mSP2'):
+        if 'mSP2' in emg_spec:
             EMGAmpl2 = np.sqrt(emg_spec['mSP2'][self.mfreq,:].sum(axis=0))
             self.emg_amp_list.append(EMGAmpl2)
 
@@ -613,7 +620,7 @@ class MainWindow(QtGui.QMainWindow):
         
         # setup graph_treck ###########################################################
         self.graph_treck.setMouseEnabled(x=True, y=False)
-        limits = {'xMin': 0, 'xMax': self.ftime[-1]} 
+        limits = {'xMin': 0, 'xMax': self.ftime[-1]}
         self.graph_treck.setLimits(**limits)
         self.graph_treck.setXLink(self.graph_eegspec)
                                 
@@ -631,7 +638,7 @@ class MainWindow(QtGui.QMainWindow):
 
         # setup graph_activity ########################################################        
         ax = self.graph_activity.getAxis(name='left')
-        limits = {'xMin': 0, 'xMax': self.ftime[-1]} 
+        limits = {'xMin': 0, 'xMax': self.ftime[-1]}
         self.graph_activity.setLimits(**limits)
         labelStyle = {'color': '#FFF', 'font-size': '10pt'}
         ax.setLabel('Activity', units='', **labelStyle)
@@ -759,7 +766,7 @@ class MainWindow(QtGui.QMainWindow):
                 
         # update current time point
         self.curr_time = mousePoint.x()
-        print self.curr_time
+        print(self.curr_time)
         # shift time point to point in self.tscale_ann
         if self.pann_mode:
             i = np.argmin(np.abs(self.tscale_ann - self.curr_time))
@@ -787,7 +794,7 @@ class MainWindow(QtGui.QMainWindow):
 
     def save_annotation(self):
         # first convert symbol_array to symbol_series (list of strings)
-        time = self.annotation.keys()
+        time = list(self.annotation.keys())
         time.sort()
         for (t,s) in zip(time, self.symbol_array):
             self.annotation[t] = self.num_symbol[s]
@@ -805,7 +812,7 @@ class MainWindow(QtGui.QMainWindow):
             a = re.split('-', p)
             sym[a[0]] = a[1]
 
-        idf = ''.join(sym.keys())
+        idf = ''.join(list(sym.keys()))
         if self.pconfig == False:
             vypro.create_behann_file(self.ppath, self.name, idf, sym, t=self.tann)
 
@@ -822,7 +829,7 @@ class MainWindow(QtGui.QMainWindow):
         fileDialog.setOption(QFileDialog.ShowDirsOnly, True)
         name = fileDialog.getExistingDirectory(self, "Choose Recording Directory")
         (self.ppath, self.name) = os.path.split(name)        
-        print "Setting base folder %s and recording %s" % (self.ppath, self.name)
+        print("Setting base folder %s and recording %s" % (self.ppath, self.name))
 
 
     def set_tstep(self):
@@ -869,14 +876,13 @@ class MainWindow(QtGui.QMainWindow):
         a = self.index_list[0]
         b = self.index_list[-1]
         if a<=b:
-            return range(a,b+1)
+            return list(range(a,b+1))
         else:
-            return range(b,a+1)
+            return list(range(b,a+1))
 
 
     def keyPressEvent(self, event):
         k = event.key()
-        #print k
 
         # cursor to the right
         if k == 16777236:
@@ -949,7 +955,7 @@ class MainWindow(QtGui.QMainWindow):
 
         # delete - erase current behavioral annotation
         elif self.pann_mode and k == 48:
-            print "deleting current behavior"
+            print("deleting current behavior")
             self.symbol_array[self.tscale_index] = 0
             self.plot_annotation()
 
@@ -988,6 +994,16 @@ class MainWindow(QtGui.QMainWindow):
             self.graph_emgampl.clear()
             self.graph_emgampl.plot(self.ftime, self.EMGAmpl)
 
+        # key #: stop showing video or show again
+        elif k == 35:
+            if not self.show_video:
+                self.show_video = True
+                self.set_image()
+            else:
+                self.show_video = False
+                self.curr_image = np.zeros((1,1))
+                self.set_image()
+
         elif k == QtCore.Qt.Key_H:
             self.print_help()
 
@@ -999,7 +1015,7 @@ class MainWindow(QtGui.QMainWindow):
 
 
     def print_help(self):
-        print """
+        print("""
         *** video_processor_stack.py ***
         usage
 
@@ -1026,13 +1042,14 @@ class MainWindow(QtGui.QMainWindow):
         :1 save
         :/ switch between view and annotation mode
         :0 delete annotation for current time point
+        :# stop showing video to (potentially) increase speed; of show again if not shown
         :, switch EEG channel
         :. switch EMG channel
         :cursor left, right - go to left, right
         :cursor up,down     - change color range of EEG spectrogram
         :space - starts an interval that will to annotated, once a symbol key is pressed; all states between
                  last space press and current time point will be annoated with the same symbol
-        """
+        """)
 
 
 
@@ -1050,7 +1067,7 @@ params = param_check(args)
 #    print "If you want to re-visit a previous annotation file:\n" \
 #          ">> python video_processor_stack -r recording/directory -c config_file"
 #    sys.exit(1)
-if params.has_key('-r'):
+if '-r' in params:
     ddir = params['-r']
     if re.match('.*\/$', ddir):
         ddir = ddir[:-1]
@@ -1059,18 +1076,19 @@ else:
     ppath = ''
     name = ''
 config_file = ''
-if params.has_key('-c'):
+if '-c' in params:
     config_file = params['-c']
     a = os.path.split(config_file)
     if a[0] == '':
         config_file = os.path.join(ppath, name, config_file)
 
 
-print "Starting video processing for recording %s with config file %s" % (name, config_file)
+print("Starting video processing for recording %s with config file %s" % (name, config_file))
 app = QtGui.QApplication([])
 player = MainWindow(ppath, name, config_file)
 player.show()
 app.exec_()
+
 
 
 

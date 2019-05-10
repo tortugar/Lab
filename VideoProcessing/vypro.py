@@ -6,7 +6,6 @@ Created on Sun Mar  4 22:19:57 2018
 @author: tortugar
 """
 import os
-import pdb
 import matplotlib.pylab as plt
 import scipy.ndimage
 import numpy as np
@@ -15,7 +14,6 @@ import re
 import scipy.io as so
 import zipfile
 import cv2
-import shutil
 import sleepy
 import subprocess
 import spyke
@@ -36,8 +34,8 @@ class Frame:
     def get_rectangle(self, event):
         self.nx = self.ax.get_xlim()
         self.ny = self.ax.get_ylim()
-        self.nx = map(int, [self.nx[0], self.nx[1]])
-        self.ny = map(int, [self.ny[0], self.ny[1]])
+        self.nx = list(map(int, [self.nx[0], self.nx[1]]))
+        self.ny = list(map(int, [self.ny[0], self.ny[1]]))
         self.nx.sort()
         self.ny.sort()
 
@@ -72,14 +70,15 @@ def crop_frames(ppath, name):
     """
     if not os.path.isdir(os.path.join(ppath, name, 'Stack')):
         unpack_zipstack(ppath, name)
-    print "select mouse cage with zoom tool and then click ok"
-    print "program execution continues once the figure is closed"
+    print("select mouse cage with zoom tool and then click ok and close window!")
+    print("program execution continues once the figure is closed")
     nx, ny = select_frame(ppath, name)
     # number of video frames
     vfile = os.path.join(ppath, name, 'video_timing.mat')
     vfid = so.loadmat(vfile, squeeze_me=True)
     nframes = len(vfid['onset'])
 
+    print('Starting frame cropping')
     for i in range(nframes):
         fig = os.path.join(ppath, name, 'Stack', 'fig%d.jpg' % (i+1))
         img = cv2.imread(fig)
@@ -87,7 +86,8 @@ def crop_frames(ppath, name):
         #cv2.imshow("cropped", crop_img)
         #cv2.waitKey(1)
         cv2.imwrite(fig, crop_img)
-
+        if i%1000 == 0:
+            print("Done with Frame %d out of %d Frames" % (i, nframes))
     return nframes
 
 
@@ -123,10 +123,10 @@ def create_behann_file(ppath, name, idf, symbols, t='tick', comment=""):
     fid = open(os.path.join(ppath, name, bfile), 'w')
     fid.write('#' + comment + os.linesep)
     fid.write("@symbols: ")
-    for s in symbols.keys()[0:-1]:
+    for s in list(symbols.keys())[0:-1]:
         fid.write("%s-%s, " % (s, symbols[s]))
     # write last symbol w/o ','
-    s = symbols.keys()[-1]
+    s = list(symbols.keys())[-1]
     fid.write("%s-%s" % (s, symbols[s]))
     fid.write(os.linesep)
     fid.write(('@t: %s'+os.linesep) % str(t))
@@ -143,7 +143,7 @@ def load_behann_file(bfile):
     :param bfile: behavior annotation file, called vip_.*\.txt
     :return: dict, with keys as annotated time points and a string of length one specifying the behavior
     """
-    fid = open(bfile, 'rU')
+    fid = open(bfile, newline=None)
     lines = fid.readlines()
 
     annotation = {}
@@ -175,16 +175,16 @@ def save_behann_file(ann_file, symbols, tstep, annotation, K):
     fid = open(ann_file, 'w')
     
     fid.write("@symbols: ")
-    for s in symbols.keys()[0:-1]:
+    for s in list(symbols.keys())[0:-1]:
         fid.write("%s-%s, " % (s, symbols[s]))
     # write last symbol w/o ','
-    s = symbols.keys()[-1]
+    s = list(symbols.keys())[-1]
     fid.write("%s-%s" % (s, symbols[s]))
     fid.write(os.linesep)
     fid.write(('@t: %s'+os.linesep) % str(tstep))
     
     # to make sure time points are numerically sorted
-    time = np.array(annotation.keys())
+    time = np.array(list(annotation.keys()))
     time.sort()
     i = 0
     for t in time:
@@ -200,7 +200,7 @@ def load_config(config):
     @Return:
         dict of symbos, time step, behavior annotation file
     """
-    fid = open(config, 'rU')
+    fid = open(config, newline=None)
 
     lines = fid.readlines()
     fid.close()
@@ -257,7 +257,20 @@ def intan_video_timing(ppath, rec, tscale=0):
 
 
 
-def intan_correct_videotiming(ppath, rec, timestamp='timestamp1.mat', fr=1):
+def intan_correct_videotiming(ppath, rec, fr=1, pplot=True):
+    """
+    set annotation time scale for videos from intan
+    :param ppath:
+    :param rec:
+    :param fr:
+    :param pplot:
+    :return:
+    """
+
+
+    # get timestamp .mat file
+    timestamp = 'timestamp_' + rec + '.mat'
+
     sr = sleepy.get_snr(ppath, rec)
     dt = 1.0/sr
     vfile = os.path.join(ppath, rec, 'videotime_' + rec + '.mat')
@@ -285,7 +298,7 @@ def intan_correct_videotiming(ppath, rec, timestamp='timestamp1.mat', fr=1):
                 curr_onset_idx += 1
                 onset_idx.append(curr_onset_idx)
             else:
-                print d[i]
+                print(d[i])
                 n = np.round(d[i] / 0.2)
                 curr_onset_idx += int(n)
                 ndropped += int(n)-1
@@ -294,14 +307,20 @@ def intan_correct_videotiming(ppath, rec, timestamp='timestamp1.mat', fr=1):
             curr_onset_idx += 1
             onset_idx.append(curr_onset_idx)
 
-    print "n = %d frames were dropped" % ndropped
+    print("n = %d frames were dropped" % ndropped)
 
     onset_idx = np.array(onset_idx)
     idx = np.where(onset_idx < len(idxs))[0]
     onset = np.array(idxs[onset_idx[idx]]) * dt
 
-    tick_onset = idxs[0::fr]*dt
+    step = int(np.round(1.0/fr))
+    tick_onset = idxs[0::step]*dt
     so.savemat(os.path.join(ppath, rec, 'video_timing.mat'), {'onset':onset, 'tick_onset':tick_onset})
+
+    if pplot:
+        plt.ion()
+        plt.figure()
+        plt.plot(d)
 
     return onset
 
@@ -362,11 +381,11 @@ def extract_stack(video_file, stack_dir, ffmpeg_path='ffmpeg', togray=False):
 
 
 
-def encode_video(ppath, name, fr=5, stack='Stack', ffmpeg_path='ffmpeg', ending='.jpg', outpath='.'):
+def encode_video(ppath, name, fr=5, stack='Stack', ffmpeg_path='ffmpeg', ending='.jpg', outpath='.', vidname='video_'):
     """
     encode the the figure stack in $ppath/$name/$stack to a video using ffmpeg
     """
-    s = ffmpeg_path + ' -r ' + str(fr) + ' -i ' + os.path.join(ppath, name, stack, 'fig%d'+ending) + ' -acodec libmp3lame -crf 28 ' + os.path.join(outpath, 'video_' + name + '.mov')
+    s = ffmpeg_path + ' -r ' + str(fr) + ' -i ' + os.path.join(ppath, name, stack, 'fig%d'+ending) + ' -acodec libmp3lame -crf 28 ' + os.path.join(outpath, vidname + name + '.mov')
     subprocess.call(s, stdout=subprocess.PIPE, shell=True)
 
 
@@ -383,7 +402,6 @@ def extract_cropped_stack(video_file, stack_dir, crop_dim='up', ffmpeg_path='ffm
     im = cv2.imread(os.path.join(stack_dir, 'fig1.jpg'))
     nx = im.shape[0] #height
     ny = im.shape[1] #width
-    pdb.set_trace()
 
     nxh = int(nx/2)
     if crop_dim == 'up':
@@ -417,7 +435,7 @@ def zipdir(path, zip_file):
     if the folder it /A/B/C all files and dirs within C are zipped and only
     directly C is preserved in the zipped file
     """
-    print "zipping folder %s to %s" % (path, zip_file)
+    print("zipping folder %s to %s" % (path, zip_file))
     # ziph is zipfile handle
     ziph = zipfile.ZipFile(zip_file, 'w', zipfile.ZIP_DEFLATED, allowZip64 = True)
 
@@ -632,10 +650,9 @@ def fibpho_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_leg
         ax_dff.set_xlim((tspec[0], tspec[-1]))
         ax_dff.set_ylim((dff_min, dff_max))
 
-        print i
         plt.savefig(os.path.join(movie_stack, 'fig%d.png' % i))
 
-    encode_video(ppath, name, stack='MStack', ending='.png', fr=10, outpath=os.path.join(ppath, name), ffmpeg_path=ffmpeg_path)
+    encode_video(ppath, name, stack='MStack', ending='.png', fr=10, outpath=os.path.join(ppath, name), ffmpeg_path=ffmpeg_path, vidname='movie_fibpho_')
 
 
 
@@ -818,7 +835,7 @@ def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legen
         ax_laser.set_xlim((tspec[0], tspec[-1]))
 
         if i % 10 == 0:
-            print "done with frame %d out of %d frames" % (i, len(tspec))
+            print("done with frame %d out of %d frames" % (i, len(tspec)))
         plt.savefig(os.path.join(movie_stack, 'fig%d.png' % i))
 
-    encode_video(ppath, name, stack='MStack', ending='.png', fr=5, outpath=os.path.join(ppath, name), ffmpeg_path=ffmpeg_path)
+    encode_video(ppath, name, stack='MStack', ending='.png', fr=5, outpath=os.path.join(ppath, name), ffmpeg_path=ffmpeg_path, vidname='movie_opto_')
