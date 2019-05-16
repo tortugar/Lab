@@ -51,11 +51,6 @@ import scipy.stats as stats
 import os.path
 import re
 import sys
-# on a mac, include the following two lines:
-# required to make Tkinter in data_processing work
-if sys.platform == 'darwin2':
-    import matplotlib
-    matplotlib.use("TkAgg")
 import matplotlib.pylab as plt
 import h5py
 import matplotlib.patches as patches
