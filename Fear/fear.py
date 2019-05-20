@@ -532,30 +532,6 @@ def corr_freezing_sleep(fpath, spath, frecs, srecs, trials, sleep_stats=0, istat
 
 
 
-def regress_sleep_freezing(fpath, spath, frecs, srecs, trials, istate, tstart=0, tend=-1, ma_thr=20):
-    from sklearn.linear_model import LinearRegression
-
-    freezing = tone_freezing_mice(fpath, frecs, pplot=False)[1]
-    freezing = np.mean(freezing[:,trials], axis=1)
-
-    X = []
-    for recordings in srecs:
-        perc = sleepy.sleep_stats(spath, recordings, pplot=False, tstart=tstart,
-                                  tend=tend, ma_thr=ma_thr)[0][:,istate-1]
-        X.append(perc)
-    X = np.array(X)
-    #pdb.set_trace()
-    A = np.vstack([X, np.ones(len(freezing))]).T
-    params = np.linalg.lstsq(A, freezing)[0]
-
-    pdb.set_trace()
-
-    #model = LinearRegression()
-    #model.fit(X.T, freezing)
-    params = model.get_params()
-    #pdb.set_trace()
-
-
 def tone_paired_ttest(ppath, group1, trial1, group2, trial2):
     """
     Perform paired t-test between recordings during different days/trials. ex) extinction vs. recall, trial 1 vs. trial 10
