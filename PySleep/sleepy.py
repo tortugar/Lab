@@ -50,7 +50,6 @@ import scipy.io as so
 import scipy.stats as stats
 import os.path
 import re
-import sys
 import matplotlib.pylab as plt
 import h5py
 import matplotlib.patches as patches
@@ -495,6 +494,23 @@ def my_bpfilter(x, w0, w1, N=4):
     y = signal.filtfilt(b,a, x)
         
     return y
+
+
+
+def my_notchfilter(x, sr=1000, band=5, freq=60, ripple=10, order=3, filter_type='butter'):
+    
+    from scipy.signal import iirfilter,lfilter
+
+    fs   = sr
+    nyq  = fs/2.0
+    low  = freq - band/2.0
+    high = freq + band/2.0
+    low  = low/nyq
+    high = high/nyq
+    b, a = iirfilter(order, [low, high], rp=ripple, btype='bandstop',
+                     analog=False, ftype=filter_type)
+    filtered_data = lfilter(b, a, x)
+    return filtered_data
 
 
 
