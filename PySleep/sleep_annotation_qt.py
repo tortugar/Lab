@@ -30,7 +30,49 @@ import os
 import re
 import h5py
 import sleepy
-import pdb
+
+
+
+def get_cycles(ppath, name):
+    """
+    extract the time points where dark/light periods start and end
+    """
+    a = sleepy.get_infoparam(os.path.join(ppath, name, 'info.txt'), 'time')[0]
+    hour, mi, sec = [int(i) for i in re.split(':', a)]
+    a = sleepy.get_infoparam(os.path.join(ppath, name, 'info.txt'), 'actual_duration')[0]
+    a,b,c = [int(i[0:-1]) for i in re.split(':', a)]
+    total_dur = a*3600 + b*60 + c
+    
+    # number of light/dark switches
+    nswitch = int(np.floor(total_dur / (12*3600)))
+    switch_points = [0]
+    cycle = {'light': [], 'dark':[]}
+    
+    if hour >= 7 and hour < 19:
+        # recording starts during light cycle
+        a = 19*3600 - (hour*3600+mi*60+sec)
+        for j in range(nswitch):
+            switch_points.append(a+j*12*3600)
+        for j in range(1, nswitch, 2):
+            cycle['dark'].append(switch_points[j:j+2])
+        for j in range(0, nswitch, 2):
+            cycle['light'].append(switch_points[j:j+2])
+        
+    else:
+        # recording starts during dark cycle
+        a = 0
+        if hour < 24:
+            a = 24 - (hour*3600+mi*60+sec) + 7*3600
+        else:
+            a = 7*3600 - (hour*3600+mi*60+sec)
+        for j in range(nswitch):
+            switch_points.append(a+j*12*3600)
+        for j in range(0, nswitch, 2):
+            cycle['dark'].append(switch_points[j:j+2])
+        for j in range(1, nswitch, 2):
+            cycle['light'].append(switch_points[j:j+2])
+        
+    return cycle
 
 
 
@@ -394,14 +436,24 @@ class MainWindow(QtGui.QMainWindow):
         ax = self.graph_treck.getAxis(name='bottom')
         ax.setTicks([[]])
 
-        # plot currently annotated point
-        self.graph_treck.plot([self.ftime[self.index]*scale + 0.5*self.fdt*scale], [0.0], pen=(0,0,0), symbolPen='w')
-
         # plot supplmental signal; for example, rem-online detection
         if self.psuppl:
             self.graph_treck.plot(self.ftime * scale, self.suppl_treck * 0.3, pen=(255, 150, 150))
 
         self.graph_treck.vb.setMouseEnabled(x=True, y=False)
+
+        # plot dark cycles
+        self.graph_treck.plot(self.ftime, np.zeros((self.ftime.shape[0],)), pen=pg.mkPen(width=10, color='w'))
+        for d in self.dark_cycle:
+            a = int(d[0]/self.fdt)
+            b = int(d[1]/self.fdt)
+            self.graph_treck.plot(self.ftime[a:b+1], np.zeros((b-a+1,)), pen=pg.mkPen(width=10, color=(100, 100, 100)))
+        
+        # plot currently annotated point
+        self.graph_treck.plot([self.ftime[self.index]*scale + 0.5*self.fdt*scale], [0.0], pen=(0, 0, 0), symbolPen=(255, 0, 0), symbolBrush=(255, 0, 0),
+                        symbolSize=5)
+
+
 
 
     def plot_eeg(self):
@@ -922,6 +974,9 @@ class MainWindow(QtGui.QMainWindow):
             ##################################
         else:
             self.laser_raw = np.zeros((len(self.EEG),))
+            
+        # load information of light/dark cycles
+        self.dark_cycle = get_cycles(self.ppath, self.name)['dark']
                 
         # max color for spectrogram
         self.color_max = np.max(self.eeg_spec)
