@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Tue Oct 10 20:47:50 2017
@@ -6,18 +6,8 @@ Created on Tue Oct 10 20:47:50 2017
 
 To run program, type
 python sleep_annotation_qt.py "path/to/recording_folder"
-
-DATE 03/22/18:
-    Added number indicating which EEG or EMG is shown (EEG 1 or EEG 2 and same for EMG)
-
-DATE 4/13
-    Dispaly signal recorded during closed-loop laser stimulation in "treck"
-    added variables self.psuppl and self.psuppl_treck
-
-DATE 12/19
-    Added that after pressing "p" also the laser signal in the upper panel disappears
-
 """
+
 import sys
 # exactly this combination of imports works with py2.7; otherwise problem importing
 # pyqtgraph
@@ -31,7 +21,7 @@ import re
 import h5py
 import sleepy
 
-
+import pdb
 
 def get_cycles(ppath, name):
     """
@@ -128,7 +118,6 @@ def rewrite_remidx(M, K, ppath, name, mode=1) :
     f = open(outfile, 'w')
     s = ["%d\t%d\n" % (i,j) for (i,j) in zip(M[0,:],K)]
     f.writelines(s)
-    #pdb.set_trace()
     f.close()
 
 
@@ -322,16 +311,19 @@ class MainWindow(QtGui.QMainWindow):
         self.setCentralWidget(self.view)
         
         # mix colormaps
-        pos = np.array([0, 0.2, 0.4, 0.6, 0.8])
-        color = np.array(
-            [[0, 255, 255, 255], [150, 0, 255, 255], [192, 192, 192, 255], (0, 0, 0, 255), (255, 255, 0, 255)],
-            dtype=np.ubyte)
-        #color = np.array(
-        #    [[24,173,219, 255], [230,187,45, 255],[153,153,153, 255], (0, 0, 0, 255), (255, 255, 0, 255)],
+        # the old colormap which I've used till 05/30/19:
+        # pos = np.array([0, 0.2, 0.4, 0.6, 0.8])
+        # color = np.array(
+        #    [[0, 255, 255, 255], [150, 0, 255, 255], [192, 192, 192, 255], (0, 0, 0, 255), (255, 255, 0, 255)],
         #    dtype=np.ubyte)
-        #color = np.array([[0, 0, 0, 255], [0, 255, 255, 255], [150, 0, 255, 255], [192, 192, 192, 255], [0, 0, 0, 255]], dtype=np.ubyte)
+
+        # new colormap
+        pos = np.linspace(0, 1, 4)
+        color = np.array(
+            [[0, 0, 0, 200], [0, 255, 255, 200], [150, 0, 255, 200], [150, 150, 150, 200]], dtype=np.ubyte)
+
         cmap = pg.ColorMap(pos, color)
-        self.lut_brainstate = cmap.getLookupTable(0.0, 1.0, 5)
+        self.lut_brainstate = cmap.getLookupTable(0.0, 1.0, 4)
 
         pos = np.array([0., 0.05, .2, .4, .6, .9])
         color = np.array([[0, 0, 0, 255], [0,0,128,255], [0,255,0,255], [255,255,0, 255], (255,165,0,255), (255,0,0, 255)], dtype=np.ubyte)
@@ -412,7 +404,8 @@ class MainWindow(QtGui.QMainWindow):
         ax.setTicks([[]])
         
         self.image_brainstate.setLookupTable(self.lut_brainstate)
-        self.image_brainstate.setLevels([1, 5])
+        #self.image_brainstate.setLevels([1, 5])
+        self.image_brainstate.setLevels([0, 3])
 
 
     def plot_treck(self, scale=1):     
@@ -566,7 +559,7 @@ class MainWindow(QtGui.QMainWindow):
             else:
                 self.index_list = [self.index]
         
-        #cursor to the left
+        # cursor to the left
         elif event.key() == 16777234:
             if self.index >= 3:
                 self.index -= 1
@@ -598,7 +591,6 @@ class MainWindow(QtGui.QMainWindow):
         
         # s or n - SWS/NREM
         elif event.key() == 78 or event.key() == 83:
-            #print(self.index_range())
             self.M_old = self.M.copy()
             self.M[0,self.index_range()] = 3
             self.index_list = [self.index]
@@ -612,8 +604,15 @@ class MainWindow(QtGui.QMainWindow):
             self.plot_eeg()
             self.plot_brainstate(self.tscale)
 
+        # x - undefined state
         elif event.key() == QtCore.Qt.Key_X:
-            self.M[0,self.index] = 0
+            #self.M[0,self.index] = 0
+            self.M_old = self.M.copy()
+            self.M[0,self.index_range()] = 0
+            self.index_list = [self.index]
+            self.pcollect_index = False
+            self.plot_eeg()
+            self.plot_brainstate(self.tscale)
             
         # space: once space is pressed collect indices starting from space that 
         # are visited with cursor
@@ -997,6 +996,7 @@ class MainWindow(QtGui.QMainWindow):
         r     -     REM
         w     -     Wake
         s|n   -     NREM
+        x     -     set undefined state
         space -     set mark, next when you press r,w,s,or n all states between
                     space and the current time point will be set to the selected
                     state
