@@ -21,16 +21,20 @@ import re
 import h5py
 import sleepy
 
-import pdb
 
 def get_cycles(ppath, name):
     """
     extract the time points where dark/light periods start and end
     """
-    a = sleepy.get_infoparam(os.path.join(ppath, name, 'info.txt'), 'time')[0]
-    hour, mi, sec = [int(i) for i in re.split(':', a)]
-    a = sleepy.get_infoparam(os.path.join(ppath, name, 'info.txt'), 'actual_duration')[0]
-    a,b,c = [int(i[0:-1]) for i in re.split(':', a)]
+    act_dur = sleepy.get_infoparam(os.path.join(ppath, name, 'info.txt'), 'actual_duration')
+
+    time_param = sleepy.get_infoparam(os.path.join(ppath, name, 'info.txt'), 'time')
+    if len(time_param) == 0 or len(act_dur) == 0:
+        return {'light': [(0,0)], 'dark': [(0,0)]}
+    
+    hour, mi, sec = [int(i) for i in re.split(':', time_param[0])]
+    #a = sleepy.get_infoparam(os.path.join(ppath, name, 'info.txt'), 'actual_duration')[0]
+    a,b,c = [int(i[0:-1]) for i in re.split(':', act_dur[0])]
     total_dur = a*3600 + b*60 + c
     
     # number of light/dark switches
@@ -318,12 +322,10 @@ class MainWindow(QtGui.QMainWindow):
         #    dtype=np.ubyte)
 
         # new colormap
-        pos = np.linspace(0, 1, 4)
-        color = np.array(
-            [[0, 0, 0, 200], [0, 255, 255, 200], [150, 0, 255, 200], [150, 150, 150, 200]], dtype=np.ubyte)
-
+        color = np.array([[0, 0, 0, 200], [0, 255, 255, 200], [150, 0, 255, 200], [150, 150, 150, 200]], dtype=np.ubyte)
+        pos = np.linspace(0, 1, color.shape[0])
         cmap = pg.ColorMap(pos, color)
-        self.lut_brainstate = cmap.getLookupTable(0.0, 1.0, 4)
+        self.lut_brainstate = cmap.getLookupTable(0, 1, color.shape[0])
 
         pos = np.array([0., 0.05, .2, .4, .6, .9])
         color = np.array([[0, 0, 0, 255], [0,0,128,255], [0,255,0,255], [255,255,0, 255], (255,165,0,255), (255,0,0, 255)], dtype=np.ubyte)
@@ -436,11 +438,11 @@ class MainWindow(QtGui.QMainWindow):
         self.graph_treck.vb.setMouseEnabled(x=True, y=False)
 
         # plot dark cycles
-        self.graph_treck.plot(self.ftime, np.zeros((self.ftime.shape[0],)), pen=pg.mkPen(width=10, color='w'))
+        self.graph_treck.plot(self.ftime, np.zeros((self.ftime.shape[0],)), pen=pg.mkPen(width=8, color='w'))
         for d in self.dark_cycle:
             a = int(d[0]/self.fdt)
             b = int(d[1]/self.fdt)
-            self.graph_treck.plot(self.ftime[a:b+1], np.zeros((b-a+1,)), pen=pg.mkPen(width=10, color=(100, 100, 100)))
+            self.graph_treck.plot(self.ftime[a:b+1], np.zeros((b-a+1,)), pen=pg.mkPen(width=8, color=(100, 100, 100)))
         
         # plot currently annotated point
         self.graph_treck.plot([self.ftime[self.index]*scale + 0.5*self.fdt*scale], [0.0], pen=(0, 0, 0), symbolPen=(255, 0, 0), symbolBrush=(255, 0, 0),
