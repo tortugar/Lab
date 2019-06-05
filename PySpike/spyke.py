@@ -213,6 +213,10 @@ class Recording:
 def load_units(ppath, file_listing):
     """
     return all units in the given file listing
+    
+    Syntax of the unit listing:
+    ID  name   grp    un 
+    
     :param ppath: string, folder containing file listing
     :param file_listing: string
     :return: dict with all units as values and keys as unit ids going 0 to number of units;
@@ -4532,6 +4536,117 @@ def statedep_isi_avg(ppath, unit_listing, backup='', delta=2, win=100, alpha=5, 
         plt.show()
 
     return isi
+
+
+#######################################################################################
+# Spectralfield  ######################################################################
+####################################################################################### 
+def spectralfield(ppath, name, grp, un, pre, post, fmax=20, theta=0, states=[1,2,3], sp_norm=True, pzscore=False, pplot=True, pfilt=True, nsmooth=1):
+    """
+    Calculate the "receptive field = spectral field" best matching the EEG spectrogram onto the neural activity
+    :param ppath: base folder
+    :param name: name
+    :param grp, un: group and unit id
+    :param pre: no. of time bins into past
+    :param post: no. of time bins into future
+    :param fmax: maximum frequency for spectrogram
+    :param theta: float or list of floats; regularization parameter for ridge regression. If a list is provided the
+           the function picks the parameters resulting in best performance on the test set.
+    :param states: states for which the spectralfield is calcualted
+    :param sp_norm: if True, normalize spectrogram by dividing each frequency band by its mean
+    :param pzscore: if True, z-score neural activity
+    :param pplot: if True, plot spectralfield
+    :param pfilt: if True, smooth spectrogram
+    :param nsmooth: width parameter for Gaussian filter used to smooth firing rate
+    :return: k, f, k, perf; spectral field (np.array(frequency x time)), time, frequency vectors, maximum performance on test set
+    """
+    from pyphi import build_featmx, cross_validation, ridge_regression
+
+    if not type(theta) == list:
+        theta = [theta]
+
+    P = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
+    SP = P['SP']
+    N = SP.shape[1]
+    freq = P['freq']
+    fdt = P['dt']
+    ifreq = np.where(freq <= fmax)[0]
+    nfreq = len(ifreq)
+
+    if pfilt:
+        filt = np.ones((3,1))
+        filt = filt / np.sum(filt)
+        SP = scipy.signal.convolve2d(SP, filt, mode='same')
+    if sp_norm:
+        for i in range(SP.shape[0]):
+            SP[i,:] = SP[i,:] / SP[i,:].mean()
+
+    MX = build_featmx(SP[ifreq,:], pre, post)
+
+    # load unit
+    SR = get_snr(ppath, name)
+    NBIN = int(np.round(SR)*2.5)
+    train = unpack_unit(ppath, name, grp, un)[1]
+    spikesd = downsample_vec(train, NBIN)
+    spikesd = sleepy.smooth_data(spikesd, nsmooth)
+    if pzscore:
+        spikesd = (spikesd-spikesd.mean()) / spikesd.std()
+
+    ibin = np.array([], dtype='int64')
+    M,K = sleepy.load_stateidx(ppath, name)
+    M = M[pre:N-post]
+    for i in states:
+        tmp = np.where(M == i)[0]
+        ibin = np.concatenate((ibin, tmp))
+
+    MX = MX[ibin,:]
+    spikesd = spikesd[ibin]
+
+    # mean zero response vector and columns of stimulus matrix
+    rmean = spikesd.mean()
+    spikesd = spikesd - rmean
+    mmean = MX.mean(axis=0)
+    for i in range(MX.shape[1]):
+        MX[:,i] -= mmean[i]
+
+    # perform cross validation
+    Etest, Etrain = cross_validation(MX, spikesd, theta)
+    print("CV results on training set:")
+    print(Etrain)
+    print("CV results on test set")
+    print(Etest)
+
+    # calculate kernel for optimal theta
+    imax = np.argmax(Etest)
+    perf_max = Etest[imax]
+    print("Recording %s; optimal theta: %2.f" % (name, theta[imax]))
+    k = ridge_regression(MX, spikesd, theta[imax])
+    k = np.reshape(k, ((pre + post), nfreq)).T
+
+    t = np.arange(-pre, post) * fdt
+
+    # calibration plot
+    if pplot:
+        plt.ion()
+        #plt.figure()
+        #ax = plt.subplot(111)
+        #plt.scatter(np.dot(MX,k)+rmean, spikesd+rmean)
+        #plt.xlabel('Prediction $(\Delta F/F)$')
+        #plt.ylabel('Data $(\Delta F/F)$')
+        #sleepy.box_off(ax)
+        #plt.show()
+
+        #plt.figure()
+        #plt.plot(spikesd+rmean)
+        #plt.plot(np.dot(MX,k)+rmean)
+
+        plt.figure()
+        plt.pcolormesh(t, freq[ifreq], k, cmap='bwr')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Freq. (Hz)')
+        plt.colorbar()
+
+    return k, t, freq[ifreq], perf_max
 
 
 
