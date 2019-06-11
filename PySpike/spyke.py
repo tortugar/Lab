@@ -3459,7 +3459,6 @@ def fr_prepost_rem(ppath, unit_listing, istate, backup='', sf=0, pzscore=True, m
         units = load_units(ppath, unit_listing)
     else:
         units = unit_listing
-
     nunits = len(units)
 
     for k in units:
@@ -3697,7 +3696,6 @@ def fr_remrem_sections(ppath, file_listing, backup='', nsections=5,
         wake_fr_mx[ku,:] = [np.nanmean(np.array(w)) for w in sections_wake]
         nrem_fr_mx[ku,:] = [np.nanmean(np.array(w)) for w in sections_nrem]
 
-
     wx = []
     wy = []
     nx = []
@@ -3768,6 +3766,90 @@ def fr_remrem_sections(ppath, file_listing, backup='', nsections=5,
     plt.show()
 
     return wake_fr_mx, nrem_fr_mx, wres, nres
+
+
+
+def fr_statedur(ppath, unit_listing, backup='', sf=0, pzscore=True, ma_thr=0, pplot=True):
+    """
+    correlate the duration of each REM, Wake, or NREM period with the firing rate of each unit during these periods
+
+    :param ppath: base folder
+    :param unit_listing: unit listing
+    :param backup: optional backup folder
+    :param sf: smoothing factor for firing rate
+    :param pzscore: if True, z-score firing rates
+    :param ma_thr: float, if > 0
+    :param pplot: if True, generate plot
+    :return: DataFrame - with  unit_id, firing rate (fr), state (1,2,or3), duration  as columns
+    """
+    if type(unit_listing) == str:
+        units = load_units(ppath, unit_listing)
+    else:
+        units = unit_listing
+
+    for k in units:
+        for rec in units[k]:
+            rec.set_path(ppath, backup)
+
+    for k in units:
+        for rec in units[k]:
+            # load firing rate
+            spikesd = firing_rate(rec.path, rec.name, rec.grp, rec.un)
+            if sf > 0:
+                spikesd = sleepy.smooth_data(spikesd, sf)
+            if pzscore:
+                spikesd = (spikesd - spikesd.mean()) / spikesd.std()
+            rec.suppl = spikesd
+
+    # df = pd.DataFrame(columns=['unit', 'state', 'dur', 'fr'])
+    df_list = []
+    for ku in units:
+        for rec in units[ku]:
+            sr = sleepy.get_snr(rec.path, rec.name)
+            nbin = int(np.round(sr) * 2.5)
+            dt = (1.0 / sr) * nbin
+
+            # load firing rate
+            spikesd = rec.suppl
+
+            # load brain state
+            M, _ = sleepy.load_stateidx(rec.path, rec.name)
+
+            mmin = np.min((len(M), len(spikesd)))
+            M = M[0:mmin]
+            spikesd = spikesd[0:mmin]
+
+            # polish out microarousals
+            if ma_thr > 0:
+                seq = sleepy.get_sequences(np.where(M == 2)[0])
+                for s in seq:
+                    if len(s)*dt <= ma_thr:
+                        M[s] = 3
+
+            # for each REM period search for preceding period of state $istate
+            for istate in [1,2,3]:
+                seq = sleepy.get_sequences(np.where(M==istate)[0])
+                for s in seq:
+                    dur = len(s)*dt
+                    fr = spikesd[s].mean()
+                    # columns = ['unit', 'state', 'dur', 'fr']
+                    df_list.append([ku, istate, dur, fr])
+
+    df = pd.DataFrame(df_list, columns=['unit', 'state', 'dur', 'fr'])
+
+    states = ['REM', 'Wake', 'NREM']
+    if pplot:
+        plt.ion()
+        plt.figure()
+        sns.set_style("darkgrid")
+        sns.set(font_scale=1.5)
+        for istate in [1,2,3]:
+            plt.subplot('13' + str(istate))
+            sns.regplot(x='dur', y='fr', data=df[df.state==istate])
+            plt.title(states[istate-1])
+        plt.show()
+
+    return df
 
 
 
@@ -4541,7 +4623,8 @@ def statedep_isi_avg(ppath, unit_listing, backup='', delta=2, win=100, alpha=5, 
 #######################################################################################
 # Spectralfield  ######################################################################
 ####################################################################################### 
-def spectralfield(ppath, name, grp, un, pre, post, fmax=20, theta=0, states=[1,2,3], sp_norm=True, pzscore=False, pplot=True, pfilt=True, nsmooth=1):
+def spectralfield(ppath, name, grp, un, pre, post, fmax=20, theta=0, states=[1,2,3], sp_norm=True,
+                  pzscore=False, pplot=True, pfilt=True, nsmooth=1, peeg=True):
     """
     Calculate the "receptive field = spectral field" best matching the EEG spectrogram onto the neural activity
     :param ppath: base folder
@@ -4558,6 +4641,7 @@ def spectralfield(ppath, name, grp, un, pre, post, fmax=20, theta=0, states=[1,2
     :param pplot: if True, plot spectralfield
     :param pfilt: if True, smooth spectrogram
     :param nsmooth: width parameter for Gaussian filter used to smooth firing rate
+    :param peeg: if False, use EMG instead of EEG
     :return: k, f, k, perf; spectral field (np.array(frequency x time)), time, frequency vectors, maximum performance on test set
     """
     from pyphi import build_featmx, cross_validation, ridge_regression
@@ -4565,8 +4649,12 @@ def spectralfield(ppath, name, grp, un, pre, post, fmax=20, theta=0, states=[1,2
     if not type(theta) == list:
         theta = [theta]
 
-    P = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
-    SP = P['SP']
+    if peeg:
+        P = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
+        SP = P['SP']
+    else:
+        P = so.loadmat(os.path.join(ppath, name, 'msp_%s.mat' % name), squeeze_me=True)
+        SP = P['mSP']
     N = SP.shape[1]
     freq = P['freq']
     fdt = P['dt']
