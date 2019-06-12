@@ -498,7 +498,6 @@ def my_bpfilter(x, w0, w1, N=4):
 
 
 def my_notchfilter(x, sr=1000, band=5, freq=60, ripple=10, order=3, filter_type='butter'):
-    
     from scipy.signal import iirfilter,lfilter
 
     fs   = sr
@@ -1231,7 +1230,6 @@ def recursive_sleepstate_nrem(ppath, recordings, sf=0.3, alpha=0.3, std_thdelta 
     plt.figure()
     plt.hist(pow_delta_fit, 100, normed=True, histtype='stepfilled', alpha=0.4)
     
-    pdb.set_trace()
     logprob = fit.score_samples(x.reshape(-1,1))
     responsibilities = fit.predict_proba(x.reshape((-1,1)))
     pdf = np.exp(logprob)
@@ -1656,7 +1654,6 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
 
     if pplot and single_mode:
         dfm = pd.melt(df, id_vars=['laser'], var_name='state')
-        pdb.set_trace()
         plt.ion()
         plt.figure()
         sns.set(style="whitegrid")
@@ -1817,6 +1814,12 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     still pick up microarousals I use the gamma power.
 
     spectrogram data has to be calculated before using calculate_spectrum
+    
+    Each bin in the spectrogram gets assigned one of four states:
+        1-REM
+        2-Wake
+        3-NREM
+        0-undef
 
     :param ppath: base folder
     :param name: recording name
@@ -3333,7 +3336,7 @@ def sleep_stats(ppath, recordings, ma_thr=10.0, tstart=0, tend=-1, pplot=True, c
         # plot histograms - Figure 2            
         plt.figure(figsize=(5, 10))
         ax = plt.axes([0.2,0.1, 0.7, 0.2])
-        h, edges = np.histogram(DurHist[1], bins=40, range=(0, 300), normed=1)
+        h, edges = np.histogram(DurHist[1], bins=40, range=(0, 300), density=True)
         binWidth = edges[1] - edges[0]
         plt.bar(edges[0:-1], h*binWidth, width=5)
         plt.xlim((edges[0], edges[-1]))
@@ -3342,7 +3345,7 @@ def sleep_stats(ppath, recordings, ma_thr=10.0, tstart=0, tend=-1, pplot=True, c
         box_off(ax)
         
         ax = plt.axes([0.2,0.4, 0.7, 0.2])
-        h, edges = np.histogram(DurHist[2], bins=40, range=(0, 1200), normed=1)
+        h, edges = np.histogram(DurHist[2], bins=40, range=(0, 1200), density=True)
         binWidth = edges[1] - edges[0]
         plt.bar(edges[0:-1], h*binWidth, width=20)
         plt.xlim((edges[0], edges[-1]))
@@ -3351,7 +3354,7 @@ def sleep_stats(ppath, recordings, ma_thr=10.0, tstart=0, tend=-1, pplot=True, c
         box_off(ax)
         
         ax = plt.axes([0.2,0.7, 0.7, 0.2])
-        h, edges = np.histogram(DurHist[3], bins=40, range=(0, 1200), normed=1)
+        h, edges = np.histogram(DurHist[3], bins=40, range=(0, 1200), density=True)
         binWidth = edges[1] - edges[0]
         plt.bar(edges[0:-1], h*binWidth, width=20)
         plt.xlim((edges[0], edges[-1]))
@@ -3360,11 +3363,11 @@ def sleep_stats(ppath, recordings, ma_thr=10.0, tstart=0, tend=-1, pplot=True, c
         box_off(ax)
         plt.show()
 
+    mouse_list = [[m]*3 for m in mice]
+    mouse_list = sum(mouse_list, [])
+    state_list = ['REM', 'Wake', 'NREM']*nmice
+    df = pd.DataFrame({'mouse':mouse_list, 'state':state_list, 'Perc':PercMx.flatten(), 'Dur':DurMx.flatten(), 'Freq':FreqMx.flatten()})
     if len(csv_file) > 0:
-        mouse_list = [[m]*3 for m in mice]
-        mouse_list = sum(mouse_list, [])
-        state_list = ['REM', 'Wake', 'NREM']*nmice
-        df = pd.DataFrame({'mouse':mouse_list, 'state':state_list, 'Perc':PercMx.flatten(), 'Dur':DurMx.flatten(), 'Freq':FreqMx.flatten()})
         df.to_csv(csv_file)
 
     return PercMx, DurMx, FreqMx, df
