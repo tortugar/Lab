@@ -5,7 +5,7 @@ Created on Mon Jan 29 16:47:01 2018
 @author: ChungWeberPC_04
 """
 import sys
-sys.path.append('C:\TDT\Synapse\SynapseAPI\Python')
+sys.path.append('C:/TDT/Synapse/SynapseAPI/Python')
 import datetime
 import re
 import os
@@ -22,7 +22,7 @@ def zipdir(path, zip_file):
     if the folder it /A/B/C all files and dirs within C are zipped and only
     directly C is preserved in the zipped file
     """
-    print "zipping folder %s to %s" % (path, zip_file)
+    print("zipping folder %s to %s" % (path, zip_file))
     # ziph is zipfile handle
     ziph = zipfile.ZipFile(zip_file, 'w', zipfile.ZIP_DEFLATED, allowZip64 = True)
 
@@ -58,14 +58,14 @@ date, ttime = current_time()
 timestamp = date+ttime 
 
 # connect to synapse
-syn= SynapseAPI.SynapseAPI()
+syn = SynapseAPI.SynapseAPI()
 
 # collect some experiment parameters
 params = {}
 params['mouse_ID']   = syn.getCurrentSubject()
 params['experiment'] = syn.getCurrentExperiment()
 params['SR_raw'] = str(syn.getSamplingRates().values()[0]/2.0)
-print "SR_raw: %f" % float(params['SR_raw'])
+print("SR_raw: %f" % float(params['SR_raw']))
 yy = date[0:4]
 mm = date[4:6]
 dd = date[6:]
@@ -82,14 +82,14 @@ params['laser_type'] = a[0]
 params['laser_dial'] = a[1]
 
 # Waiting some time
-print "> Waiting for %d minutes" % dur_del
+print("> Waiting for %d minutes" % dur_del)
 time.sleep(dur_del*60)
 params['time'] = current_time()[1]
-print "> Starting recording for %d minutes" % dur_min
+print("> Starting recording for %d minutes" % dur_min)
 
 # Run Experiment
 syn.setMode(3)
-while(syn.getMode() != 3):
+while syn.getMode() != 3:
     time.sleep(0.1)
 
 # get reference channel
@@ -97,7 +97,7 @@ while(syn.getMode() != 3):
 params['ref'] = str(int(syn.getParameterValue('DigitalRef1', 'Ref')))
 time.sleep(1)
 params['tank'] =  os.path.join(syn.getCurrentTank(), syn.getCurrentBlock())
-print "> Saving data to %s" % params['tank']
+print("> Saving data to %s" % params['tank'])
 
 time.sleep(dur_min*60)
 # turn off TDT
@@ -115,7 +115,7 @@ for note in notes:
 params['notes'] = inf
 
 # get depth of electrode
-dpath = 'C:\Users\ChungWeberPC_04\Documents\Data\Config';
+dpath = 'C:/Users/ChungWeberPC_04/Documents/Data/Config'
 try:
     depth = spyke.electrode_depth(dpath, params['mouse_ID'])
     params['depth'] = str(depth)
@@ -136,22 +136,26 @@ for k in params.keys():
         fid.write('%s:\t%s' % (k, params[k]))
         fid.write(os.linesep)
 fid.close()
-
-
 print("Closing...")
 
-print "trying to get timing for video..."
 # Extract video timing information
-tank = '\\'.join(re.split('\\\\', params['tank'])[0:-1])
-block = re.split('\\\\', params['tank'])[-1]
-import win32com.client
-h = win32com.client.Dispatch('matlab.application')
+print("trying to get timing for video...")
+# OLD VERSION
+#tank = '\\'.join(re.split('\\\\', params['tank'])[0:-1])
+#block = re.split('\\\\', params['tank'])[-1]
+#import win32com.client
+#h = win32com.client.Dispatch('matlab.application')
 #cmd  =  "data = TDTbin2mat(fullfile('%s' ,'%s'),'Type',{'epocs'}); onset=data.epocs.Cam1.onset; offset=data.epocs.Cam1.offset; tick_onset=data.epocs.Tick.onset; tick_offset=data.epocs.Tick.offset;       save(fullfile('%s', '%s','video_timing.mat'), 'onset', 'offset', 'tick_onset', 'tick_offset')" % (tank,block, tank,block)
 # for new synapse version - changed on 05/24/2018
-cmd  =  "data = TDTbin2mat(fullfile('%s' ,'%s'),'Type',{'epocs'}); onset=data.epocs.Cam1.onset; offset=data.epocs.Cam1.offset; save(fullfile('%s', '%s','video_timing.mat'), 'onset', 'offset')" % (tank,block, tank,block)
+#cmd  =  "data = TDTbin2mat(fullfile('%s' ,'%s'),'Type',{'epocs'}); onset=data.epocs.Cam1.onset; offset=data.epocs.Cam1.offset; save(fullfile('%s', '%s','video_timing.mat'), 'onset', 'offset')" % (tank,block, tank,block)
+#h.Execute(cmd)
+# END [OLD VERSION] ####################
+tank = params['tank']
+ep_data = tdt.read_block(tank, evtype='epocs')
+onset = ep_data.epocs.Cam1.onset
+offset = ep_data.epocs.Cam1.offset
+so.savemat(os.path.join(tank, 'video_timing.mat'), {'onset': onset, 'offset': offset})
 
-h.Execute(cmd)
-#h.Execute("exit")
 
 # extract movie frames
 ffmpeg_path = 'C:\\Users\ChungWeberPC_04\\Documents\\Ground\\ffmpeg-20180227-fa0c9d6-win64-static\\bin\\ffmpeg'
@@ -166,11 +170,10 @@ os.chdir(params['tank'])
 s = ffmpeg_path + ' -i ' + video_file + ' Stack\\fig%d.jpg'
 subprocess.call(s, stdout=subprocess.PIPE, shell=True)
 
-
 #make_archive('stack', 'zip', params['tank'], base_dir='Stack')
 zipdir(os.path.join(params['tank'], 'Stack'), 'stack.zip')
 if os.path.isdir('Stack'):
     rmtree('Stack')
 os.chdir(cwd)
-print "Everything seems to have worked fine..."
+print("Everything seems to have worked fine...")
 
