@@ -28,7 +28,7 @@ def load_grpfile(ppath, mouse_grouping):
     """
     grpfile = os.path.join(ppath, mouse_grouping)
 
-    fid = open(grpfile, 'r')
+    fid = open(grpfile, newline=None)
     lines = fid.readlines()
     fid.close()
     grp = {}
@@ -56,7 +56,7 @@ def get_eegemg_ch(ppath, mouse_grouping):
     """
     grpfile = os.path.join(ppath, mouse_grouping)
 
-    fid = open(grpfile, 'r')
+    fid = open(grpfile, newline=None)
     lines = fid.readlines()
     fid.close()
     grp = {}
@@ -75,7 +75,7 @@ def get_eegemg_ch(ppath, mouse_grouping):
                 a = [int(i) for i in a]
                 grp[count] = a
 
-    return grp.values()
+    return list(grp.values())
 
 
 ### FUNCTIONS #########################################################################
@@ -132,7 +132,7 @@ def get_infoparam(ppath, name):
 
     The function return the value for the given string field
     """
-    fid = open(os.path.join(ppath, name), 'rU')
+    fid = open(os.path.join(ppath, name), newline=None)
     lines = fid.readlines()
     params = {}
     in_note = False
@@ -177,19 +177,19 @@ def get_infoparam(ppath, name):
 
 
 # Parameters to choose ########################################################
-PPATH = 'C:\Users\JB_PC\Documents\RawData'
-flash_dir = 'C:\TDT\Synapse\Tanks'
+PPATH = 'C:/Users/JB_PC/Documents/RawData'
+flash_dir = 'C:/TDT/Synapse/Tanks'
 
 APP = QW.QApplication(sys.argv)
 
 
 tank_dir = QFileDialog.getExistingDirectory(caption = "Choose Recording Directory")
 
-print "Chose folder %s" % tank_dir
+print("Chose folder %s" % tank_dir)
 
 # I assume that tank_dir follows the following convention:
 # Mouse_id-DATE-TIME
-print "Selected %s" % tank_dir
+print("Selected %s" % tank_dir)
 
 recording_dir = os.path.split(tank_dir)[1]
 (subject_id, date, time) = re.split('-', recording_dir)
@@ -210,16 +210,14 @@ params['time'] = [time]
 # write info.txt
 params2 = get_infoparam(tank_dir, 'info.txt')
 params['note'] = params2['note']
-new_keys = params2.keys()
+new_keys = list(params2.keys())
 new_keys.remove('note')
 for k in new_keys:
-    if not(k in params.keys()):
+    if not(k in list(params.keys())):
         params[k] = params2[k]
 
 params['mouse_ID'] = params2['mouse_ID']
 mice = params['mouse_ID']
-#mice = re.split('\s+', mice)
-#params['mouse_ID'] = mice
 nmouse = 1
 for mouse in mice:
     if re.match('^X', mouse):
@@ -232,7 +230,7 @@ for mouse in mice:
     fbase_name = mouse + '_' + date + 'n'
     name = get_lowest_filenum(PPATH, fbase_name)
     if not(os.path.isdir(os.path.join(PPATH,name))):
-        print "Creating directory %s\n" % name
+        print("Creating directory %s\n" % name)
         os.mkdir(os.path.join(PPATH,name))
 
     ddir = os.path.join(PPATH, name)
@@ -282,7 +280,7 @@ for mouse in mice:
     for l in comments:
         fid.write(l + os.linesep)
     # write all other info tags
-    for k in params.keys():
+    for k in params:
         v = params[k]
         if k == 'note':
             continue
