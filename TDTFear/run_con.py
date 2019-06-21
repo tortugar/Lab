@@ -13,6 +13,7 @@ import time
 import SynapseAPI
 import zipfile
 import tdt
+import scipy.io as so
 
 
 def zipdir(path, zip_file):
@@ -145,7 +146,8 @@ print("trying to get timing for video...")
 #print("...done")
 #h.quit()
 tank = params['tank']
-ep_data = tdt.read_block(tank, evtype='epocs')
+print tank
+ep_data = tdt.read_block(tank, evtype=['epocs'])
 onset = ep_data.epocs.Cam1.onset
 offset = ep_data.epocs.Cam1.offset
 so.savemat(os.path.join(tank, 'video_timing.mat'), {'onset': onset, 'offset': offset})
