@@ -15,7 +15,7 @@ import SynapseAPI
 import numpy as np
 import zipfile
 import tdt
-
+import scipy.io as so
 
 
 def current_time():
@@ -167,7 +167,7 @@ print("trying to get timing for video using Matlab...")
 # END[OLD VERSION] ##############
 # NEW VERSION ###################
 tank = params['tank']
-ep_data = tdt.read_block(tank, evtype='epocs')
+ep_data = tdt.read_block(tank, evtype=['epocs'])
 onset = ep_data.epocs.Cam1.onset
 offset = ep_data.epocs.Cam1.offset
 so.savemat(os.path.join(tank, 'video_timing.mat'), {'onset': onset, 'offset': offset})
