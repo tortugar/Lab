@@ -11,9 +11,11 @@ import re
 import os
 import time
 import SynapseAPI
+import tdt
 import spyke
 import numpy as np
 import zipfile
+import scipy.io as so
 
 def zipdir(path, zip_file):
     """
@@ -145,13 +147,11 @@ print("trying to get timing for video...")
 #block = re.split('\\\\', params['tank'])[-1]
 #import win32com.client
 #h = win32com.client.Dispatch('matlab.application')
-#cmd  =  "data = TDTbin2mat(fullfile('%s' ,'%s'),'Type',{'epocs'}); onset=data.epocs.Cam1.onset; offset=data.epocs.Cam1.offset; tick_onset=data.epocs.Tick.onset; tick_offset=data.epocs.Tick.offset;       save(fullfile('%s', '%s','video_timing.mat'), 'onset', 'offset', 'tick_onset', 'tick_offset')" % (tank,block, tank,block)
-# for new synapse version - changed on 05/24/2018
 #cmd  =  "data = TDTbin2mat(fullfile('%s' ,'%s'),'Type',{'epocs'}); onset=data.epocs.Cam1.onset; offset=data.epocs.Cam1.offset; save(fullfile('%s', '%s','video_timing.mat'), 'onset', 'offset')" % (tank,block, tank,block)
 #h.Execute(cmd)
 # END [OLD VERSION] ####################
 tank = params['tank']
-ep_data = tdt.read_block(tank, evtype='epocs')
+ep_data = tdt.read_block(tank, evtype=['epocs'])
 onset = ep_data.epocs.Cam1.onset
 offset = ep_data.epocs.Cam1.offset
 so.savemat(os.path.join(tank, 'video_timing.mat'), {'onset': onset, 'offset': offset})
