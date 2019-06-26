@@ -442,12 +442,11 @@ class MainWindow(QtGui.QMainWindow):
         for d in self.dark_cycle:
             a = int(d[0]/self.fdt)
             b = int(d[1]/self.fdt)
-            self.graph_treck.plot(self.ftime[a:b+1], np.zeros((b-a+1,)), pen=pg.mkPen(width=8, color=(100, 100, 100)))
+            self.graph_treck.plot(self.ftime[a:b+1]*scale, np.zeros((b-a+1,)), pen=pg.mkPen(width=8, color=(100, 100, 100)))
         
         # plot currently annotated point
         self.graph_treck.plot([self.ftime[self.index]*scale + 0.5*self.fdt*scale], [0.0], pen=(0, 0, 0), symbolPen=(255, 0, 0), symbolBrush=(255, 0, 0),
                         symbolSize=5)
-
 
 
 
