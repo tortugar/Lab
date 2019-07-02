@@ -4222,7 +4222,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
     ppath    -    folder containing all recordings
     recordings -  single recording (string) or list of recordings
     @Optional:
-    istate   -    state for which to calculate power spectrum
+    istate   -    state for which to calculate power spectrum; 1=REM, 2=Wake, 3=NREM
     twin     -    time window (in seconds) for power spectrum calculation
                   the longer the higher frequency resolution, but the more noisy
     ma_thr   -    short wake periods <= $ma_thr are considered as sleep
@@ -4231,6 +4231,9 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
     pmode    -    mode: 
                   pmode == 1, compare state during laser with baseline outside laser interval
                   pmode == 0, just plot power spectrum for state istate and don't care about laser
+                  pmode == 2, compare periods of state if they overlap with laser and if the laser precedes the state
+                  with state periods w/o laser. That's is we are looking here at "laser induced" periods; the period itself
+                  can be longer as laser stimulation (as long as it follows laser onset).
     tstart   -    use EEG starting from time point tstart [seconds]
     sig_type -    string, if 'EMG' calculate EMG amplitude (from the EMG spectrum). E.g.,
                   sleepy.sleep_spectrum(ppath, E, istate=2, f_max=30, sig_type='EMG')
@@ -4329,7 +4332,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
             if pnorm:
                 pow_norm = power_spectrum(EEG, nwin, 1 / sr)[0]
 
-            if pmode == 1:
+            if pmode == 1 or pmode == 2:
                 laser = load_laser(ppath, rec)[istart_eeg:iend_eeg]
                 (idxs, idxe) = laser_start_end(laser, SR=sr)
                 # downsample EEG time to spectrogram time    
@@ -4341,7 +4344,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
                     laser_idx += list(range(i,j+1))
                 laser_idx = np.array(laser_idx)
                 
-            if pmode == 1:
+            if pmode == 1 or pmode == 2:
                 # first analyze frequencies not overlapping with laser
                 seq_nolsr = []
                 for s in seq:
@@ -4351,7 +4354,6 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
                         seq_nolsr += q
 
                 for s in seq_nolsr:
-                    #s = np.setdiff1d(s, laser_idx)
                     if len(s)*nbin >= nwin:
                         drn = (s[-1]-s[0])*dt
                         if drn > sthres:
@@ -4374,14 +4376,21 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
                 # now analyze sequences overlapping with laser
                 seq_lsr = []
                 for s in seq:
-                    s = np.intersect1d(s, laser_idx)
-                    if len(s) > 0:
-                        q = get_sequences(s)
-                        seq_lsr += q
+                    if pmode == 1:
+                        s = np.intersect1d(s, laser_idx)
+                        if len(s) > 0:
+                            q = get_sequences(s)
+                            seq_lsr += q
+                    if pmode == 2:
+                        r = np.intersect1d(s, laser_idx)
+                        if len(r) > 0 and s[0] in laser_idx:
+                            seq_lsr += [s]
 
                 for s in seq_lsr:
-                    s = np.intersect1d(s, laser_idx)
-                    
+                    # should not be necessary any more...
+                    #if pmode == 1:
+                    #    s = np.intersect1d(s, laser_idx)
+
                     if len(s)*nbin >= nwin:
                         # calculate power spectrum
                         # upsample indices
@@ -4390,7 +4399,6 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
                         drn = (s[-1]-s[0])*dt
                         if drn > sthres:
                             b = (s[0] + int(np.round(sthres/dt)))*nbin
-                            #pdb.set_trace()
                         else:
                             b = int((s[-1]+1)*nbin)
                         sup = list(range(int(s[0]*nbin), b))
@@ -4402,7 +4410,8 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
                             if pnorm:
                                 Pow = np.divide(Pow, pow_norm)
                             Spectra[idf][1].append(Pow)
-                        
+
+
             # don't care about laser
             if pmode == 0:
                 for s in seq:
@@ -4421,28 +4430,28 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
                             if pnorm:
                                 Pow = np.divide(Pow, pow_norm)
                             Spectra[idf][0].append(Pow)
-                
-            Pow = {0:[], 1:[]}
-            if len(Ids)==1:
-                # only one mouse
-                Pow[0] = np.array(Spectra[Ids[0]][0])
-                Pow[1] = np.array(Spectra[Ids[0]][1])
-            else:
-                # several mice
-                Pow[0] = np.zeros((len(Ids),len(F)))
-                Pow[1] = np.zeros((len(Ids),len(F)))
-                i = 0
-                for m in Ids:
-                    Pow[0][i,:] = np.array(Spectra[m][0]).mean(axis=0)
-                    if pmode == 1:
-                        Pow[1][i,:] = np.array(Spectra[m][1]).mean(axis=0)
-                    i += 1
+
+    Pow = {0:[], 1:[]}
+    if len(Ids)==1:
+        # only one mouse
+        Pow[0] = np.array(Spectra[Ids[0]][0])
+        Pow[1] = np.array(Spectra[Ids[0]][1])
+    else:
+        # several mice
+        Pow[0] = np.zeros((len(Ids),len(F)))
+        Pow[1] = np.zeros((len(Ids),len(F)))
+        i = 0
+        for m in Ids:
+            Pow[0][i,:] = np.array(Spectra[m][0]).mean(axis=0)
+            if pmode == 1 or pmode == 2:
+                Pow[1][i,:] = np.array(Spectra[m][1]).mean(axis=0)
+            i += 1
 
     if f_max > -1:
         ifreq = np.where(F<=f_max)[0]
         F = F[ifreq]
         Pow[0] = Pow[0][:,ifreq]
-        if pmode==1:
+        if pmode==1 or pmode==2:
             Pow[1] = Pow[1][:,ifreq]
     else:
         f_max = F[-1]
@@ -4454,7 +4463,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
             ax = plt.axes([0.2, 0.15, 0.6, 0.7])
             n = Pow[0].shape[0]
             clrs = sns.color_palette("husl", len(mouse_order))
-            if pmode==1:
+            if pmode==1 or pmode==2:
                 if not single_mode:
                     a = Pow[1].mean(axis=0) - Pow[1].std(axis=0) / np.sqrt(n)
                     b = Pow[1].mean(axis=0) + Pow[1].std(axis=0) / np.sqrt(n)
@@ -4476,7 +4485,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
                     plt.plot(F, Pow[0][i, :], label=mouse_order[i], color=clrs[i])
                 plt.legend(bbox_to_anchor=(0., 1.0, 1., .102), loc=3, mode='expand', ncol=len(mouse_order), frameon=False)
 
-            if pmode==1 and not single_mode:
+            if pmode>=1 and not single_mode:
                 plt.legend(bbox_to_anchor=(0., 1.0, 1., .102), loc=3, mode='expand', frameon=False)
 
             box_off(ax)
@@ -4494,13 +4503,13 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
             # range of frequencies
             mfreq = np.where((F >= mu[0]) & (F <= mu[1]))[0]
             df = F[1] - F[0]
-            if pmode==1:
+            if pmode>=1:
                 for i in [0, 1]:
                     Ampl[i] = np.sqrt(Pow[i][:,mfreq].sum(axis=1)*df)
             else:
                 Ampl[0] = np.sqrt(Pow[0][:,mfreq].sum(axis=1)*df)
 
-            if pmode==1:
+            if pmode>=1:
                 ax = plt.axes([0.2, 0.15, 0.4, 0.7])
                 ax.bar([0], Ampl[0].mean(), color='gray', label='w/o laser')
                 ax.bar([1], Ampl[1].mean(), color='blue', label='laser')
