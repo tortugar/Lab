@@ -4215,7 +4215,7 @@ def state_onset(ppath, recordings, istate, min_dur, iseq=0, ma_thr=10, tstart=0,
 
 
 def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_max=-1, pplot=True, sig_type='EEG', mu=[10, 100],
-                   tstart=0, tend=-1, sthres=np.inf, peeg2=False, pnorm=False, single_mode=False, conv=1.0, fig_file='', laser_color='blue'):
+                   tstart=0, tend=-1, sthres=np.inf, peeg2=False, pnorm=False, single_mode=False, conv=1.0, fig_file='', laser_color='blue', ci='sd'):
     """
     calculate power spectrum for brain state i state for the given recordings 
     @Param:
@@ -4246,6 +4246,9 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
                   over the whole EEG recording
     single_mode - if True, plot each single mouse
     fig_file -    if specified save to given file
+    ci -          parameter for seaborn.lineplot, if ci=='sd' plot standard deviation, for int values plot
+                  confidence interval (e.g. ci=95 will plot the 95% confidence interval). Only works, if there
+                  are more than one mouse!
 
     errorbars: If it's multiple mice make errorbars over mice; if it's multiple
     recordings of ONE mouse, show errorbars across recordings; 
@@ -4472,8 +4475,6 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
                 else:
                     for i in range(len(mouse_order)):
                         plt.plot(F, Pow[1][i,:], '--', color=clrs[i])
-                    #plt.legend(bbox_to_anchor=(0., 1.0, 1., .102), loc=3, mode='expand', ncol=len(mouse_order),
-                    #           frameon=False)
 
             if not single_mode:
                 a = Pow[0].mean(axis=0)-Pow[0].std(axis=0)/np.sqrt(n)
@@ -4530,7 +4531,30 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
     if len(fig_file) > 0:
         save_figure(fig_file)
 
-    return Pow, F
+    # Use seaborn to plot powerspectra with confidence intervals across mice:
+    vals = []
+    if len(mouse_order) > 0:
+        mi = 0
+        for m in mouse_order:
+            for i in range(len(F)):
+                vals.append([0, m, Pow[0][mi][i], F[i]])
+                if pmode >= 1:
+                    vals.append([1, m, Pow[1][mi][i], F[i]])
+            mi += 1
+
+    df = pd.DataFrame(columns=['Lsr', 'Id', 'Pow', 'Freq'], data=vals)
+
+    if pplot:
+        plt.figure()
+        ax = plt.subplot(111)
+        if pmode >= 1:
+            sns.lineplot(x='Freq', y='Pow', hue='Lsr', data=df, ci=ci, palette={0:'gray', 1:'blue'})
+        else:
+            sns.lineplot(x='Freq', y='Pow', data=df, ci=ci, palette=['gray'])
+        box_off(ax)
+        plt.xlim([0, f_max])
+
+    return Pow, F, df
 
 
 
