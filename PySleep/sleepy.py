@@ -2247,22 +2247,29 @@ def plot_hypnograms(ppath, recordings, tbin=0, unit='h', ma_thr=20, title='', ts
 
 
 def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psave=False, tstart=0, tend=-1,
-                        peeg2=False, vm=2.5, prune_trials=True, mu=[10, 200]):
+                        peeg2=False, vm=2.5, prune_trials=True, mu=[10, 200], trig_state=0):
     """
     calculate laser triggered, averaged EEG and EMG spectrum
-    ppath   -    base folder containing mouse recordings
-    name    -    recording
-    pre     -    time before laser
-    post    -    time after laser
-    f_max   -    calculate/plot frequencies up to frequency f_max
-    p_norm  -    normalization: 
+    :param ppath: base folder containing mouse recordings
+    :param name: recording
+    :param pre: time before laser
+    :param post: time after laser
+    :param f_max: calculate/plot frequencies up to frequency f_max
+    :param pnorm: normalization,
                  pnorm = 0, no normalization
                  pnorm = 1, normalize each frequency band by its average power
                  pnorm = 2, normalize each frequency band by the average power 
                             during the preceding baseline period
-    vm      -    float to set saturation level of colormap
-    pplot   -    plot figure yes=True, no=False
-    psave   -    save the figure, yes=True, no = False
+    :param vm: float to set saturation level of colormap
+    :param pplot: plot figure yes=True, no=False
+    :param psave: save the figure, yes=True, no = False
+    :param tstart: float, starting time point. Only lasers trials after tstart will be considered
+    :param tend: float, only laser trials up to tend will be considered; if tend==-1, use whole recording
+    :param peeg2: if True, use EEG channel 2
+    :param prune_trials: if True, throw out trials with EEG or EMG artifacts
+    :param mu: tuple; range used for EMG amplitude calculation
+    :param trig_state: int; if > 0, only use trials where brain is at laser onset in brainstate trig_state
+           1=REM, 2=Wake, 3=NREM
     """
     SR = get_snr(ppath, name)
     NBIN = np.round(2.5*SR)
@@ -2297,7 +2304,6 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     speeg_mean = SPEEG.mean(axis=1)
     spemg_mean = SPEMG.mean(axis=1)
 
-    #pdb.set_trace()
     if tend > -1:
         i = np.where((np.array(idxs)*dt >= tstart) & (np.array(idxs)*dt <= tend))[0]
     else:
@@ -2328,6 +2334,19 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     idxs = idxs_new
     idxe = idxe_new
 
+    # select trials where brain state is right before laser trig_state
+    if trig_state > 0:
+        idxs_new = []
+        idxe_new = []
+        M = load_stateidx(ppath, name)[0]
+        for (i,j) in zip(idxs, idxe):
+            if M[i] == trig_state:
+                idxs_new.append(i)
+                idxe_new.append(j)
+        idxs = idxs_new
+        idxe = idxe_new
+
+
     # Spectrogram for EEG and EMG normalized by average power in each frequency band
     if pnorm == 1:
         SPEEG = np.divide(SPEEG, np.repeat(speeg_mean, len(t)).reshape(len(speeg_mean), len(t)))
@@ -2340,8 +2359,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
             eeg_part = SPEEG[ifreq,i-ipre:i+ipost+1]
             speeg_parts.append(eeg_part)
             spemg_parts.append(SPEMG[ifreq,i-ipre:i+ipost+1])
-            
-    
+
     EEGLsr = np.array(speeg_parts).mean(axis=0)
     EMGLsr = np.array(spemg_parts).mean(axis=0)
     
@@ -2359,7 +2377,6 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     
     # get time axis    
     dt = (1.0/SR)*NBIN
-    #t = np.arange(-ipre,ipost+1)*dt
     t = np.linspace(-ipre*dt, ipost*dt, ipre+ipost+1)
     f = freq[ifreq]
 
@@ -2415,7 +2432,6 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
         else:
             cbar.set_label('Power uV^2s')
 
-        
         ax = plt.axes([0.62, 0.1, 0.35, 0.35])
         mf = np.where((f>=mu[0]) & (f <= mu[1]))[0]
         df = f[1]-f[0]
@@ -2442,7 +2458,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
 
 
 def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnorm=1, pplot=True, tstart=0, tend=-1,
-                            vm=[], cb_ticks=0, mu=[10, 200], fig_file=''):
+                            vm=[], cb_ticks=0, mu=[10, 200], trig_state=0, fig_file=''):
     """
     calculate average spectrogram for all recordings listed in @recordings; for averaging take
     mouse identity into account
@@ -2462,6 +2478,8 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     :param vm: saturation of heatmap for EEG spectrogram
     :param cb_ticks: ticks for colorbar (only applies for pplot==2)
     :param mu: frequencies for EMG amplitude calculation
+    :param trig_state: if > 0, only use trials where brain is at laser onset in brainstate trig_state
+           1=REM, 2=Wake, 3=NREM
     :param fig_file: if specified, save figure to given file
     :return: n/a
     """
@@ -2477,7 +2495,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     
     for rec in recordings:
         idf = re.split('_', rec)[0]
-        EEG, EMG, f, t = laser_triggered_eeg(ppath, rec, pre, post, f_max, pnorm=pnorm, pplot=False, psave=False, tstart=tstart, tend=tend)
+        EEG, EMG, f, t = laser_triggered_eeg(ppath, rec, pre, post, f_max, pnorm=pnorm, pplot=False, psave=False, tstart=tstart, tend=tend, trig_state=trig_state)
         EEGSpec[idf].append(EEG)
         EMGSpec[idf].append(EMG)
     
@@ -4532,6 +4550,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
         save_figure(fig_file)
 
     # Use seaborn to plot powerspectra with confidence intervals across mice:
+    # At some point I will make this the standard code
     vals = []
     if len(mouse_order) > 0:
         mi = 0
