@@ -240,6 +240,7 @@ class MainWindow(QtGui.QMainWindow):
                 vypro.unpack_zipstack(self.ppath, self.name)
             else:
                 print("no video stack available for recording %s" % self.name)
+                self.show_video = False
 
         # now that the configuration is loaded, set image index
         self.set_image_idx()
@@ -1038,7 +1039,7 @@ class MainWindow(QtGui.QMainWindow):
         After closing the program, the same annotation file can be reloaded using the "-c" option.
 
         key actions:
-        :h print help
+        :h print this help
         :1 save
         :/ switch between view and annotation mode
         :0 delete annotation for current time point
