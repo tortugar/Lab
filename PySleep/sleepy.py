@@ -2334,13 +2334,13 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     idxs = idxs_new
     idxe = idxe_new
 
-    # select trials where brain state is right before laser trig_state
+    # select trials where brain state is right before laser in trig_state
     if trig_state > 0:
         idxs_new = []
         idxe_new = []
         M = load_stateidx(ppath, name)[0]
         for (i,j) in zip(idxs, idxe):
-            if M[i] == trig_state:
+            if i < len(M) and M[i] == trig_state:
                 idxs_new.append(i)
                 idxe_new.append(j)
         idxs = idxs_new
@@ -2458,7 +2458,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
 
 
 def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnorm=1, pplot=True, tstart=0, tend=-1,
-                            vm=[], cb_ticks=0, mu=[10, 200], trig_state=0, fig_file=''):
+                            vm=[], cb_ticks=[0], mu=[10, 200], trig_state=0, fig_file=''):
     """
     calculate average spectrogram for all recordings listed in @recordings; for averaging take
     mouse identity into account
@@ -2522,7 +2522,10 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
         plt.ion()
         plt.figure(figsize=(12,10))
         ax = plt.axes([0.1, 0.55, 0.4, 0.4])
-        plt.pcolormesh(t,f,EEGLsr, cmap='jet', vmin=vm[0], vmax=vm[1])
+        if len(vm) == 2:
+            plt.pcolormesh(t,f,EEGLsr, cmap='jet', vmin=vm[0], vmax=vm[1])
+        else:
+            plt.pcolormesh(t, f, EEGLsr, cmap='jet')
         plt.plot([0,0], [0,f[-1]], color=(1,1,1))
         plt.plot([laser_dur,laser_dur], [0,f[-1]], color=(1,1,1))
         plt.axis('tight')    
@@ -2586,7 +2589,10 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
         # plot EEG spectrogram
         axes_cbar = plt.axes([0.8, 0.75, 0.1, 0.2])
         ax = plt.axes([0.1, 0.55, 0.75, 0.4])
-        im=ax.pcolorfast(t,f,EEGLsr, cmap='jet', vmin=vm[0], vmax=vm[1])
+        if len(vm) == 2:
+            im=ax.pcolorfast(t,f,EEGLsr, cmap='jet', vmin=vm[0], vmax=vm[1])
+        else:
+            im = ax.pcolorfast(t, f, EEGLsr, cmap='jet')
         plt.plot([0,0], [0,f[-1]], color=(1,1,1))
         plt.plot([laser_dur,laser_dur], [0,f[-1]], color=(1,1,1))
         plt.axis('tight')
