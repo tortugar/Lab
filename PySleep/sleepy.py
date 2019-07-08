@@ -206,7 +206,7 @@ def load_dose_recordings(ppath, rec_file):
 
 def get_snr(ppath, name):
     """
-    read and return SR from file $ppath/$name/info.txt 
+    read and return sampling rate (SR) from file $ppath/$name/info.txt 
     """
     fid = open(os.path.join(ppath, name, 'info.txt'), newline=None)
     lines = fid.readlines()
@@ -249,7 +249,7 @@ def add_infoparam(ifile, field, vals):
 
 
 def laser_start_end(laser, SR=1525.88, intval=5):
-    """laser_start_end(ppath, name) ...
+    """laser_start_end(ppath, name)
     print start and end index of laser stimulation trains: For example,
     if you was stimulated for 2min every 20 min with 20 Hz, return the
     start and end index of the each 2min stimulation period (train)
@@ -277,7 +277,7 @@ def laser_start_end(laser, SR=1525.88, intval=5):
 
 def load_laser(ppath, name):
     """
-    load laser from recording ppath/name ...
+    load laser from recording ppath/name 
     @RETURN: 
     @laser, vector of 0's and 1's 
     """ 
@@ -687,16 +687,23 @@ def calculate_spectrum(ppath, name, fres=0.5):
 
 
 def whiten_spectrogram(ppath, name, fmax=50):
+    """
+    experimental
+    :param ppath:
+    :param name:
+    :param fmax:
+    :return:
+    """
     P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'), squeeze_me=True)
     SPE = P['SP']
     freq = P['freq']
     ifreq = np.where(freq <= fmax)[0]
 
-    SPE = SPE[0:300,:]
+    SPE = SPE[ifreq,:]
     nfilt = 5
-    filt = np.ones((2, 2))
+    filt = np.ones((nfilt, nfilt))
     filt = np.divide(filt, filt.sum())
-    SPE = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
+    #SPE = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
 
     m = np.mean(SPE,axis=1)
     SPE -= np.tile(m, (SPE.shape[1], 1)).T
@@ -709,7 +716,7 @@ def whiten_spectrogram(ppath, name, fmax=50):
     L = L[:,idx]
     W = np.dot(L, np.dot(np.linalg.inv(D),np.dot(L.T,SPE.T)))
 
-    nfilt = 5
+    nfilt = 2
     filt = np.ones((nfilt,nfilt))
     filt = np.divide(filt, filt.sum())
     W = scipy.signal.convolve2d(W, filt, boundary='symm', mode='same')
@@ -717,9 +724,59 @@ def whiten_spectrogram(ppath, name, fmax=50):
     return W, D, L
 
 
+def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True):
+    P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'), squeeze_me=True)
+    SPE = P['SP']
+    freq = P['freq']
+    t = P['t']
 
-def laser_overlap_duration(ppath, recordings):
-    pass
+    if fmax > 0:
+        ifreq = np.where(freq <= fmax)[0]
+    else:
+        ifreq = np.arange(0, len(freq))
+    freq = freq[ifreq]
+
+    nfilt = 4
+    filt = np.ones((nfilt,nfilt))
+    filt = np.divide(filt, filt.sum())
+
+    SPE = SPE[ifreq]
+    W = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
+    sp_mean = W.mean(axis=1)
+    #sp_mean = SPE.mean(axis=1)
+    SPE = np.divide(SPE, np.tile(sp_mean, (SPE.shape[1], 1)).T)
+    nfilt = 12
+    filt = np.ones((nfilt,2))
+    filt = np.divide(filt, filt.sum())
+
+    SPE = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
+
+
+    # get high gamma peaks
+    iband = np.where((freq >= band[0]) & (freq <= band[-1]))[0]
+    pow_band = SPE[iband,:].mean(axis=0)
+    thr = pow_band.mean() + pow_band.std()
+    idx = np.where(pow_band > thr)[0]
+
+    # plot normalized spectrogram, along with band
+    if pplot:
+        plt.ion()
+        plt.figure()
+        if len(band) > 0:
+    
+            med = np.median(SPE.mean(axis=0))
+    
+            ax1 = plt.subplot(211)
+            plt.pcolormesh(t, freq, SPE, vmin=0, vmax=vm*med, cmap='jet')
+    
+            plt.subplot(212, sharex=ax1)
+            plt.plot(t,SPE[iband,:].mean(axis=0))
+            plt.plot(t[idx], pow_band[idx], '.')
+            plt.draw()
+
+    return SPE, t, freq[ifreq]
+
+
 
 
 def recursive_spectrogram(ppath, name, sf=0.3, alpha=0.3, pplot=True):
@@ -1839,10 +1896,10 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     PRE_WAKE_REM = 30.0
     
     # Minimum Duration and Break in 
-    # high theta/delta, high emg, and high delta sequences
-    # Synatax: duration(i,0) is the minimum duration of sequency i
-    # duration(i,2) is maximal break duration allowed in a sequence
-    # of state i
+    # high theta/delta, high emg, high delta, high sigma and gamma sequences
+    #
+    # duration[i,0] is the minimum duration of sequence of state i
+    # duration[i,1] is maximal break duration allowed in a sequence of state i
     duration = np.zeros((5,2))
     # high theta/delta
     duration[0,:] = [5,15]
@@ -2468,7 +2525,11 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     :param post: time after laser onset
     :param f_max: maximum frequency shown for EEG spectrogram
     :param laser_dur: duration of laser stimulation
-    :param pnorm: type of normalization for spectrogram (see laser_triggered_eeg)
+    :param pnorm: normalization,
+             pnorm = 0, no normalization
+             pnorm = 1, normalize each frequency band by its average power
+             pnorm = 2, normalize each frequency band by the average power
+                        during the preceding baseline period
     :param pplot: pplot==0 - no figure;
                   pplot==1 - conventional figure;
                   pplot==2 - pretty figure showing EEG spectrogram
@@ -2495,7 +2556,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     
     for rec in recordings:
         idf = re.split('_', rec)[0]
-        EEG, EMG, f, t = laser_triggered_eeg(ppath, rec, pre, post, f_max, pnorm=pnorm, pplot=False, psave=False, tstart=tstart, tend=tend, trig_state=trig_state)
+        EEG, EMG, f, t = laser_triggered_eeg(ppath, rec, pre, post, f_max, mu=mu, pnorm=pnorm, pplot=False, psave=False, tstart=tstart, tend=tend, trig_state=trig_state)
         EEGSpec[idf].append(EEG)
         EMGSpec[idf].append(EMG)
     
@@ -4581,6 +4642,89 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
 
     return Pow, F, df
 
+
+
+def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd'):
+    """
+    caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
+    
+    :param ppath: base folder
+    :param recordings: list of recordings
+    :param istate: brain state for which power spectrum is computed
+    :param fmax: maximum frequency shown on x-axis
+    :param ci: 'sd' | int between 0 and 100 specificing confidence interval
+    """
+    
+    mice = []
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        if not idf in mice:
+            mice.append(idf)
+            
+    ps_mice = {0: {m:[] for m in mice}, 1: {m:[] for m in mice}}
+    
+    data = []
+    for rec in recordings:
+        # load brain state
+        idf = re.split('_', rec)[0]
+        M = load_stateidx(ppath, rec)[0]
+        sr = get_snr(ppath, rec)
+        # number of time bins for each time bin in spectrogram
+        nbin = int(np.round(sr) * 2.5)
+
+        lsr = load_laser(ppath, rec)
+        idxs, idxe = laser_start_end(lsr)
+    
+        # downsample EEG time to spectrogram time    
+        idxs = [int(i/nbin) for i in idxs]
+        idxe = [int(i/nbin) for i in idxe]
+    
+        laser_idx = []
+        for (i,j) in zip(idxs, idxe):
+            laser_idx += range(i,j+1)
+        laser_idx = np.array(laser_idx)
+        ###################################################
+
+
+        tmp = so.loadmat(os.path.join(ppath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
+        SP = tmp['SP']
+        freq = tmp['freq']
+        if fmax > -1:
+            ifreq = np.where(freq <= fmax)[0]
+            freq = freq[ifreq]
+            SP = SP[ifreq,:]
+        
+        idx = np.where(M==istate)[0]
+        idx_lsr   = np.intersect1d(idx, laser_idx)
+        idx_nolsr = np.setdiff1d(idx, laser_idx)
+
+        ps_lsr   = SP[:,idx_lsr].mean(axis=1)
+        ps_nolsr = SP[:,idx_nolsr].mean(axis=1)
+        
+        ps_mice[1][idf].append(ps_lsr)
+        ps_mice[0][idf].append(ps_nolsr)
+        
+        data += [[idf, 'yes']+list(i) for i in list(np.vstack((freq, ps_lsr)).T)]
+        data += [[idf, 'no']+list(i) for i in list(np.vstack((freq, ps_nolsr)).T)]
+        
+    
+    df = pd.DataFrame(columns=['Subj', 'Lsr', 'Freq', 'Pow'], data=data)
+    df_mice = df.groupby(['Subj', 'Lsr', 'Freq'], as_index=False).mean() 
+    
+    ps_mx = {0:[], 1:[]}
+    for l in [0,1]:
+        mx = np.zeros((len(mice), len(freq)))
+        for (i,idf) in zip(range(len(mice)), mice):
+            mx[i,:] = np.array(ps_mice[l][idf]).mean(axis=0)        
+        ps_mx[l] = mx
+
+    
+    plt.ion()
+    plt.figure()
+    sns.lineplot(data=df_mice, x='Freq', y='Pow', hue='Lsr', ci=ci, palette={'yes':'blue', 'no':'gray'})
+    plt.show()
+        
+    return ps_mx, freq, df_mice
 
 
 
