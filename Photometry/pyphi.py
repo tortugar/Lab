@@ -2128,7 +2128,8 @@ def event_detection(ppath, name, nskip=5, tstart=0, tend=-1, nstd=2, pplot=True)
 
     div = (dff_hp[1:] - dff_hp[0:-1]) / dt
     dff_div = (dff[1:] - dff[0:-1]) / dt
-    th = np.mean(div) + nstd * np.std(div)
+    s = np.max([nstart, istart])
+    th = np.mean(div[s:]) + nstd * np.std(div[s:])
 
     idx = spike_threshold(div[istart:iend], th, sign=-1)+istart
     # only keep waveformed where the signal increases (i.e. d dff/ dt = div > 0)
@@ -2139,6 +2140,7 @@ def event_detection(ppath, name, nskip=5, tstart=0, tend=-1, nstd=2, pplot=True)
     idx_sel = np.array(idx_sel)
 
     train = np.zeros((len(dff),))
+    #pdb.set_trace()
     train[idx_sel] = 1
 
     # cut out all transient waveforms
@@ -2161,15 +2163,18 @@ def event_detection(ppath, name, nskip=5, tstart=0, tend=-1, nstd=2, pplot=True)
 
         A = downsample_vec(dff[istart:iend], 20)
         B = downsample_vec(div[istart:iend], 20)
-        idx_sel_dn = int((idx_sel-istart)/20)
-        idx_max_dn = int((idx_max-istart)/20)
+        #idx_sel_dn = int((idx_sel-istart)/20)
+        #pdb.set_trace()
+        idx_max_dn = [int(i) for i in (idx_max-istart)/20]
 
         n = len(A)
-        t = np.arange(0, n) * ((1.0/sr)*20)
-        plt.plot(t, A)
-        plt.plot(t, B)
-        plt.plot(t, np.ones((n,))*th)
-        plt.plot(t[idx_max_dn], A[idx_max_dn], 'ro')
+        ta = np.arange(0, len(A)) * ((1.0/sr)*20)
+        tb = np.arange(0, len(B)) * ((1.0/sr)*20)
+        pdb.set_trace()
+        plt.plot(ta, A)
+        plt.plot(tb, B)
+        plt.plot(ta, np.ones((n,))*th)
+        plt.plot(ta[idx_max_dn], A[idx_max_dn], 'ro')
 
         plt.figure()
         t = np.arange(-iwin, iwin)*dt
