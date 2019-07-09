@@ -749,7 +749,7 @@ def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True):
     filt = np.ones((nfilt,2))
     filt = np.divide(filt, filt.sum())
 
-    SPE = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
+    #SPE = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
 
 
     # get high gamma peaks
@@ -4302,7 +4302,9 @@ def state_onset(ppath, recordings, istate, min_dur, iseq=0, ma_thr=10, tstart=0,
 def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_max=-1, pplot=True, sig_type='EEG', mu=[10, 100],
                    tstart=0, tend=-1, sthres=np.inf, peeg2=False, pnorm=False, single_mode=False, conv=1.0, fig_file='', laser_color='blue', ci='sd'):
     """
-    calculate power spectrum for brain state i state for the given recordings 
+    calculate power spectrum for brain state i state for the given recordings.
+    The function first calculates for each mouse the powerspectrum for each
+    istate sequence, and then averages across all sequences.
     @Param:
     ppath    -    folder containing all recordings
     recordings -  single recording (string) or list of recordings
@@ -4662,7 +4664,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd'):
             mice.append(idf)
             
     ps_mice = {0: {m:[] for m in mice}, 1: {m:[] for m in mice}}
-    
+    count_mice = {0: {m:0 for m in mice}, 1: {m:0 for m in mice}}
     data = []
     for rec in recordings:
         # load brain state
@@ -4698,33 +4700,46 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd'):
         idx_lsr   = np.intersect1d(idx, laser_idx)
         idx_nolsr = np.setdiff1d(idx, laser_idx)
 
-        ps_lsr   = SP[:,idx_lsr].mean(axis=1)
-        ps_nolsr = SP[:,idx_nolsr].mean(axis=1)
+        count_mice[0][idf] += len(idx_nolsr)
+        count_mice[1][idf] += len(idx_lsr)
+        ps_lsr   = SP[:,idx_lsr].sum(axis=1)
+        ps_nolsr = SP[:,idx_nolsr].sum(axis=1)
         
         ps_mice[1][idf].append(ps_lsr)
         ps_mice[0][idf].append(ps_nolsr)
         
-        data += [[idf, 'yes']+list(i) for i in list(np.vstack((freq, ps_lsr)).T)]
-        data += [[idf, 'no']+list(i) for i in list(np.vstack((freq, ps_nolsr)).T)]
+        #data += [[idf, 'yes']+list(i) for i in list(np.vstack((freq, ps_lsr)).T)]
+        #data += [[idf, 'no']+list(i) for i in list(np.vstack((freq, ps_nolsr)).T)]
         
     
-    df = pd.DataFrame(columns=['Subj', 'Lsr', 'Freq', 'Pow'], data=data)
-    df_mice = df.groupby(['Subj', 'Lsr', 'Freq'], as_index=False).mean() 
+
+    
     
     ps_mx = {0:[], 1:[]}
     for l in [0,1]:
         mx = np.zeros((len(mice), len(freq)))
         for (i,idf) in zip(range(len(mice)), mice):
-            mx[i,:] = np.array(ps_mice[l][idf]).mean(axis=0)        
+            mx[i,:] = np.array(ps_mice[l][idf]).sum(axis=0) / count_mice[l][idf]
         ps_mx[l] = mx
 
-    
+    # transform data arrays to pandas dataframe
+    data_lsr = list(np.reshape(ps_mx[1], (len(mice)*len(freq),)))
+    data_nolsr = list(np.reshape(ps_mx[0], (len(mice)*len(freq),)))
+    amp_freq = list(freq)*len(mice)
+    list_lsr = ['yes']*len(freq)*len(mice) + ['no']*len(freq)*len(mice)
+    amp_idf = reduce(lambda x,y: x+y, [[b]*len(freq) for b in mice])
+    data = [[a,b,c,d] for (a,b,c,d) in zip(amp_idf*2, amp_freq*2, data_lsr+data_nolsr, list_lsr)]
+    df = pd.DataFrame(columns=['Idf', 'Freq', 'Pow', 'Lsr'], data=data)
+
     plt.ion()
     plt.figure()
-    sns.lineplot(data=df_mice, x='Freq', y='Pow', hue='Lsr', ci=ci, palette={'yes':'blue', 'no':'gray'})
+    sns.lineplot(data=df, x='Freq', y='Pow', hue='Lsr', ci=ci, palette={'yes':'blue', 'no':'gray'})
+    #plt.plot(freq, ps_mx[0].mean(axis=0), color='red')
+    #plt.plot(freq, ps_mx[1].mean(axis=0), color='green')
+    plt.xlim([freq[0], freq[-1]])
     plt.show()
         
-    return ps_mx, freq, df_mice
+    return ps_mx, freq, df
 
 
 
