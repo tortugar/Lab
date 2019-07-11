@@ -2651,7 +2651,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
         axes_cbar = plt.axes([0.8, 0.75, 0.1, 0.2])
         ax = plt.axes([0.1, 0.55, 0.75, 0.4])
         if len(vm) == 2:
-            im=ax.pcolorfast(t,f,EEGLsr, cmap='jet', vmin=vm[0], vmax=vm[1])
+            im=ax.pcolorfast(t, f, EEGLsr, cmap='jet', vmin=vm[0], vmax=vm[1])
         else:
             im = ax.pcolorfast(t, f, EEGLsr, cmap='jet')
         plt.plot([0,0], [0,f[-1]], color=(1,1,1))
@@ -3104,7 +3104,8 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0,
 
 
 def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[], ma_thr=10,
-                  fontsize=12, cb_ticks=[], emg_ticks=[], r_mu = [10, 100], fw_color=True):
+                  fontsize=12, cb_ticks=[], emg_ticks=[], r_mu = [10, 100], 
+                  fw_color=True, pemg_ampl=False):
     """
     plot sleep example
     :param ppath: base folder
@@ -3131,11 +3132,14 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     sr = get_snr(ppath, name)
     nbin = np.round(2.5 * sr)
     dt = nbin * 1 / sr
+    ddt = 1.0/sr
 
     istart = int(np.round(tstart/dt))
     iend   = int(np.round(tend/dt))
     dur = (iend-istart+1)*dt
-
+    istart_emg = int(istart*nbin)
+    iend_emg   = int((iend+1)*nbin)
+    
     M,K = load_stateidx(ppath, name)
     #kcut = np.where(K>=0)[0]
     #M = M[kcut]
@@ -3149,6 +3153,7 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
             M[s] = 3
 
     t = np.arange(0, len(M))*dt
+    t_emg = np.arange(0, iend_emg-istart_emg)*ddt
 
     P = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
     SPEEG = P['SP']#/1000000.0
@@ -3158,8 +3163,11 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
         vm = [0, med*2.5]
     #t = np.squeeze(P['t'])
     freq = P['freq']
-    P = so.loadmat(os.path.join(ppath, name, 'msp_%s.mat' % name), squeeze_me=True)
-    SPEMG = P['mSP']#/1000000.0
+    if pemg_ampl:
+        P = so.loadmat(os.path.join(ppath, name, 'msp_%s.mat' % name), squeeze_me=True)
+        SPEMG = P['mSP']#/1000000.0
+    else:
+        emg = so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG']
 
     # load laser
     if not os.path.isfile(os.path.join(ppath, name, 'laser_%s.mat' % name)):
@@ -3261,18 +3269,25 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     axes_cbar.axes.get_yaxis().set_visible(False)
 
     # show EMG
-    i_mu = np.where((freq >= r_mu[0]) & (freq <= r_mu[1]))[0]
-    # * 1000: to go from mV to uV
-    p_mu = np.sqrt(SPEMG[i_mu, :].sum(axis=0) * (freq[1] - freq[0])) #* 1000.0 # back to muV
     axes_emg = plt.axes([0.1, 0.5, 0.8, 0.1], sharex=axes_spec)
-    axes_emg.plot(t, p_mu[istart:iend], color='black')
+    if pemg_ampl:
+        i_mu = np.where((freq >= r_mu[0]) & (freq <= r_mu[1]))[0]
+        p_mu = np.sqrt(SPEMG[i_mu, :].sum(axis=0) * (freq[1] - freq[0])) #* 1000.0 # back to muV
+
+        axes_emg.plot(t, p_mu[istart:iend], color='black')
+
+        # * 1000: to go from mV to uV
+        if len(emg_ticks) > 0:
+            axes_emg.set_yticks(emg_ticks)
+        plt.ylabel('Ampl. ' + '$\mathrm{(\mu V)}$')
+        plt.xlim((t[0], t[-1] + 1))
+    else:
+        axes_emg.plot(t_emg, emg[istart_emg:iend_emg], color='black', lw=0.2)
+        plt.xlim((t_emg[0], t_emg[-1] + 1))
+
+    box_off(axes_emg)
     axes_emg.patch.set_alpha(0.0)
     axes_emg.spines["bottom"].set_visible(False)
-    if len(emg_ticks) > 0:
-        axes_emg.set_yticks(emg_ticks)
-    plt.ylabel('Ampl. ' + '$\mathrm{(\mu V)}$')
-    plt.xlim((t[0], t[-1] + 1))
-    box_off(axes_emg)
 
     if len(fig_file) > 0:
         save_figure(fig_file)
@@ -4660,6 +4675,12 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd', pmode=1
                   pmode == 0, just plot power spectrum for state istate and don't care about laser
     :param pnorm: if True, normalize spectrogram by dividing each frequency band by its average power
     :param pplot: if True, plot figure
+
+    
+    :return (ps_mx, freq, df)
+    ps_mx: dict: 0|1 -> np.array(no. mice x frequencies)
+    freq: vector with frequencies
+    df: DataFrame with columns 'Idf', 'Freq', 'Pow', 'Lsr'
     """
     
     mice = []
