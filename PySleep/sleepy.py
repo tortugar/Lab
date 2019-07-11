@@ -4646,7 +4646,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
 
 
 
-def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd'):
+def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd', pmode=1, pnorm = False, pplot=True):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -4655,6 +4655,11 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd'):
     :param istate: brain state for which power spectrum is computed
     :param fmax: maximum frequency shown on x-axis
     :param ci: 'sd' | int between 0 and 100 specificing confidence interval
+    :param pmode: mode: 
+                  pmode == 1, compare state during laser with baseline outside laser interval
+                  pmode == 0, just plot power spectrum for state istate and don't care about laser
+    :param pnorm: if True, normalize spectrogram by dividing each frequency band by its average power
+    :param pplot: if True, plot figure
     """
     
     mice = []
@@ -4673,71 +4678,99 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd'):
         sr = get_snr(ppath, rec)
         # number of time bins for each time bin in spectrogram
         nbin = int(np.round(sr) * 2.5)
+        idx = np.where(M==istate)[0]
 
-        lsr = load_laser(ppath, rec)
-        idxs, idxe = laser_start_end(lsr)
+
+        # load laser
+        if pmode == 1:
+            lsr = load_laser(ppath, rec)
+            idxs, idxe = laser_start_end(lsr)
+        
+            # downsample EEG time to spectrogram time    
+            idxs = [int(i/nbin) for i in idxs]
+            idxe = [int(i/nbin) for i in idxe]
+        
+            laser_idx = []
+            for (i,j) in zip(idxs, idxe):
+                laser_idx += range(i,j+1)
+            laser_idx = np.array(laser_idx)
     
-        # downsample EEG time to spectrogram time    
-        idxs = [int(i/nbin) for i in idxs]
-        idxe = [int(i/nbin) for i in idxe]
-    
-        laser_idx = []
-        for (i,j) in zip(idxs, idxe):
-            laser_idx += range(i,j+1)
-        laser_idx = np.array(laser_idx)
+            idx_lsr   = np.intersect1d(idx, laser_idx)
+            idx_nolsr = np.setdiff1d(idx, laser_idx)
         ###################################################
 
-
+        # load spectrogram
         tmp = so.loadmat(os.path.join(ppath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
         SP = tmp['SP']
+        if pnorm:
+            sp_mean = np.mean(SP, axis=1)
+            SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
+
         freq = tmp['freq']
         if fmax > -1:
             ifreq = np.where(freq <= fmax)[0]
             freq = freq[ifreq]
             SP = SP[ifreq,:]
+        ###################################################
         
-        idx = np.where(M==istate)[0]
-        idx_lsr   = np.intersect1d(idx, laser_idx)
-        idx_nolsr = np.setdiff1d(idx, laser_idx)
-
-        count_mice[0][idf] += len(idx_nolsr)
-        count_mice[1][idf] += len(idx_lsr)
-        ps_lsr   = SP[:,idx_lsr].sum(axis=1)
-        ps_nolsr = SP[:,idx_nolsr].sum(axis=1)
+        if pmode == 1:
+            count_mice[0][idf] += len(idx_nolsr)
+            count_mice[1][idf] += len(idx_lsr)
+            ps_lsr   = SP[:,idx_lsr].sum(axis=1)
+            ps_nolsr = SP[:,idx_nolsr].sum(axis=1)
         
-        ps_mice[1][idf].append(ps_lsr)
-        ps_mice[0][idf].append(ps_nolsr)
-        
-        #data += [[idf, 'yes']+list(i) for i in list(np.vstack((freq, ps_lsr)).T)]
-        #data += [[idf, 'no']+list(i) for i in list(np.vstack((freq, ps_nolsr)).T)]
-        
-    
-
-    
+            ps_mice[1][idf].append(ps_lsr)
+            ps_mice[0][idf].append(ps_nolsr)
+        else:
+            count_mice[0][idf] += len(idx)
+            ps_nolsr = SP[:,idx].sum(axis=1)
+            ps_mice[0][idf].append(ps_nolsr)
+            
+    lsr_cond = []
+    if pmode == 0:
+        lsr_cond = [0]
+    else:
+        lsr_cond = [0,1]
     
     ps_mx = {0:[], 1:[]}
-    for l in [0,1]:
+    for l in lsr_cond:
         mx = np.zeros((len(mice), len(freq)))
         for (i,idf) in zip(range(len(mice)), mice):
             mx[i,:] = np.array(ps_mice[l][idf]).sum(axis=0) / count_mice[l][idf]
         ps_mx[l] = mx
 
     # transform data arrays to pandas dataframe
-    data_lsr = list(np.reshape(ps_mx[1], (len(mice)*len(freq),)))
     data_nolsr = list(np.reshape(ps_mx[0], (len(mice)*len(freq),)))
     amp_freq = list(freq)*len(mice)
-    list_lsr = ['yes']*len(freq)*len(mice) + ['no']*len(freq)*len(mice)
     amp_idf = reduce(lambda x,y: x+y, [[b]*len(freq) for b in mice])
-    data = [[a,b,c,d] for (a,b,c,d) in zip(amp_idf*2, amp_freq*2, data_lsr+data_nolsr, list_lsr)]
+    if pmode == 1:
+        data_lsr = list(np.reshape(ps_mx[1], (len(mice)*len(freq),)))
+        list_lsr = ['yes']*len(freq)*len(mice) + ['no']*len(freq)*len(mice)
+        data = [[a,b,c,d] for (a,b,c,d) in zip(amp_idf*2, amp_freq*2, data_lsr+data_nolsr, list_lsr)]
+    else:
+        list_lsr = ['no']*len(freq)*len(mice)
+        data = [[a,b,c,d] for (a,b,c,d) in zip(amp_idf, amp_freq, data_nolsr, list_lsr)]
+            
     df = pd.DataFrame(columns=['Idf', 'Freq', 'Pow', 'Lsr'], data=data)
+    
+    # plot figure
+    if pplot:
+        plt.ion()
+        plt.figure()
+        sns.set_style('ticks')
+        sns.lineplot(data=df, x='Freq', y='Pow', hue='Lsr', ci=ci, palette={'yes':'blue', 'no':'gray'})
+        #plt.plot(freq, ps_mx[0].mean(axis=0), color='red')
+        #plt.plot(freq, ps_mx[1].mean(axis=0), color='green')
+        sns.despine()
+        plt.xlim([freq[0], freq[-1]])
+        
+        plt.xlabel('Freq. (Hz)')
+        if not pnorm:    
+            plt.ylabel('Power ($\mathrm{\mu V^2}$)')
+        else:
+            plt.ylabel('Norm. Pow.')
 
-    plt.ion()
-    plt.figure()
-    sns.lineplot(data=df, x='Freq', y='Pow', hue='Lsr', ci=ci, palette={'yes':'blue', 'no':'gray'})
-    #plt.plot(freq, ps_mx[0].mean(axis=0), color='red')
-    #plt.plot(freq, ps_mx[1].mean(axis=0), color='green')
-    plt.xlim([freq[0], freq[-1]])
-    plt.show()
+        plt.show()
         
     return ps_mx, freq, df
 
