@@ -4661,7 +4661,8 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
 
 
 
-def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd', pmode=1, pnorm = False, pplot=True):
+def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd', 
+                          pmode=1, pnorm = False, pplot=True, csv_file=''):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -4675,7 +4676,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd', pmode=1
                   pmode == 0, just plot power spectrum for state istate and don't care about laser
     :param pnorm: if True, normalize spectrogram by dividing each frequency band by its average power
     :param pplot: if True, plot figure
-
+    :param csv_file: if file name is provided, save results to csv file
     
     :return (ps_mx, freq, df)
     ps_mx: dict: 0|1 -> np.array(no. mice x frequencies)
@@ -4700,7 +4701,6 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd', pmode=1
         # number of time bins for each time bin in spectrogram
         nbin = int(np.round(sr) * 2.5)
         idx = np.where(M==istate)[0]
-
 
         # load laser
         if pmode == 1:
@@ -4790,8 +4790,10 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd', pmode=1
             plt.ylabel('Power ($\mathrm{\mu V^2}$)')
         else:
             plt.ylabel('Norm. Pow.')
-
         plt.show()
+        
+    if len(csv_file) > 0:
+        df.to_csv(csv_file)
         
     return ps_mx, freq, df
 
