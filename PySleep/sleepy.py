@@ -4661,14 +4661,16 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
 
 
 
-def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd', 
-                          pmode=1, pnorm = False, pplot=True, csv_file=''):
+def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, mu=[10,100], ci='sd', 
+                          pmode=1, pnorm = False, pplot=True, csv_files=[]):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
     :param ppath: base folder
     :param recordings: list of recordings
     :param istate: brain state for which power spectrum is computed
+    :param tstart: use EEG/EMG starting from time point tstart [seconds]
+    :param tend: use EEG/EMG up to time point tend [seconds]; if tend=-1, use EEG/EMG till the end
     :param fmax: maximum frequency shown on x-axis
     :param ci: 'sd' | int between 0 and 100 specificing confidence interval
     :param pmode: mode: 
@@ -4676,7 +4678,9 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd',
                   pmode == 0, just plot power spectrum for state istate and don't care about laser
     :param pnorm: if True, normalize spectrogram by dividing each frequency band by its average power
     :param pplot: if True, plot figure
-    :param csv_file: if file name is provided, save results to csv file
+    :param csv_files: if two file names are provided, the results for EEG power spectrum
+    and EMG amplitude are saved to the csv files. The EEG powerspectrum is
+    saved to the first file.
     
     :return (ps_mx, freq, df)
     ps_mx: dict: 0|1 -> np.array(no. mice x frequencies)
@@ -4691,6 +4695,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd',
             mice.append(idf)
             
     ps_mice = {0: {m:[] for m in mice}, 1: {m:[] for m in mice}}
+    amp_mice = {0: {m:0 for m in mice}, 1: {m:0 for m in mice}}
     count_mice = {0: {m:0 for m in mice}, 1: {m:0 for m in mice}}
     data = []
     for rec in recordings:
@@ -4700,12 +4705,25 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd',
         sr = get_snr(ppath, rec)
         # number of time bins for each time bin in spectrogram
         nbin = int(np.round(sr) * 2.5)
-        idx = np.where(M==istate)[0]
+        dt = nbin * (1/sr)
 
+        # determine start and end of time frame used for calculation
+        istart = int(np.round(tstart / dt))
+        if tend > -1:
+            iend = int(np.round(tend / dt))
+        else:
+            iend = len(M)
+        istart_eeg = istart*nbin
+        #iend_eeg   = (iend-1)*nbin+1
+        iend_eeg   = iend*nbin
+        
+        M = M[istart:iend]    
+        idx = np.where(M==istate)[0]
+        
         # load laser
         if pmode == 1:
             lsr = load_laser(ppath, rec)
-            idxs, idxe = laser_start_end(lsr)
+            idxs, idxe = laser_start_end(lsr[istart_eeg:iend_eeg])
         
             # downsample EEG time to spectrogram time    
             idxs = [int(i/nbin) for i in idxs]
@@ -4720,18 +4738,24 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd',
             idx_nolsr = np.setdiff1d(idx, laser_idx)
         ###################################################
 
-        # load spectrogram
+        # load EEG spectrogram
         tmp = so.loadmat(os.path.join(ppath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
-        SP = tmp['SP']
+        SP = tmp['SP'][:,istart:iend]
         if pnorm:
             sp_mean = np.mean(SP, axis=1)
             SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
-
         freq = tmp['freq']
+        df = freq[1]-freq[0]
         if fmax > -1:
             ifreq = np.where(freq <= fmax)[0]
             freq = freq[ifreq]
             SP = SP[ifreq,:]
+            
+        # load EMG spectrogram
+        tmp = so.loadmat(os.path.join(ppath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
+        MSP = tmp['mSP'][:,istart:iend]
+        imu = np.where((freq>=mu[0]) & (freq<=mu[-1]))[0]
+        emg_ampl = np.sqrt(MSP[imu,:].sum(axis=0)*df)
         ###################################################
         
         if pmode == 1:
@@ -4742,10 +4766,13 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd',
         
             ps_mice[1][idf].append(ps_lsr)
             ps_mice[0][idf].append(ps_nolsr)
+            amp_mice[1][idf] += emg_ampl[idx_lsr].sum()
+            amp_mice[0][idf] += emg_ampl[idx_nolsr].sum()
         else:
             count_mice[0][idf] += len(idx)
             ps_nolsr = SP[:,idx].sum(axis=1)
             ps_mice[0][idf].append(ps_nolsr)
+            amp_mice[0][idf] += emg_ampl[idx].sum()
             
     lsr_cond = []
     if pmode == 0:
@@ -4753,12 +4780,16 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd',
     else:
         lsr_cond = [0,1]
     
-    ps_mx = {0:[], 1:[]}
+    ps_mx  = {0:[], 1:[]}
+    amp_mx = {0:[], 1:[]}
     for l in lsr_cond:
-        mx = np.zeros((len(mice), len(freq)))
+        mx  = np.zeros((len(mice), len(freq)))
+        amp = np.zeros((len(mice),))
         for (i,idf) in zip(range(len(mice)), mice):
             mx[i,:] = np.array(ps_mice[l][idf]).sum(axis=0) / count_mice[l][idf]
-        ps_mx[l] = mx
+            amp[i]  = amp_mice[l][idf] / count_mice[l][idf]
+        ps_mx[l]  = mx
+        amp_mx[l] = amp
 
     # transform data arrays to pandas dataframe
     data_nolsr = list(np.reshape(ps_mx[0], (len(mice)*len(freq),)))
@@ -4771,9 +4802,18 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd',
     else:
         list_lsr = ['no']*len(freq)*len(mice)
         data = [[a,b,c,d] for (a,b,c,d) in zip(amp_idf, amp_freq, data_nolsr, list_lsr)]
-            
     df = pd.DataFrame(columns=['Idf', 'Freq', 'Pow', 'Lsr'], data=data)
     
+    df_amp = pd.DataFrame(columns=['Idf', 'Amp', 'Lsr'])
+    if pmode == 1:
+        df_amp['Idf'] = mice*2
+        df_amp['Amp'] = list(amp_mx[0]) + list(amp_mx[1])
+        df_amp['Lsr'] = ['no'] * len(mice) + ['yes'] * len(mice)
+    else:
+        df_amp['Idf'] = mice
+        df_amp['Amp'] = list(amp_mx[0]) 
+        df_amp['Lsr'] = ['no'] * len(mice) 
+        
     # plot figure
     if pplot:
         plt.ion()
@@ -4792,10 +4832,18 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, fmax=-1, ci='sd',
             plt.ylabel('Norm. Pow.')
         plt.show()
         
-    if len(csv_file) > 0:
-        df.to_csv(csv_file)
+        plt.figure()
+        sns.barplot(data=df_amp, x='Lsr', y='Amp', palette={'yes':'blue', 'no':'gray'}, ci=ci)
+        sns.swarmplot(data=df_amp, x='Lsr', y='Amp', hue='Idf', palette='husl') 
+        plt.ylabel('Amp ($\mathrm{\mu V}$)')
+        sns.despine()
+        plt.show()
         
-    return ps_mx, freq, df
+    if len(csv_files) > 0:
+        df.to_csv(csv_files[0])
+        df.to_csv(csv_files[1])
+        
+    return ps_mx, freq, df, df_amp
 
 
 
