@@ -3468,7 +3468,7 @@ def sleep_stats(ppath, recordings, ma_thr=10.0, tstart=0, tend=-1, pplot=True, c
     state_list = ['REM', 'Wake', 'NREM']*nmice
     df = pd.DataFrame({'mouse':mouse_list, 'state':state_list, 'Perc':PercMx.flatten(), 'Dur':DurMx.flatten(), 'Freq':FreqMx.flatten()})
     if len(csv_file) > 0:
-        df.to_csv(csv_file)
+        df.to_csv(csv_file, index=False)
 
     return PercMx, DurMx, FreqMx, df
   
@@ -3730,7 +3730,7 @@ def sleep_timecourse_list(ppath, recordings, tbin, n, tstart=0, tend=-1, ma_thr=
     df = pd.DataFrame(D, index=mouse_order, columns=columns)
 
     if len(csv_file) > 0:
-        df.to_csv(csv_file)
+        df.to_csv(csv_file, index=False)
 
     return TimeMx, DurMx, FreqMx, df
 
@@ -3907,7 +3907,7 @@ def ma_timecourse_list(ppath, recordings, tbin, n, tstart=0, tend=-1, ma_thr=20,
     df['freq'] = FreqMx.T.flatten()
 
     if len(csv_file) > 0:
-        df.to_csv(csv_file)
+        df.to_csv(csv_file, index=False)
 
     return TimeMx, DurMx, FreqMx, df
 
@@ -4015,13 +4015,13 @@ def sleep_through_days(ppath, recordings, tstart=0, tend=-1, stats=0, xticks=[],
     df = pd.DataFrame(D, index=mice, columns=columns)
     if len(csv_file) > 0:
         csv_file += '_stats' + str(stats) + '.csv'
-        df.to_csv(os.path.join(ppath, csv_file))
+        df.to_csv(os.path.join(ppath, csv_file), index=False)
 
     return DayResults, df
 
 
 
-def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, csv_file=''):
+def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, stats='perc', csv_file=''):
     """
     plot how percentage of REM,Wake,NREM changes over time;
     compares control with experimental data; experimental recordings can have different "doses"
@@ -4035,10 +4035,28 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
     tstart  -    beginning of recording (time <tstart is thrown away)
     tend    -    end of recording (time >tend is thrown away)
     pplot   -    plot figure if True
+    stats   -    statistics; stats='perc': compute percentage of each brain state 
+                 in each time bin;
+                 stats = 'freq': compute frequency of each state for each time bin
+                 stats = 'dur': compute average duration of each state sequence 
+                 for each time bin
     
     @Return:
     TimeMxCtr - Dict[R|W|N][time_bin x mouse_id] 
     TimeMxExp - Dict[R|W|N][dose][time_bin x mouse_id]
+    df   -   pandas.DataFrame with columns ['mouse', 'dose', 'state', 'time', $stats]
+    
+    How to run 2way anova with repeated measures? 
+    to determine with effects for different doses on REM:
+    
+        # extract all REM values from DataFrame
+        df_rem = df[df.state == 'REM']
+    
+    the within factors are 'time' and 'dose'; the dependent variable is 'perc'
+    using pingouin the anova can be calculated using
+   
+         pg.rm_anova(data=df_rem, dv='perc', within=['time', 'dose'], subject='mouse', correction=True)  
+    
     """
     (ctr_rec, exp_rec) = load_dose_recordings(ppath, trace_file)
     
@@ -4084,20 +4102,34 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
         for i in range(n):
             # return something even if istart+i+1)*ibin >= len(M)
             M_cut = M[istart+i*ibin:istart+(i+1)*ibin]            
+            #midx = np.arange(istart + i * ibin, istart + (i + 1) * ibin)
             perc = []
             for s in [1,2,3]:
-                perc.append( len(np.where(M_cut==s)[0]) / (1.0*len(M_cut)) )
+                if stats == 'perc':
+                    perc.append( len(np.where(M_cut==s)[0]) / (1.0*len(M_cut)) )
+                elif stats == 'freq':
+                    tmp = len(get_sequences(np.where(M_cut==s)[0])) * (3600. / (len(M_cut)*dt))
+                    perc.append(tmp)
+                else:
+                    tmp = get_sequences(np.where(M_cut==s)[0])
+                    tmp = np.array([len(j)*dt for j in tmp]).mean()                
+                    perc.append(tmp)
             perc_time.append(perc)
-        perc_vec = np.zeros((n,3))
-        
+            
+            # number of time bins x [REM|Wake|NREM]
+        perc_vec = np.zeros((n,3))            
         for i in range(3):
+            # for each time bin we have a list of 3 elements for each state.
+            # take from each of these triplets the i-th state, forming a column vector
+            #pdb.set_trace()
             perc_vec[:,i] = np.array([v[i] for v in perc_time])
         TimeCourse[rec] = perc_vec
 
 
+
     # define data frame containing all data
-    bins = ['t' + str(i) for i in range(n)]
-    cols = ['mouse', 'dose', 'state', 'time', 'perc']
+    #bins = ['t' + str(i) for i in range(n)]
+    cols = ['mouse', 'dose', 'state', 'time', stats]
     df = pd.DataFrame(columns=cols)
     state_map = {1: 'REM', 2:'Wake', 3:'NREM'}
 
@@ -4123,7 +4155,6 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
             TimeMxCtr[s][:,i] = tmp[:,s-1]
             for j in range(n):
                 df = df.append(pd.Series([k, '0', state_map[s], 't'+str(j), tmp[j,s-1]], index=cols), ignore_index=True)
-
         i += 1
                 
     # collect all recording belonging to one Exp mouse with a specific dose
@@ -4140,7 +4171,7 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
             if rec in exp_rec[d]:
                 TimeCourseExp[d][idf].append(TimeCourse[rec])
     
-    # dummy dictionally to initialize TimeMxExp
+    # dummy dictionary to initialize TimeMxExp
     # Dict[R|W|N][dose][time_bin x mouse_id]
     TimeMxExp = {1:{}, 2:{}, 3:{}}
     for s in [1,2,3]:
@@ -4159,16 +4190,13 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
                 TimeMxExp[s][d][:,i] = tmp[:,s-1]
                 for j in range(n):
                     df = df.append(pd.Series([k, d, state_map[s], 't'+str(j), tmp[j, s-1]], index=cols), ignore_index=True)
-
             i += 1
 
     if pplot:
-        # new
         tlabel = np.linspace(istart*dt, istart*dt+n*ibin*dt, n+1)
         t = np.linspace(istart*dt, istart*dt+n*ibin*dt, n+1)[0:-1] + (ibin*dt/2.0)
         t /= 3600.0
         tlabel /= 3600.0
-        # new end
 
         plt.ion()
         plt.figure()
@@ -4177,10 +4205,14 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
         plt.errorbar(t, TimeMxCtr[1].mean(axis=1), yerr = TimeMxCtr[1].std(axis=1),  color='gray', fmt = 'o', linestyle='-', linewidth=2, elinewidth=2)
         box_off(ax)
         plt.xlim([t[0], t[-1]])
-        plt.yticks([0, 0.1, 0.2])
+        #plt.yticks([0, 0.1, 0.2])
         plt.xticks(tlabel)
-        plt.ylabel('% REM')    
-        #plt.ylim((0,0.2))
+        if stats=='perc':
+            plt.ylabel('% REM')    
+        elif stats == 'freq':
+            plt.ylabel('Freq. REM (1/h)')
+        else:
+            plt.ylabel('Dur. REM (s)')
         
         i = 1
         for d in TimeMxExp[1]:            
@@ -4192,11 +4224,14 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
         plt.errorbar(t, TimeMxCtr[2].mean(axis=1), yerr = TimeMxCtr[2].std(axis=1),  color='gray', fmt = 'o', linestyle='-', linewidth=2, elinewidth=2)
         box_off(ax)
         plt.xlim([t[0], t[-1]])
-        plt.yticks([0, 0.1, 0.2])
+        #plt.yticks([0, 0.1, 0.2])
         plt.xticks(tlabel)
-        plt.ylabel('% Wake')    
-        #plt.ylim((0,1))
-        plt.yticks(np.arange(0, 1.1, 0.25))
+        if stats=='perc':
+            plt.ylabel('% Wake')    
+        elif stats == 'freq':
+            plt.ylabel('Freq. Wake (1/h)')
+        else:
+            plt.ylabel('Dur. Wake (s)')
     
         i = 1
         for d in TimeMxExp[2]:            
@@ -4208,11 +4243,15 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
         plt.errorbar(t, TimeMxCtr[3].mean(axis=1), yerr = TimeMxCtr[3].std(axis=1),  color='gray', fmt = 'o', linestyle='-', linewidth=2, elinewidth=2)
         box_off(ax)
         plt.xlim([t[0], t[-1]])
-        plt.yticks([0, 0.1, 0.2])
+        #plt.yticks([0, 0.1, 0.2])
         plt.xticks(tlabel)
-        plt.ylabel('% NREM')    
-        #plt.ylim((0,1))
-        plt.yticks(np.arange(0, 1.1, 0.25))
+        if stats=='perc':
+            plt.ylabel('% NREM')    
+        elif stats == 'freq':
+            plt.ylabel('Freq. NREM (1/h)')
+        else:
+            plt.ylabel('Dur. NREM (s)')
+
         plt.xlabel('Time (h)')
         plt.show()
     
@@ -4223,7 +4262,7 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
             i += 1
 
     if len(csv_file) > 0:
-        df.to_csv(os.path.join(csv_file))
+        df.to_csv(os.path.join(csv_file), index=False)
 
     return TimeMxCtr, TimeMxExp, df
 
@@ -4840,8 +4879,8 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
         plt.show()
         
     if len(csv_files) > 0:
-        df.to_csv(csv_files[0])
-        df.to_csv(csv_files[1])
+        df.to_csv(csv_files[0], index=False)
+        df.to_csv(csv_files[1], index=False)
         
     return ps_mx, freq, df, df_amp
 
