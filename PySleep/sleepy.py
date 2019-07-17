@@ -4701,7 +4701,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
 
 
 def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, mu=[10,100], ci='sd', 
-                          pmode=1, pnorm = False, pplot=True, csv_files=[]):
+                          pmode=1, pnorm = False, pplot=True, harmcs=0, csv_files=[]):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -4717,14 +4717,17 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                   pmode == 0, just plot power spectrum for state istate and don't care about laser
     :param pnorm: if True, normalize spectrogram by dividing each frequency band by its average power
     :param pplot: if True, plot figure
+    :param harmcs: if > 0, remove all harmonics of base frequency $harm, from the frequencies used
+    for EMG amplitude calculation
     :param csv_files: if two file names are provided, the results for EEG power spectrum
     and EMG amplitude are saved to the csv files. The EEG powerspectrum is
     saved to the first file.
     
-    :return (ps_mx, freq, df)
+    :return (ps_mx, freq, df, df_amp)
     ps_mx: dict: 0|1 -> np.array(no. mice x frequencies)
     freq: vector with frequencies
-    df: DataFrame with columns 'Idf', 'Freq', 'Pow', 'Lsr'
+    df: DataFrame with EEG powerspectrum; columns: 'Idf', 'Freq', 'Pow', 'Lsr'
+    df_amp: DataFrame with EMG amplitude; columns: 'Idf', 'Amp', 'Lsr'
     """
     
     mice = []
@@ -4757,8 +4760,14 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
         iend_eeg   = iend*nbin
         
         M = M[istart:iend]    
-        idx = np.where(M==istate)[0]
-        
+        if type(istate) == int:
+            idx = np.where(M==istate)[0]
+        else:
+            idx = np.array([], dtype='int')
+            for s in istate:
+                idx = np.concatenate((idx, np.where(M==s)[0]))
+            #idx = idx.astype('int')
+
         # load laser
         if pmode == 1:
             lsr = load_laser(ppath, rec)
@@ -4794,7 +4803,18 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
         tmp = so.loadmat(os.path.join(ppath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
         MSP = tmp['mSP'][:,istart:iend]
         imu = np.where((freq>=mu[0]) & (freq<=mu[-1]))[0]
-        emg_ampl = np.sqrt(MSP[imu,:].sum(axis=0)*df)
+        
+        if harmcs > 0:
+            harm_freq = np.arange(0, freq.max(), harmcs)
+            for h in harm_freq:
+                imu = np.setdiff1d(imu, imu[np.where(freq[imu]==h)[0]])
+            tmp = 0
+            for i in imu:
+                tmp += MSP[i,:] * (freq[i]-freq[i-1])
+            emg_ampl = np.sqrt(tmp)
+            
+        else:
+            emg_ampl = np.sqrt(MSP[imu,:].sum(axis=0)*df)
         ###################################################
         
         if pmode == 1:
