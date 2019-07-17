@@ -4701,7 +4701,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
 
 
 def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, mu=[10,100], ci='sd', 
-                          pmode=1, pnorm = False, pplot=True, harmcs=0, csv_files=[]):
+                          pmode=1, pnorm = False, pplot=True, harmcs=0, pemg2=False, csv_files=[]):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -4719,6 +4719,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     :param pplot: if True, plot figure
     :param harmcs: if > 0, remove all harmonics of base frequency $harm, from the frequencies used
     for EMG amplitude calculation
+    :param pemg2: if True, use EMG2 for EMG amplitude calcuation
     :param csv_files: if two file names are provided, the results for EEG power spectrum
     and EMG amplitude are saved to the csv files. The EEG powerspectrum is
     saved to the first file.
@@ -4801,7 +4802,10 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
             
         # load EMG spectrogram
         tmp = so.loadmat(os.path.join(ppath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
-        MSP = tmp['mSP'][:,istart:iend]
+        if not pemg2:
+            MSP = tmp['mSP'][:,istart:iend]
+        else:
+            MSP = tmp['mSP2'][:,istart:iend]
         imu = np.where((freq>=mu[0]) & (freq<=mu[-1]))[0]
         
         if harmcs > 0:
@@ -4892,8 +4896,10 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
         plt.show()
         
         plt.figure()
+        plt.axes([0.1, 0.1, 0.4, 0.8])
         sns.barplot(data=df_amp, x='Lsr', y='Amp', palette={'yes':'blue', 'no':'gray'}, ci=ci)
-        sns.swarmplot(data=df_amp, x='Lsr', y='Amp', hue='Idf', palette='husl') 
+        #sns.swarmplot(data=df_amp, x='Lsr', y='Amp', hue='Idf', palette='husl') 
+        sns.lineplot(data=df_amp, x='Lsr', y='Amp', hue='Idf', palette='husl')
         plt.ylabel('Amp ($\mathrm{\mu V}$)')
         sns.despine()
         plt.show()
