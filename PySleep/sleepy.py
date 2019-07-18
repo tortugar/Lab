@@ -2515,7 +2515,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
 
 
 def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnorm=1, pplot=True, tstart=0, tend=-1,
-                            vm=[], cb_ticks=[0], mu=[10, 200], trig_state=0, fig_file=''):
+                            vm=[], cb_ticks=[0], mu=[10, 100], trig_state=0, harmcs=0, fig_file=''):
     """
     calculate average spectrogram for all recordings listed in @recordings; for averaging take
     mouse identity into account
@@ -2567,14 +2567,25 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     EEGLsr = np.array([EEGSpec[k] for k in mice]).mean(axis=0)
     EMGLsr = np.array([EMGSpec[k] for k in mice]).mean(axis=0)
 
-    mf = np.where((f >= mu[0]) & (f <= mu[1]))[0]
-    df = f[1] - f[0]
+    mf = np.where((f >= mu[0]) & (f <= mu[1]))[0]    
+    if harmcs > 0:
+        harm_freq = np.arange(0, f.max(), harmcs)
+        for h in harm_freq:
+            mf = np.setdiff1d(mf, mf[np.where(f[mf]==h)[0]])
 
+    df = f[1] - f[0]
     EMGAmpl = np.zeros((len(mice), EEGLsr.shape[1]))
     i=0
     for idf in mice:
         # amplitude is square root of (integral over each frequency)
-        EMGAmpl[i,:] = np.sqrt(EMGSpec[idf][mf,:].sum(axis=0)*df)
+        if harmcs == 0:
+            EMGAmpl[i,:] = np.sqrt(EMGSpec[idf][mf,:].sum(axis=0)*df)
+        else:
+            tmp = 0
+            for qf in mf:
+                tmp += EMGSpec[idf][qf,:] * (f[qf] - f[qf-1])
+            EMGAmpl[i,:] = np.sqrt(tmp)
+            
         i += 1
     avg_emg = EMGAmpl.mean(axis=0)
     sem_emg = EMGAmpl.std(axis=0) #/ np.sqrt(len(mice))
@@ -4813,7 +4824,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
         if harmcs > 0:
             harm_freq = np.arange(0, freq.max(), harmcs)
             for h in harm_freq:
-                imu = np.setdiff1d(imu, imu[np.where(freq[imu]==h)[0]])
+                imu = np.setdiff1d(imu, imu[np.where(np.round(freq[imu], decimals=1)==h)[0]])
             tmp = 0
             for i in imu:
                 tmp += MSP[i,:] * (freq[i]-freq[i-1])
