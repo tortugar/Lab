@@ -3560,7 +3560,8 @@ def sleep_timecourse_list(ppath, recordings, tbin, n, tstart=0, tend=-1, ma_thr=
         for i in range(n):
             #midx = np.arange(istart+i*ibin, istart+(i+1)*ibin)
             #midx = np.setdiff1d(midx, kcut)
-            M_cut = M[np.arange(istart+i*ibin, istart+(i+1)*ibin)]
+            #M_cut = M[np.arange(istart+i*ibin, istart+(i+1)*ibin)]
+            M_cut = M[(istart+i*ibin):(istart+(i+1)*ibin)]
             perc = []
             for s in [1,2,3]:
                 perc.append( len(np.where(M_cut==s)[0]) / (1.0*len(M_cut)) )
@@ -3577,7 +3578,8 @@ def sleep_timecourse_list(ppath, recordings, tbin, n, tstart=0, tend=-1, ma_thr=
         for i in range(n):
             #midx = np.arange(istart+i*ibin, istart+(i+1)*ibin)
             #midx = np.setdiff1d(midx, kcut)
-            M_cut = M[np.arange(istart+i*ibin, istart+(i+1)*ibin)]
+            #M_cut = M[np.arange(istart+i*ibin, istart+(i+1)*ibin)]
+            M_cut = M[(istart+i*ibin):(istart+(i+1)*ibin)]
             freq = []
             for s in [1,2,3]:
                 tmp = len(get_sequences(np.where(M_cut==s)[0])) * (3600. / (len(M_cut)*dt))
@@ -3595,7 +3597,7 @@ def sleep_timecourse_list(ppath, recordings, tbin, n, tstart=0, tend=-1, ma_thr=
         for i in range(n):
             #midx = np.arange(istart+i*ibin, istart+(i+1)*ibin)
             #midx = np.setdiff1d(midx, kcut)
-            M_cut = M[np.arange(istart+i*ibin, istart+(i+1)*ibin)]
+            M_cut = M[(istart+i*ibin):(istart+(i+1)*ibin)]
             dur = []
             for s in [1,2,3]:
                 tmp = get_sequences(np.where(M_cut==s)[0])
