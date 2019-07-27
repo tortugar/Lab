@@ -643,7 +643,7 @@ def calculate_spectrum(ppath, name, fres=0.5):
     
     SR = get_snr(ppath, name)
     swin = round(SR)*5
-    fft_win = round(swin/5)
+    fft_win = round(swin/5) # approximate number of data points per second
     if (fres == 1.0) or (fres == 1):
         fft_win = int(fft_win)
     elif fres == 0.5:
@@ -4048,8 +4048,8 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
     tstart  -    beginning of recording (time <tstart is thrown away)
     tend    -    end of recording (time >tend is thrown away)
     pplot   -    plot figure if True
-    stats   -    statistics; stats='perc': compute percentage of each brain state 
-                 in each time bin;
+    stats   -    statistics; 
+                 stats = 'perc': compute percentage of each brain state in each time bin;
                  stats = 'freq': compute frequency of each state for each time bin
                  stats = 'dur': compute average duration of each state sequence 
                  for each time bin
@@ -4366,19 +4366,21 @@ def state_onset(ppath, recordings, istate, min_dur, iseq=0, ma_thr=10, tstart=0,
 
 
 
-def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_max=-1, pplot=True, sig_type='EEG', mu=[10, 100],
+def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, f_max=-1, pplot=True, sig_type='EEG', mu=[10, 100],
                    tstart=0, tend=-1, sthres=np.inf, peeg2=False, pnorm=False, single_mode=False, conv=1.0, fig_file='', laser_color='blue', ci='sd'):
     """
     calculate power spectrum for brain state i state for the given recordings.
     The function first calculates for each mouse the powerspectrum for each
     istate sequence, and then averages across all sequences.
+    Note: If recordings with different sampling rates are combined, set f_max to a 
+    frequency value, which exists for all recordings.
+    
     @Param:
     ppath    -    folder containing all recordings
     recordings -  single recording (string) or list of recordings
     @Optional:
     istate   -    state for which to calculate power spectrum; 1=REM, 2=Wake, 3=NREM
-    twin     -    time window (in seconds) for power spectrum calculation
-                  the longer the higher frequency resolution, but the more noisy
+    fres     -    resolution of frequency axis; i.e. fres = F[i] - F[i-1]
     ma_thr   -    short wake periods <= $ma_thr are considered as sleep
     f_max    -    maximal frequency, if f_max==-1: f_max is maximally possible frequency
     pplot    -    if True, plot figure showing result
@@ -4459,6 +4461,11 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
             # this whay they are effectively discarded
             M[K<0] = 0
             sr = get_snr(ppath, rec)
+            
+            # calculate time window
+            #twin = int(np.round(sr * (1/fres))) * (1/sr) 
+            twin = sr * (1/fres) * (1/sr) 
+            
             # number of time bins for each time bin in spectrogram
             nbin = int(np.round(sr) * 2.5)
             # duration of time bin in spectrogram / brainstate
@@ -4692,9 +4699,16 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, twin=3, ma_thr=20.0, f_
         mi = 0
         for m in mouse_order:
             for i in range(len(F)):
-                vals.append([0, m, Pow[0][mi][i], F[i]])
+
+                if len(mouse_order) > 1:
+                    vals.append([0, m, Pow[0][mi][i], F[i]])
+                else:
+                    vals.append([0, m, Pow[0][:,i].mean(), F[i]])
                 if pmode >= 1:
-                    vals.append([1, m, Pow[1][mi][i], F[i]])
+                    if len(mouse_order) > 1:
+                        vals.append([1, m, Pow[1][mi][i], F[i]])
+                    else:
+                        vals.append([1, m, Pow[1][:,i].mean(), F[i]])
             mi += 1
 
     df = pd.DataFrame(columns=['Lsr', 'Id', 'Pow', 'Freq'], data=vals)
@@ -5482,7 +5496,6 @@ def ma_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160, band=[10,15],
         seq = get_sequences(np.where(M==state)[0], ibreak=int(np.round(ma_thr/dt))+1)
         seq = [range(s[0], s[-1]+1) for s in seq]
         
-        #pdb.set_trace()
         # load frequency band
         #P = so.loadmat(os.path.join(ppath, rec,  'sp_' + rec + '.mat'));
         #SP = np.squeeze(P['SP'])
