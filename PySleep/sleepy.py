@@ -4595,30 +4595,46 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                                 Pow = np.divide(Pow, pow_norm)
                             Spectra[idf][0].append(Pow)
 
+    if f_max > -1:
+        ifreq = np.where(F<=f_max)[0]
+        F = F[ifreq]
+    else:
+        f_max = F[-1]
+
     Pow = {0:[], 1:[]}
     if len(Ids)==1:
         # only one mouse
-        Pow[0] = np.array(Spectra[Ids[0]][0])
-        Pow[1] = np.array(Spectra[Ids[0]][1])
+        #Pow[0] = np.array(Spectra[Ids[0]][0])
+        #Pow[1] = np.array(Spectra[Ids[0]][1])
+        
+        Pow[0] = np.array([s[ifreq] for s in Spectra[Ids[0]][0]])
+        Pow[1] = np.array([s[ifreq] for s in Spectra[Ids[0]][1]])
+        
     else:
         # several mice
         Pow[0] = np.zeros((len(Ids),len(F)))
         Pow[1] = np.zeros((len(Ids),len(F)))
         i = 0
         for m in Ids:
-            Pow[0][i,:] = np.array(Spectra[m][0]).mean(axis=0)
+            #Pow[0][i,:] = np.array(Spectra[m][0]).mean(axis=0)
+            tmp = [s[ifreq] for s in Spectra[m][0]]
+            Pow[0][i,:] = np.array(tmp).mean(axis=0)
+            
             if pmode == 1 or pmode == 2:
-                Pow[1][i,:] = np.array(Spectra[m][1]).mean(axis=0)
+                #Pow[1][i,:] = np.array(Spectra[m][1]).mean(axis=0)
+                tmp = [s[ifreq] for s in Spectra[m][1]]
+                Pow[1][i,:] = np.array(tmp).mean(axis=0)
+                
             i += 1
 
-    if f_max > -1:
-        ifreq = np.where(F<=f_max)[0]
-        F = F[ifreq]
-        Pow[0] = Pow[0][:,ifreq]
-        if pmode==1 or pmode==2:
-            Pow[1] = Pow[1][:,ifreq]
-    else:
-        f_max = F[-1]
+    #if f_max > -1:
+    #    ifreq = np.where(F<=f_max)[0]
+    #    F = F[ifreq]
+    #    Pow[0] = Pow[0][:,ifreq]
+    #    if pmode==1 or pmode==2:
+    #        Pow[1] = Pow[1][:,ifreq]
+    #else:
+    #    f_max = F[-1]
     
     if pplot:
         plt.ion()
