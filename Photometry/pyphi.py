@@ -351,6 +351,7 @@ def plot_rawtraces(ppath, name, tskip=10, wcut=2.0, ndown=100, vm=3, tstart=0, t
     plt.xlim([traw[0], traw[-1]])
 
     # plot DF/F
+    print('here')
     axes5 = plt.axes([0.1, 0.10, 0.8, 0.2], sharex=axes4)
     axes5.plot(traw, dff*100, color='k')
     sleepy.box_off(axes5)
@@ -1607,9 +1608,9 @@ def time_morph(X, nstates):
     A = upsample_mx(X, nstates)
     # now we have m * nstates rows
     if X.ndim == 1:
-        Y = downsample_vec(A, (m * nstates) / nstates)
+        Y = downsample_vec(A, int((m * nstates) / nstates))
     else:
-        Y = downsample_mx(A, (m * nstates) / nstates)
+        Y = downsample_mx(A, int((m * nstates) / nstates))
     # now we have m rows as requested
     return Y
 
