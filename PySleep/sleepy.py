@@ -3113,10 +3113,19 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0,
     return P, Mod
 
 
+def _despine_axes(ax):
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.axes.get_xaxis().set_visible(False)
+    ax.axes.get_yaxis().set_visible(False)
+    
+
 
 def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[], ma_thr=10,
                   fontsize=12, cb_ticks=[], emg_ticks=[], r_mu = [10, 100], 
-                  fw_color=True, pemg_ampl=False):
+                  fw_color=True, pemg_ampl=False, raw_ex = [], eegemg_legend=[], eegemg_max=[]):
     """
     plot sleep example
     :param ppath: base folder
@@ -3133,6 +3142,19 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     :param r_mu: range of frequencies for EMG amplitude
     :param fw_color: if True, use standard color scheme for brainstate (gray - NREM, violet - Wake, cyan - REM);
             otherwise use Shinjae's color scheme
+    :param pemg_ampl: 
+    :param raw_ex: list of tuples; e.g. if you wish to show 2 raw examples of length t s at time point i and j s, 
+                   set raw_ex = [(i,t), (j,t)]. 
+                   If raw_ex == [], no raw traces are plotted
+    :param eegemg_legend: list with 2 floats: scale bar (in micro Volts) for EEG and EMG raw example
+    :param eegemg_max: list of 2 floats, the y range (ylim) for EEG and EMG raw examples (in micro Volts)
+                       goes from -eegemg_max[0] to eegemg_max[0] (for EEG) and
+                       from -eegemg_max[1] to eegemg_max[1] (for EMG)
+                       
+    Example call including EEG/EMG raw traces:
+       sleepy.sleep_example(ppath, name2, 300, 1000, 4000, raw_ex=[(2140, 5), (3000, 5)], 
+                            eegemg_legend=[200, 200], eegemg_max=[200, 200], 
+                            fig_file='/Users/tortugar/Desktop/example.png')         
     """
     set_fontarial()
     set_fontsize(fontsize)
@@ -3204,21 +3226,14 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
 
     # axis in the background to draw laser patches
     axes_back = plt.axes([0.1, .4, 0.8, 0.52])
-    axes_back.get_xaxis().set_visible(False)
-    axes_back.get_yaxis().set_visible(False)
-    axes_back.spines["top"].set_visible(False)
-    axes_back.spines["right"].set_visible(False)
-    axes_back.spines["bottom"].set_visible(False)
-    axes_back.spines["left"].set_visible(False)
+    _despine_axes(axes_back)
 
     if plaser:
         for (i,j) in zip(laser_start, laser_end):
             axes_back.add_patch(patches.Rectangle((i*dt, 0), (j-i+1)*dt, 1, facecolor=[0.6, 0.6, 1], edgecolor=[0.6, 0.6, 1]))
-        plt.text(laser_end[0] * dt + dur * 0.01, 0.94, 'Laser', color=[0.6, 0.6, 1])
-
+        axes_back.text(laser_end[0] * dt + dur * 0.01, 0.94, 'Laser', color=[0.6, 0.6, 1])
     plt.ylim((0,1))
     plt.xlim([t[0], t[-1]])
-
 
     # show brainstate
     axes_brs = plt.axes([0.1, 0.4, 0.8, 0.05])
@@ -3299,6 +3314,82 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     box_off(axes_emg)
     axes_emg.patch.set_alpha(0.0)
     axes_emg.spines["bottom"].set_visible(False)
+
+
+    # NEW
+    # axis for raw data example
+    if len(raw_ex) > 0:
+        axes_raw_ex = plt.axes([0.1, .39, 0.8, 0.51])
+        axes_raw_ex.patch.set_alpha(0)
+        _despine_axes(axes_raw_ex)
+
+        for (ta, tlen) in raw_ex:
+            ta = ta-tstart
+            axes_raw_ex.add_patch(patches.Rectangle((ta, 0), tlen, 1, fill=False, edgecolor=[0.4, 0.4, 0.4], lw=0.3))
+        plt.ylim((0,1))
+        plt.xlim([t[0], t[-1]])
+
+        eeg = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']        
+        emg = so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG']
+
+        # axes to label EEG EMG
+        ax_eeg_label = plt.axes([0.04, 0.18, 0.05, 0.1])
+        ax_eeg_label.set_xlim([0, 1])
+        ax_eeg_label.set_ylim([0, 1])
+        ax_eeg_label.text(0, 0.5, 'EEG', verticalalignment='center')
+        _despine_axes(ax_eeg_label)
+
+        ax_emg_label = plt.axes([0.04, 0.05, 0.05, 0.1])
+        ax_emg_label.set_xlim([0, 1])
+        ax_emg_label.set_ylim([0, 1])
+        ax_emg_label.text(0, 0.5, 'EMG', verticalalignment='center')
+        _despine_axes(ax_emg_label)
+
+        # axes for legend
+        ax_eeg_legend = plt.axes([0.92, 0.05, 0.05, 0.1])
+        ax_emg_legend = plt.axes([0.92, 0.18, 0.05, 0.1])
+        ax_eeg_legend.set_xlim([0, 1])
+        ax_emg_legend.set_xlim([0, 1])
+
+        ax_eeg_legend.set_ylim([-eegemg_max[0], eegemg_max[0]])
+        ax_emg_legend.set_ylim([-eegemg_max[1], eegemg_max[1]])
+        
+        ax_eeg_legend.plot([0., 0.], [-eegemg_legend[0]/2, eegemg_legend[0]/2], color='black')
+        ax_emg_legend.plot([0., 0.], [-eegemg_legend[1]/2, eegemg_legend[1]/2], color='black')
+        ax_eeg_legend.text(0.1, -eegemg_legend[0]/2, str(eegemg_legend[0]/1000) + 'mV', rotation=90, fontsize=8)
+        ax_emg_legend.text(0.1, -eegemg_legend[1]/2, str(eegemg_legend[1]/1000) + 'mV', rotation=90, fontsize=8)
+        _despine_axes(ax_eeg_legend)
+        _despine_axes(ax_emg_legend)
+        
+        
+        nraw_ex = len(raw_ex)
+        raw_axes_eeg = []
+        raw_axes_emg = []
+        len_x = 0.8/nraw_ex-0.02
+        start_x = np.linspace(0.1+len_x, 0.9, nraw_ex) - len_x
+        for i in range(nraw_ex):
+            a = plt.axes([start_x[i], 0.05, (0.8/nraw_ex)-0.02, .1])
+            raw_axes_emg.append(a)
+            a = plt.axes([start_x[i], 0.18, (0.8/nraw_ex)-0.02, .1])
+            raw_axes_eeg.append(a)
+            
+        for (ax, i) in zip(raw_axes_eeg, range(len(raw_ex))):
+            ta, tlen = raw_ex[i]
+            idx = range(int(ta*sr), int(ta*sr+tlen*sr))
+            t_eeg = np.arange(0, len(idx))*ddt
+            ax.plot(t_eeg, eeg[idx], color='k', lw=0.5)
+            ax.set_xlim([t_eeg[0], t_eeg[-1]])
+            _despine_axes(ax)
+            ax.set_ylim([-eegemg_max[0], eegemg_max[0]])
+        
+        for (ax, i) in zip(raw_axes_emg, range(len(raw_ex))):
+            ta, tlen = raw_ex[i]
+            idx = range(int(ta*sr), int(ta*sr+tlen*sr))
+            t_eeg = np.arange(0, len(idx))*ddt
+            ax.plot(t_eeg, emg[idx], color='k', lw=0.5)
+            ax.set_xlim([t_eeg[0], t_eeg[-1]])
+            _despine_axes(ax)
+            ax.set_ylim([-eegemg_max[1], eegemg_max[1]])
 
     if len(fig_file) > 0:
         save_figure(fig_file)
@@ -4606,10 +4697,8 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
         # only one mouse
         #Pow[0] = np.array(Spectra[Ids[0]][0])
         #Pow[1] = np.array(Spectra[Ids[0]][1])
-        
         Pow[0] = np.array([s[ifreq] for s in Spectra[Ids[0]][0]])
         Pow[1] = np.array([s[ifreq] for s in Spectra[Ids[0]][1]])
-        
     else:
         # several mice
         Pow[0] = np.zeros((len(Ids),len(F)))
@@ -4623,8 +4712,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
             if pmode == 1 or pmode == 2:
                 #Pow[1][i,:] = np.array(Spectra[m][1]).mean(axis=0)
                 tmp = [s[ifreq] for s in Spectra[m][1]]
-                Pow[1][i,:] = np.array(tmp).mean(axis=0)
-                
+                Pow[1][i,:] = np.array(tmp).mean(axis=0)                
             i += 1
 
     #if f_max > -1:
