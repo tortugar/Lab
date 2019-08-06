@@ -3146,6 +3146,7 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     :param raw_ex: list of tuples; e.g. if you wish to show 2 raw examples of length t s at time point i and j s, 
                    set raw_ex = [(i,t), (j,t)]. 
                    If raw_ex == [], no raw traces are plotted
+                   The raw examples are labeled by gray rectangles
     :param eegemg_legend: list with 2 floats: scale bar (in micro Volts) for EEG and EMG raw example
     :param eegemg_max: list of 2 floats, the y range (ylim) for EEG and EMG raw examples (in micro Volts)
                        goes from -eegemg_max[0] to eegemg_max[0] (for EEG) and
@@ -3247,24 +3248,14 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     tmp = axes_brs.pcolorfast(t, [0, 1], np.array([M]), vmin=0, vmax=3)
     tmp.set_cmap(my_map)
     axes_brs.axis('tight')
-    axes_brs.axes.get_xaxis().set_visible(False)
-    axes_brs.axes.get_yaxis().set_visible(False)
-    axes_brs.spines["top"].set_visible(False)
-    axes_brs.spines["right"].set_visible(False)
-    axes_brs.spines["bottom"].set_visible(False)
-    axes_brs.spines["left"].set_visible(False)
+    _despine_axes(axes_brs)
 
     axes_legend = plt.axes([0.1, 0.33, 0.8, 0.05])
     plt.ylim((0,1.1))
     plt.xlim([t[0], t[-1]])
-    plt.plot([0, tlegend], [1, 1], color='black')
+    plt.plot([0, tlegend], [1, 1], color='black', lw=1)
     plt.text(tlegend/4.0, 0.1, str(tlegend) + ' s')
-    axes_legend.spines["top"].set_visible(False)
-    axes_legend.spines["right"].set_visible(False)
-    axes_legend.spines["bottom"].set_visible(False)
-    axes_legend.spines["left"].set_visible(False)
-    axes_legend.axes.get_xaxis().set_visible(False)
-    axes_legend.axes.get_yaxis().set_visible(False)
+    _despine_axes(axes_legend)
 
     # show spectrogram
     ifreq = np.where(freq <= fmax)[0]
@@ -3287,12 +3278,7 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     if len(cb_ticks) > 0:
         cb.set_ticks(cb_ticks)
     axes_cbar.set_alpha(0.0)
-    axes_cbar.spines["top"].set_visible(False)
-    axes_cbar.spines["right"].set_visible(False)
-    axes_cbar.spines["bottom"].set_visible(False)
-    axes_cbar.spines["left"].set_visible(False)
-    axes_cbar.axes.get_xaxis().set_visible(False)
-    axes_cbar.axes.get_yaxis().set_visible(False)
+    _despine_axes(axes_cbar)
 
     # show EMG
     axes_emg = plt.axes([0.1, 0.5, 0.8, 0.1], sharex=axes_spec)
@@ -3390,6 +3376,12 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
             ax.set_xlim([t_eeg[0], t_eeg[-1]])
             _despine_axes(ax)
             ax.set_ylim([-eegemg_max[1], eegemg_max[1]])
+
+        axes_raw_time = plt.axes([0.1, 0.03, len_x, 0.02])
+        plt.plot([0, tlen/10], [0,0], color='black', lw=0.8)
+        plt.ylim([-1,1])
+        plt.xlim([t_eeg[0], t_eeg[-1]])
+        _despine_axes(axes_raw_time)
 
     if len(fig_file) > 0:
         save_figure(fig_file)
