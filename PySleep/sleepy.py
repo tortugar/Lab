@@ -2534,6 +2534,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
                   pplot==1 - conventional figure;
                   pplot==2 - pretty figure showing EEG spectrogram
                              along with EMG amplitude
+                  note: the errorbar for the EMG amplitude is the S.E.M.
     :param tstart: only consider laser trials with laser onset after tstart seconds
     :param tend: only consider laser trials with laser onset before tend seconds
     :param vm: saturation of heatmap for EEG spectrogram
@@ -2588,7 +2589,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
             
         i += 1
     avg_emg = EMGAmpl.mean(axis=0)
-    sem_emg = EMGAmpl.std(axis=0) #/ np.sqrt(len(mice))
+    sem_emg = EMGAmpl.std(axis=0) / np.sqrt(len(mice))
 
     if pplot==1:
         plt.ion()
@@ -2654,6 +2655,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
         plt.show()
 
     elif pplot==2:
+        # pretty figure
         plt.figure()
         if len(vm) > 0:
             cb_ticks = vm
