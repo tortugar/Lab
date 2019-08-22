@@ -2709,7 +2709,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
 
 
 def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', start_time=0, end_time=-1,
-                     ma_thr=0, edge=0, sf=0, cond=0, single_mode=False, backup=''):
+                     ma_thr=0, edge=0, sf=0, cond=0, single_mode=False, backup='', csv_file=''):
     """
     calculate laser triggered probability of REM, Wake, NREM
     ppath        -    base folder holding all recording
@@ -2730,6 +2730,8 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
     single_mode  -    if True, plot every single mouse
     backup       -    optional backup folder; if specified each single recording folder can be either on $ppath or $backup;
                       if it's on both folders, the version in ppath is used
+    csv_file     -    if filename (without or including full file path) is provided,
+                      save pd.DataFrame df (see @Return) to csv file
 
     @Return:  BS, t, df
     BS, t, df    -   BS,t: np.array(mice x time x [REM|Wake|NREM]), np.array(time vector)
@@ -2919,6 +2921,9 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
         df['REM']  = np.concatenate((BS[:,ilsr,0].mean(axis=1), BS[:,ibase,0].mean(axis=1), BS[:,iafter,0].mean(axis=1)))
         df['NREM'] = np.concatenate((BS[:,ilsr,2].mean(axis=1), BS[:,ibase,2].mean(axis=1), BS[:,iafter,2].mean(axis=1)))
         df['Wake'] = np.concatenate((BS[:,ilsr,1].mean(axis=1), BS[:,ibase,1].mean(axis=1), BS[:,iafter,1].mean(axis=1)))
+
+    if len(csv_file) > 0:
+        df.to_csv(csv_file, index=False)
 
     return BS, t, df
 
@@ -4451,7 +4456,7 @@ def state_onset(ppath, recordings, istate, min_dur, iseq=0, ma_thr=10, tstart=0,
 
 
 
-def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, f_max=-1, pplot=True, sig_type='EEG', mu=[10, 100],
+def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, f_max=30, pplot=True, sig_type='EEG', mu=[10, 100],
                    tstart=0, tend=-1, sthres=np.inf, peeg2=False, pnorm=False, single_mode=False, conv=1.0, fig_file='', laser_color='blue', ci='sd'):
     """
     calculate power spectrum for brain state i state for the given recordings.
