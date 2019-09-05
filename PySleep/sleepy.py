@@ -5307,9 +5307,9 @@ def build_markov_matrix_blocks(MX, tdown, large_bin):
     :param large_bin: coarse time scale
     :return: pMX, 3x3xtime np.array, series of markov matrices; time is the third dimension
     """
-    nbins = MX.shape[1]        # number of time bins on fine time scale
-    ndown = large_bin/tdown     # number of fine bins in large bin
-    nstep = nbins/ndown        # number of large time bins
+    nbins = MX.shape[1]              # number of time bins on fine time scale
+    ndown = int(large_bin/tdown)     # number of fine bins in large bin
+    nstep = int(nbins/ndown)         # number of large time bins
     nrows = MX.shape[0]
 
     pMX = np.zeros((3, 3, nstep))
