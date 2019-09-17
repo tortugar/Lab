@@ -4814,7 +4814,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                         vals.append([1, m, Pow[1][:,i].mean(), F[i]])
             mi += 1
 
-    df = pd.DataFrame(columns=['Lsr', 'Id', 'Pow', 'Freq'], data=vals)
+    df = pd.DataFrame(columns=['Lsr', 'Idf', 'Pow', 'Freq'], data=vals)
 
     if pplot:
         plt.figure()
