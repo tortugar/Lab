@@ -15,6 +15,7 @@ import plotly.graph_objs as go
 import matplotlib.pylab as plt
 import scipy.stats as stats
 import pandas as pd
+import seaborn as sns
 from scipy.stats import linregress
 from functools import reduce
 
@@ -1627,7 +1628,7 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
     :param recordings: list of recordings
     :param sequence: list of 3 integers, describing the 3 state sequence
     :param nstates: number of bins for each state
-    :param thres: list of 3 floats, minimal or maximal duration of each of the 3 states
+    :param thres: list of 3 floats, minimal or maximal duration for each of the 3 consecutive states
     :param sign: 3 element list, composed of either '<' or '>', if sign[i] == '<', then the duration of the i-th state
            should be shorter than thres[i]
     :param ma_thr: microarousal threshold
@@ -1683,7 +1684,7 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
         SP = P['SP']
         freq = P['freq']
         ifreq = np.where(freq <= fmax)[0]
-        df = freq[1] - freq[0]
+        #df = freq[1] - freq[0]
 
         sp_mean = SP.mean(axis=1)
         SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
@@ -1841,7 +1842,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
         else:
             paths[rec] = backup
 
-    states = {1:'REM', 2:'Wake', 3:'NREM'}
+    #states = {1:'REM', 2:'Wake', 3:'NREM'}
     mice = []
     for rec in recordings:
         idf = re.split('_', rec)[0]
@@ -1896,7 +1897,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
         if len(seq) >= 2:
             for (si, sj) in zip(seq[:-1], seq[1:]):
                 # indices of inter-REM period
-                idx = list(range(si[-1] + 1, sj[0] - 1))
+                idx = list(range(si[-1]+1, sj[0]))
 
                 dff_pre = time_morph(dff[si], nstates_rem)
                 dff_post = time_morph(dff[sj], nstates_rem)
@@ -1985,6 +1986,134 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
 
 
 
+def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
+                       pzscore=False, ma_polish=True, ma_thr=10, sf=0, ylim=[]):
+    """
+    plot NREM and wake activity for $nsections consecutive sections 
+    of the sleep cycle (interval between two consecutive REM periods)
+    :param ppath: base folder
+    :param recordings: list of recordings
+    :param backup: optional backup folder
+    :param nsections: number of sections for the sleep cycle
+    :param pzscore: if True, z-score firing rates
+    :param ma_polish: if True, polish out micro-arousals
+    :param ma_thr: threshold for microarousals
+    :param sf: smoothing factor for firing rate
+    :param ylim: typle, y-limits for y axis
+    :return:
+    """
+    if type(recordings) != list:
+        recordings = [recordings]
+
+    paths = dict()
+    for rec in recordings:
+        if os.path.isdir(os.path.join(ppath, rec)):
+            paths[rec] = ppath
+        else:
+            paths[rec] = backup
+
+    mice = []
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        if not idf in mice:
+            mice.append(idf)
+
+    list_mx = []
+    for rec in recordings:
+        sections_wake = [[] for p in range(nsections)]
+        sections_nrem = [[] for p in range(nsections)]
+
+        
+        idf = re.split('_', rec)[0]
+
+        sr = sleepy.get_snr(ppath, rec)
+        nbin = int(np.round(sr) * 2.5)
+        dt = (1.0 / sr) * nbin
+
+        # load DF/F
+        ddir = os.path.join(paths[rec], rec)
+        dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+        if sf > 0:
+            dff = sleepy.smooth_data(dff, sf)
+
+        if pzscore:
+            dff = (dff - dff.mean()) / dff.std()
+        else:
+            dff *= 100
+
+            # load brain state
+        M,_ = sleepy.load_stateidx(paths[rec], rec)
+
+        # flatten out microarousals
+        if ma_thr > 0:
+            seq = sleepy.get_sequences(np.where(M == 2)[0])
+            for s in seq:
+                if len(s) * dt < ma_thr:
+                    if (s[0] > 1) and (M[s[0] - 1] != 1):
+                        M[s] = 3
+        print(idf)
+
+        seq = sleepy.get_sequences(np.where(M == 1)[0])
+        # We have at least 2 REM periods (i.e. one sleep cycle)
+        if len(seq) >= 2:
+            for (si, sj) in zip(seq[:-1], seq[1:]):
+                # indices of inter-REM period
+                idx = range(si[-1]+1,sj[0])
+
+                m = len(idx)
+                M_up = upsample_mx(M[idx], nsections)
+                M_up = np.round(M_up)
+                dff_up = upsample_mx(dff[idx], nsections)
+
+                for p in range(nsections):
+                    # for each m consecutive bins calculate average NREM, REM, Wake activity
+                    mi = list(range(p*m, (p+1)*m))
+
+                    idcut = np.intersect1d(mi, np.where(M_up == 2)[0])
+                    if len(idcut) == 0:
+                        wake_dff = np.nan
+                    else:
+                        wake_dff = np.nanmean(dff_up[idcut])
+                    sections_wake[p].append(wake_dff)
+
+                    idcut = np.intersect1d(mi, np.where(M_up == 3)[0])
+                    if len(idcut) == 0:
+                        nrem_dff = np.nan
+                    else:
+                        nrem_dff = np.nanmean(dff_up[idcut])
+                    sections_nrem[p].append(nrem_dff)
+
+        list_mx += list(zip([np.nanmean(np.array(w)) for w in sections_wake], list(range(1, nsections+1)), ['Wake']*nsections, [idf]*nsections))
+        list_mx += list(zip([np.nanmean(np.array(w)) for w in sections_nrem], list(range(1, nsections+1)), ['NREM']*nsections, [idf]*nsections))
+        print('done')
+        
+    df = pd.DataFrame(columns = ['dff', 'section', 'state', 'idf'], data=list_mx)
+    df = df.groupby(['idf', 'state', 'section'], as_index=False).mean()
+    df_mean = df.groupby(['section', 'state'], as_index=False).mean()   
+
+    # plot for each section DF/F for all mice, the average, and a linear regression line
+    plt.figure()
+    colors = np.array([[0, 1, 1], [0.5, 0, 1], [0.6, 0.6, 0.6]])
+
+    plt.subplot(211)
+    sns.lineplot(x='section', y='dff', data=df_mean[df_mean.state=='NREM'], color=colors[2,:])
+    sns.regplot(x='section', y='dff', data=df[df.state=='NREM'], color='black')
+    plt.xlabel('')
+    plt.xticks(list(range(1, nsections+1)))
+    plt.ylabel('$\mathrm{\Delta F / F}$')
+    sns.despine()
+    
+    plt.subplot(212)
+    sns.lineplot(x='section', y='dff', data=df_mean[df_mean.state=='Wake'], color=colors[1,:])
+    sns.regplot(x='section', y='dff', data=df[df.state=='Wake'], color='black')
+    plt.xticks(list(range(1, nsections+1)))
+    plt.ylabel('$\mathrm{\Delta F / F}$')
+    sns.despine()
+
+    return df
+
+
+
 def dff_vs_statedur(ppath, recordings, istate, pzscore=False, sf=0, fs=1.5, ma_thr=0, backup=''):
     """
     Plot duration of single REM, Wake, or NREM periods vs DF/F
@@ -1999,7 +2128,6 @@ def dff_vs_statedur(ppath, recordings, istate, pzscore=False, sf=0, fs=1.5, ma_t
     :param fs: float, scaling of font, the larger the value, the larger the font
     :return: n/a
     """
-    import seaborn as sns
     if type(recordings) != list:
         recordings = [recordings]
 
@@ -2658,7 +2786,6 @@ def cross_validation(S, r, theta, nfold=5):
         idy = np.setdiff1d(np.arange(0, ninp), idx)
         test_idx.append(idx)
         train_idx.append(idy)
-
 
     l = 0
     Etest = np.zeros((ntheta,))
