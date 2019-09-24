@@ -1991,6 +1991,9 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
     """
     plot NREM and wake activity for $nsections consecutive sections 
     of the sleep cycle (interval between two consecutive REM periods)
+    Example:
+        df = pyphi.dff_remrem_sections(ppath, recordings, pzscore=True)
+    
     :param ppath: base folder
     :param recordings: list of recordings
     :param backup: optional backup folder
