@@ -2909,18 +2909,18 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
         if len(fig_file)>0:
             plt.savefig(fig_file)
 
-        # compile dataframe with all baseline and laser values
-        ilsr   = np.where((t>=0) & (t<=laser_dur))[0]
-        ibase  = np.where((t>=-laser_dur) & (t<0))[0]
-        iafter = np.where((t>=laser_dur) & (t<laser_dur*2))[0]
-        df = pd.DataFrame(columns = ['Mouse', 'REM', 'NREM', 'Wake', 'Lsr'])
-        mice = mouse_order + mouse_order + mouse_order
-        lsr  = np.concatenate((np.ones((nmice,), dtype='int'), np.zeros((nmice,), dtype='int'), np.ones((nmice,), dtype='int')*2))
-        df['Mouse'] = mice
-        df['Lsr'] = lsr
-        df['REM']  = np.concatenate((BS[:,ilsr,0].mean(axis=1), BS[:,ibase,0].mean(axis=1), BS[:,iafter,0].mean(axis=1)))
-        df['NREM'] = np.concatenate((BS[:,ilsr,2].mean(axis=1), BS[:,ibase,2].mean(axis=1), BS[:,iafter,2].mean(axis=1)))
-        df['Wake'] = np.concatenate((BS[:,ilsr,1].mean(axis=1), BS[:,ibase,1].mean(axis=1), BS[:,iafter,1].mean(axis=1)))
+    # compile dataframe with all baseline and laser values
+    ilsr   = np.where((t>=0) & (t<=laser_dur))[0]
+    ibase  = np.where((t>=-laser_dur) & (t<0))[0]
+    iafter = np.where((t>=laser_dur) & (t<laser_dur*2))[0]
+    df = pd.DataFrame(columns = ['Mouse', 'REM', 'NREM', 'Wake', 'Lsr'])
+    mice = mouse_order + mouse_order + mouse_order
+    lsr  = np.concatenate((np.ones((nmice,), dtype='int'), np.zeros((nmice,), dtype='int'), np.ones((nmice,), dtype='int')*2))
+    df['Mouse'] = mice
+    df['Lsr'] = lsr
+    df['REM']  = np.concatenate((BS[:,ilsr,0].mean(axis=1), BS[:,ibase,0].mean(axis=1), BS[:,iafter,0].mean(axis=1)))
+    df['NREM'] = np.concatenate((BS[:,ilsr,2].mean(axis=1), BS[:,ibase,2].mean(axis=1), BS[:,iafter,2].mean(axis=1)))
+    df['Wake'] = np.concatenate((BS[:,ilsr,1].mean(axis=1), BS[:,ibase,1].mean(axis=1), BS[:,iafter,1].mean(axis=1)))
 
     if len(csv_file) > 0:
         df.to_csv(csv_file, index=False)
