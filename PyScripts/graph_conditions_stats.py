@@ -35,9 +35,9 @@ Step 2: call in ipython like so:
                   True: colored dots labeled by mouse name
                   False: black dots with no individual mouse labels
 
-Will also print out actual stat numbers as well as ranksums statistics in console.
+Will also print out actual stat numbers as well as ranksums statistics in console. Format is REM, WAKE, NREM when it's printed out.
 '''
-def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='', TwentyFourHourMode=True,
+def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='', TwentyFourHourMode=False,
                           plotPercents=True, plotFrequencies=True, plotDurations=True, miceLabels=True):
     
     
@@ -141,12 +141,19 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                                      experimentalREMDuration[mouseIndex], experimentalWAKEDuration[mouseIndex], experimentalNREMDuration[mouseIndex],
                                      experimentalREMFrequency[mouseIndex], experimentalWAKEFrequency[mouseIndex], experimentalNREMFrequency[mouseIndex]]
             mouseIndex+=1
-    
+      
     
     if not TwentyFourHourMode:             
 
         #make color palette
         clrs = sns.color_palette("husl", (len(controlStatsPerMouseFull.keys()) + len(experimentalStatsPerMouseFull.keys())))
+        
+        #set a flag for if the control and experimental conditions have the same or different mice, to be used with the colored labels per mouse
+        if controlMice[0] == experimentalMice[0]:
+            withinCondition = True
+        else:
+            withinCondition = False
+        
     ################## P E R C E N T ######################    
         if plotPercents == True:
             
@@ -179,7 +186,7 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                     
             for i in range(len(experimentalREMPercent)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]: #then it's the same mouse and we don't want to create a new color
+                    if withinCondition: #then it's the same mouse and we don't want to create a new color
                         plt.plot([2], experimentalREMPercent[i],'o', color=clrs[i])
                     else: #if it is a new mouse then we create a new color
                         plt.plot([2], experimentalREMPercent[i],'o', color=clrs[i+len(controlMice)], label=experimentalMice[i])
@@ -194,7 +201,7 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                 
             for i in range(len(experimentalWAKEPercent)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([5], experimentalWAKEPercent[i],'o', color=clrs[i])
                     else:
                         plt.plot([5], experimentalWAKEPercent[i],'o', color=clrs[i+len(controlMice)])
@@ -209,7 +216,7 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                     
             for i in range(len(experimentalNREMPercent)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([8], experimentalNREMPercent[i],'o', color=clrs[i])                        
                     else:
                          plt.plot([8], experimentalNREMPercent[i],'o', color=clrs[i+len(controlMice)]) 
@@ -249,7 +256,7 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                     plt.plot([1], controlREMDuration[i],'o', color='black')
             for i in range(len(experimentalREMDuration)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalREMDuration[i],'o', color=clrs[i])
                     else:
                         plt.plot([2], experimentalREMDuration[i],'o', color=clrs[i+len(controlMice)], label=experimentalMice[i])
@@ -264,7 +271,7 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                 
             for i in range(len(experimentalWAKEDuration)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([5], experimentalWAKEDuration[i],'o', color=clrs[i])
                     else:
                         plt.plot([5], experimentalWAKEDuration[i],'o', color=clrs[i+len(controlMice)])
@@ -279,7 +286,7 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                     
             for i in range(len(experimentalNREMDuration)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([8], experimentalNREMDuration[i],'o', color=clrs[i]) 
                     else:
                         plt.plot([8], experimentalNREMDuration[i],'o', color=clrs[i+len(controlMice)]) 
@@ -318,7 +325,7 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                     plt.plot([1], controlREMFrequency[i],'o', color='black')
             for i in range(len(experimentalREMFrequency)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalREMFrequency[i],'o', color=clrs[i])
                     else:
                         plt.plot([2], experimentalREMFrequency[i],'o', color=clrs[i+len(controlMice)], label=experimentalMice[i])
@@ -333,7 +340,7 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                 
             for i in range(len(experimentalWAKEFrequency)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([5], experimentalWAKEFrequency[i],'o', color=clrs[i])
                     else:
                         plt.plot([5], experimentalWAKEFrequency[i],'o', color=clrs[i+len(controlMice)])
@@ -348,7 +355,7 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                     
             for i in range(len(experimentalNREMFrequency)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([8], experimentalNREMFrequency[i],'o', color=clrs[i]) 
                     else:
                         plt.plot([8], experimentalNREMFrequency[i],'o', color=clrs[i+len(controlMice)]) 
@@ -670,6 +677,18 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
         
         
         clrs = sns.color_palette("husl", (len(controlStatsPerMouseAverages.keys()) + len(experimentalStatsPerMouse.keys())))
+        
+        #set a flag for if the control and experimental conditions have the same or different mice, to be used with the colored labels per mouse
+        if controlMice[0] == experimentalMice[0]:
+            withinCondition = True
+        else:
+            withinCondition = False
+            
+        #flag if the number of control mice is the same or different than the number of experimental mice
+        if len(controlStatsPerMouse.keys()) == len(experimentalStatsPerMouse.keys()):
+            isEven = True
+        else:
+            isEven = False
                
     ################## P E R C E N T ######################    
         if plotPercents == True:
@@ -702,13 +721,18 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
                     plt.plot([1], controlREMPercent[i], 'o', color=clrs[i])
                 else:                   
                     plt.plot([1], controlREMPercent[i], 'o', color='black')
-            #Plot individual mouse points for full recording experimental bar     
+            #Plot individual mouse points for full recording experimental bar  
+            
+            
             for i in range(len(experimentalREMPercent)):
                 if miceLabels: 
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalREMPercent[i], 'o', color=clrs[i])
                     else:
-                        plt.plot([2], experimentalREMPercent[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([2], experimentalREMPercent[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([2], experimentalREMPercent[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())-1])
                 else:                   
                     plt.plot([2], experimentalREMPercent[i], 'o', color='black')
                 
@@ -725,10 +749,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             colornum=0
             for key, value in experimentalStatsPerMouseAverages.items():
                 if miceLabels:
-                    if experimentalMice[colornum] == controlMice[colornum]:
+                    if withinCondition:
                         plt.plot([5,8], [value[0], value[9]], 'o', color=clrs[colornum])
                     else:
-                        plt.plot([5,8], [value[0], value[9]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([5,8], [value[0], value[9]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([5,8], [value[0], value[9]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())-1])
                     colornum+=1
                 else:
                     plt.plot([5,8], [value[0], value[9]], 'o', color='black')
@@ -760,10 +787,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             #Plot individual mouse points for full recording experimental bar     
             for i in range(len(experimentalWAKEPercent)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalWAKEPercent[i], 'o', color=clrs[i])
                     else:
-                        plt.plot([2], experimentalWAKEPercent[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([2], experimentalWAKEPercent[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([2], experimentalWAKEPercent[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())-1])
                 else:                   
                     plt.plot([2], experimentalWAKEPercent[i], 'o', color='black')
                 
@@ -780,10 +810,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             colornum=0
             for key, value in experimentalStatsPerMouseAverages.items():
                 if miceLabels:
-                    if experimentalMice[colornum] == controlMice[colornum]:
+                    if withinCondition:
                         plt.plot([5,8], [value[1], value[10]], 'o', color=clrs[colornum])
                     else:
-                        plt.plot([5,8], [value[1], value[10]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([5,8], [value[1], value[10]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([5,8], [value[1], value[10]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())-1])
                     colornum+=1
                 else:
                     plt.plot([5,8], [value[1], value[10]], 'o', color='black')                                
@@ -814,10 +847,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             #Plot individual mouse points for full recording experimental bar     
             for i in range(len(experimentalNREMPercent)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalNREMPercent[i], 'o', color=clrs[i])
                     else:
-                        plt.plot([2], experimentalNREMPercent[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([2], experimentalNREMPercent[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([2], experimentalNREMPercent[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())-1])
                 else:                   
                     plt.plot([2], experimentalNREMPercent[i], 'o', color='black')
                 
@@ -834,10 +870,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             colornum=0
             for key, value in experimentalStatsPerMouseAverages.items():
                 if miceLabels:
-                    if experimentalMice[colornum] == controlMice[colornum]:
+                    if withinCondition:
                         plt.plot([5,8], [value[2], value[11]], 'o', color=clrs[colornum])
                     else:
-                        plt.plot([5,8], [value[2], value[11]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([5,8], [value[2], value[11]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([5,8], [value[2], value[11]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())-1])
                     colornum+=1
                 else:
                     plt.plot([5,8], [value[2], value[11]], 'o', color='black')                                
@@ -883,10 +922,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             #Plot individual mouse points for full recording experimental bar     
             for i in range(len(experimentalREMDuration)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalREMDuration[i], 'o', color=clrs[i])
                     else:
-                        plt.plot([2], experimentalREMDuration[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([2], experimentalREMDuration[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([2], experimentalREMDuration[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())-1])
                 else:                   
                     plt.plot([2], experimentalREMDuration[i], 'o', color='black')
                 
@@ -903,10 +945,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             colornum=0
             for key, value in experimentalStatsPerMouseAverages.items():
                 if miceLabels:
-                    if experimentalMice[colornum] == controlMice[colornum]:
+                    if withinCondition:
                         plt.plot([5,8], [value[3], value[12]], 'o', color=clrs[colornum])
                     else:
-                        plt.plot([5,8], [value[3], value[12]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([5,8], [value[3], value[12]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([5,8], [value[3], value[12]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())-1])
                     colornum+=1
                 else:
                     plt.plot([5,8], [value[3], value[12]], 'o', color='black')                                
@@ -937,10 +982,14 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             #Plot individual mouse points for full recording experimental bar     
             for i in range(len(experimentalWAKEDuration)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalWAKEDuration[i], 'o', color=clrs[i])
                     else:
-                        plt.plot([2], experimentalWAKEDuration[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([2], experimentalWAKEDuration[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([2], experimentalWAKEDuration[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())-1])
+                            
                 else:                   
                     plt.plot([2], experimentalWAKEDuration[i], 'o', color='black')
                 
@@ -957,10 +1006,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             colornum=0
             for key, value in experimentalStatsPerMouseAverages.items():
                 if miceLabels:
-                    if experimentalMice[colornum] == controlMice[colornum]:
+                    if withinCondition:
                         plt.plot([5,8], [value[4], value[13]], 'o', color=clrs[colornum])
                     else:
-                        plt.plot([5,8], [value[4], value[13]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([5,8], [value[4], value[13]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([5,8], [value[4], value[13]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())-1])
                     colornum+=1
                 else:
                     plt.plot([5,8], [value[4], value[13]], 'o', color='black')                                
@@ -991,10 +1043,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             #Plot individual mouse points for full recording experimental bar     
             for i in range(len(experimentalNREMDuration)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalNREMDuration[i], 'o', color=clrs[i])
                     else:
-                        plt.plot([2], experimentalNREMDuration[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([2], experimentalNREMDuration[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([2], experimentalNREMDuration[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())-1])
                 else:                   
                     plt.plot([2], experimentalNREMDuration[i], 'o', color='black')
                 
@@ -1011,10 +1066,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             colornum=0
             for key, value in experimentalStatsPerMouseAverages.items():
                 if miceLabels:
-                    if experimentalMice[colornum] == controlMice[colornum]:
+                    if withinCondition:
                         plt.plot([5,8], [value[5], value[14]], 'o', color=clrs[colornum])
                     else:
-                        plt.plot([5,8], [value[5], value[14]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([5,8], [value[5], value[14]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([5,8], [value[5], value[14]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())-1])
                     colornum+=1
                 else:
                     plt.plot([5,8], [value[5], value[14]], 'o', color='black')                                
@@ -1060,10 +1118,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             #Plot individual mouse points for full recording experimental bar     
             for i in range(len(experimentalREMFrequency)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalREMFrequency[i], 'o', color=clrs[i])
                     else:
-                        plt.plot([2], experimentalREMFrequency[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([2], experimentalREMFrequency[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([2], experimentalREMFrequency[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())-1])
                 else:                   
                     plt.plot([2], experimentalREMFrequency[i], 'o', color='black')
                 
@@ -1080,10 +1141,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             colornum=0
             for key, value in experimentalStatsPerMouseAverages.items():
                 if miceLabels:
-                    if experimentalMice[colornum] == controlMice[colornum]:
-                        plt.plot([5,8], [value[6], value[15]], 'o', label=key, color=clrs[colornum])                        
+                    if withinCondition:
+                        plt.plot([5,8], [value[6], value[15]], 'o', color=clrs[colornum])                        
                     else:
-                        plt.plot([5,8], [value[6], value[15]], 'o', color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([5,8], [value[6], value[15]], 'o', label = key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([5,8], [value[6], value[15]], 'o', label = key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())-1])
                     colornum+=1
                 else:
                     plt.plot([5,8], [value[6], value[15]], 'o', color='black')                                
@@ -1114,10 +1178,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             #Plot individual mouse points for full recording experimental bar     
             for i in range(len(experimentalWAKEFrequency)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalWAKEFrequency[i], 'o', color=clrs[i])
                     else:
-                        plt.plot([2], experimentalWAKEFrequency[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([2], experimentalWAKEFrequency[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([2], experimentalWAKEFrequency[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())-1])
                 else:                   
                     plt.plot([2], experimentalWAKEFrequency[i], 'o', color='black')
                 
@@ -1134,10 +1201,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             colornum=0
             for key, value in experimentalStatsPerMouseAverages.items():
                 if miceLabels:
-                    if experimentalMice[colornum] == controlMice[colornum]:
+                    if withinCondition:
                         plt.plot([5,8], [value[7], value[16]], 'o', color=clrs[colornum])
                     else:
-                        plt.plot([5,8], [value[7], value[16]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([5,8], [value[7], value[16]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([5,8], [value[7], value[16]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())-1])
                     colornum+=1
                 else:
                     plt.plot([5,8], [value[7], value[16]], 'o', color='black')                                
@@ -1168,10 +1238,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             #Plot individual mouse points for full recording experimental bar     
             for i in range(len(experimentalNREMFrequency)):
                 if miceLabels:
-                    if experimentalMice[i] == controlMice[i]:
+                    if withinCondition:
                         plt.plot([2], experimentalNREMFrequency[i], 'o', color=clrs[i])
                     else:
-                        plt.plot([2], experimentalNREMFrequency[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([2], experimentalNREMFrequency[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([2], experimentalNREMFrequency[i], 'o', color=clrs[i+ len(experimentalStatsPerMouse.keys())-1])
                 else:                   
                     plt.plot([2], experimentalNREMFrequency[i], 'o', color='black')
                 
@@ -1188,10 +1261,13 @@ def plot(ppath, controlRecordings=[], experimentalRecordings=[], recordingFile='
             colornum=0
             for key, value in experimentalStatsPerMouseAverages.items():
                 if miceLabels:
-                    if experimentalMice[colornum] == controlMice[colornum]:
+                    if withinCondition:
                         plt.plot([5,8], [value[8], value[17]], 'o', color=clrs[colornum])
                     else:
-                        plt.plot([5,8], [value[8], value[17]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        if isEven:
+                            plt.plot([5,8], [value[8], value[17]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())])
+                        else:
+                            plt.plot([5,8], [value[8], value[17]], 'o', label=key, color=clrs[colornum + len(experimentalStatsPerMouse.keys())-1])
                     colornum+=1
                 else:
                     plt.plot([5,8], [value[8], value[17]], 'o', color='black')                                
