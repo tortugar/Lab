@@ -86,31 +86,40 @@ def expr_contour(ipath, name, xborder=200, yborder=300):
     
 
 
-def expr_contour2(ipath, name, xborder=0, yborder=0):
-        
+def expr_contour2(ipath, name):
+    """
+    return all red contours (polygons) in image. That is,
+
+    :param ipath:
+    :param name: file name of image with virus expression outline(s) in RED. Ideally,
+                 the picture has BLACK background, the outline of the atlas section
+                 is in BLUE.
+
+    :return contours: list of polyons (outer outlines)
+    :return nx, ny: size of image $name
+    
+    Note: In contrast to expr_contour, a histology image can have more than just one contour
+    """    
+    
     ifile = os.path.join(ipath, name)
     img = cv2.imread(ifile)
     nx = img.shape[0]
     ny = img.shape[1]
     
     # get red channel
-    #img_cut = img[xborder+1:-xborder,yborder+1:-yborder,2]
     img_cut = img[:,:,2]
-
 
     # threshold image
     ret,thresh = cv2.threshold(img_cut,200,255,cv2.THRESH_BINARY)
     # only detect outer boundary of polygons (that's why cv2.RETR_EXTERNAL)
     # see https://docs.opencv.org/3.1.0/d9/d8b/tutorial_py_contours_hierarchy.html for explanation
-    _,contours,h = cv2.findContours(thresh, cv2.RETR_EXTERNAL, 2)
+    res = cv2.findContours(thresh, cv2.RETR_EXTERNAL, 2)
     
-    print(len(contours))
-    
-    if len(contours) == 1:
-        print(name)
-    
-    if len(contours) > 2 :
-        print("Something weired going on: detected more than one patch")
+    # some version of cv2 return 3 parameters, others just 2
+    if len(res) == 3:
+        contours = res[1]
+    else:
+        contours = res[0]
     
     return contours, nx, ny
     
@@ -197,13 +206,16 @@ def histo_grid(ipath, name, dx, xborder=0, yborder=0):
     :param ipath, name: the histology picture is named $name in folder $ipath
     :param dx: resoluation of grid (number of pixels per grid cell)
     :xborder: 0 or tuple of int allows specifing boundaries for x values within the picture
-              xborder[0] is the start value for the grid along the x axis,
+              xborder[0] is the start value for the grid along the x axis (vertical axis, starting on top),
               xborder[1] is the end value of the grid along x axis.
               Similarly, for yborder
     
+    Example call: 
+        dc.histo_grid(ipath, 'JS63_1.png', 15, yborder=[80, 320], xborder=[150, 300]) 
+    
     Note x and y axis:
-        x=0 corresponds to the left border
-        y=0 corresponds to the upper border and goes down with increasing values
+        y axis goes left to right
+        x axis goes top to bottom
     """
     
     # load virus expression outline
@@ -253,7 +265,6 @@ def histo_grid(ipath, name, dx, xborder=0, yborder=0):
         
     return mx
     
-
 
 
 
