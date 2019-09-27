@@ -5646,3 +5646,41 @@ def ma_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160, band=[10,15],
 
     return SpecMx, f
 
+
+### pandas support functions ##################################################
+def nparray2df(mx, rows, cols, mx_label='', row_label='', column_label=''):
+    """
+    transform a 2D np.array to pandas DataFrame.
+    :param mx: 2D np.array
+    :param rows: list or vector of row labels
+    :param cols: list or vecotr of columns labels
+    :param mx_label, row_label, column_label: label (string) for values in matrix, 
+                                              name for rows and columns        
+    """
+    nx = mx.shape[0]
+    ny = mx.shape[1]
+    
+    vals = []
+    for i in range(nx):
+        for j in range(ny):
+            vals.append([mx[i,j], rows[i], cols[j]])
+    
+    
+    columns = ['val', 'row', 'col']
+    if len(row_label) > 0:
+        columns[1] = row_label
+    if len(column_label) > 0:
+        columns[2] = column_label
+    if len(mx_label) > 0:
+        columns[0] = mx_label
+    
+    df = pd.DataFrame(columns=columns, data=vals)
+            
+    return df
+
+
+
+    
+
+
+
