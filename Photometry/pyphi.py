@@ -2113,6 +2113,31 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
     plt.ylabel('$\mathrm{\Delta F / F}$')
     sns.despine()
 
+
+    dfw = df[df.state=='Wake'] 
+    dfn = df[df.state=='NREM'] 
+
+    maskw = ~np.isnan(dfw.iloc[:,2]) & ~np.isnan(dfw.iloc[:,3])
+    maskn = ~np.isnan(dfn.iloc[:,2]) & ~np.isnan(dfn.iloc[:,3])
+    
+    x = np.array(dfw.iloc[:,2])
+    y = np.array(dfw.iloc[:,3])
+    wres  = stats.linregress(x[maskw], y[maskw])
+
+    x = np.array(dfn.iloc[:,2])
+    y = np.array(dfn.iloc[:,3])
+    nres  = stats.linregress(x[maskn], y[maskn])
+    
+    if wres.slope > 0:
+        print("Wake firing rates increase throughout sleep cycle by a factor of %.2f; r=%.2f, p=%.2f" % (wres.slope, wres.rvalue, wres.pvalue))
+    else:
+        print("Wake firing rates decrease throughout sleep cycle by a factor of %.2f; r=%.2f, p=%.2f" % (wres.slope, wres.rvalue, wres.pvalue))
+
+    if nres.slope > 0:
+        print("NREM firing rates increase throughout sleep cycle by a factor of %.2f; r=%.2f, p=%.2f" % (nres.slope, nres.rvalue, nres.pvalue))
+    else:
+        print("NREM firing rates decrease throughout sleep cycle by a factor of %.2f; r=%.2f, p=%.2f" % (nres.slope, nres.rvalue, nres.pvalue))
+
     return df
 
 
@@ -2818,7 +2843,17 @@ def cross_validation(S, r, theta, nfold=5):
 
 
 def build_featmx(MX, pre, post):
-
+    """
+    :param MX: np.array with dimenstions features (=rows) x time/samples (=columns)
+    
+    
+    For row i (=time point i) in the feature matrix, we take a 2D slice S of
+    matrix MX: S = MX[:,i-pre:i+post] and reshape S to a single vector 
+    by concatenating the columns of S;
+    The transformation from matrix to vector is done by
+    S_vec = np.reshape(S.T, (nrows*(pre+post),))
+    """
+    
     # number of time points
     N = MX.shape[1]
     # number of frequencies
