@@ -1632,7 +1632,6 @@ def klusters_spike_extract(ppath, name, groups, group_name='', pnoise=True, sep_
             fp.close()
             fp = open(os.path.join(ppath, name, 'spk_ts.p'), 'rb')
             N = pickle.load(fp, encoding='latin1')['N']
-        N = tmp['N']
         fp.close()
     else:
         N = len(load_laser(ppath, name))*FF
