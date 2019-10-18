@@ -369,7 +369,7 @@ def eeg_conversion(ppath, rec, conv_factor=0.195):
     multiply all EEG and EMG channels with the given
     conversion factor and write the conversion factor
     as parameter (conversion:) into the info file.
-    Only if, there's no conversion factor in the info file
+    Only if there's no conversion factor in the info file
     specified, the conversion will be executed
     :param ppath: base filder
     :param rec: recording
@@ -380,20 +380,22 @@ def eeg_conversion(ppath, rec, conv_factor=0.195):
     conv = get_infoparam(ifile, 'conversion')
     if len(conv) > 0:
         print("found conversion: parameter in info file")
-        print("returning; no conversion!!!")
+        print("returning: no conversion necessary!!!")
         return
     else:
         files = os.listdir(os.path.join(ppath, rec))
         files = [f for f in files if re.match('^EEG', f)]
         for f in files:
             name = re.split('\.', f)[0]
-
             EEG = so.loadmat(os.path.join(ppath, rec, name+'.mat'), squeeze_me=True)[name]
-            EEG = EEG * conv_factor
-            file_eeg = os.path.join(ppath, rec, '%s.mat' % name)
-            print(file_eeg)
-            so.savemat(file_eeg, {name: EEG})
-            calculate_spectrum(ppath, name, file_eeg)
+            if EEG[0].dtype == 'int16':
+                EEG = EEG * conv_factor
+                file_eeg = os.path.join(ppath, rec, '%s.mat' % name)
+                print(file_eeg)
+                so.savemat(file_eeg, {name: EEG})
+            else:
+                print('Wrong datatype! probably already converted; returning...')
+                return
 
         files = os.listdir(os.path.join(ppath, rec))
         files = [f for f in files if re.match('^EMG', f)]
@@ -401,13 +403,18 @@ def eeg_conversion(ppath, rec, conv_factor=0.195):
             name = re.split('\.', f)[0]
 
             EMG = so.loadmat(os.path.join(ppath, rec, name+'.mat'), squeeze_me=True)[name]
-            EMG = EMG * conv_factor
-            file_emg = os.path.join(ppath, rec, '%s.mat' % name)
-            print(file_emg)
-            so.savemat(file_emg, {name: EMG})
-            calculate_spectrum(ppath, name, file_emg)
+            if EMG[0].dtype == 'int16':
+                EMG = EMG * conv_factor
+                file_emg = os.path.join(ppath, rec, '%s.mat' % name)
+                print(file_emg)
+                so.savemat(file_emg, {name: EMG})
+            else:
+                print('Wrong datatype! probably already converted; returning...')
+                return
+        
+        add_infoparam(ifile, 'conversion', [conv_factor])                
+        calculate_spectrum(ppath, rec)
 
-        add_infoparam(ifile, 'conversion', [conv_factor])
 
 
 
@@ -743,7 +750,8 @@ def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True):
     SPE = SPE[ifreq]
     W = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
     sp_mean = W.mean(axis=1)
-    #sp_mean = SPE.mean(axis=1)
+    sp_mean = SPE.mean(axis=1)
+    
     SPE = np.divide(SPE, np.tile(sp_mean, (SPE.shape[1], 1)).T)
     nfilt = 12
     filt = np.ones((nfilt,2))
@@ -4005,9 +4013,9 @@ def ma_timecourse_list(ppath, recordings, tbin, n, tstart=0, tend=-1, ma_thr=20,
     df = pd.DataFrame(columns=cols)
     df['mouse'] = mice
     df['bin'] = bins
-    df['perc'] = TimeMx.T.flatten()
-    df['dur'] = DurMx.T.flatten()
-    df['freq'] = FreqMx.T.flatten()
+    df['perc'] = TimeMx.flatten()
+    df['dur'] = DurMx.flatten()
+    df['freq'] = FreqMx.flatten()
 
     if len(csv_file) > 0:
         df.to_csv(csv_file, index=False)
