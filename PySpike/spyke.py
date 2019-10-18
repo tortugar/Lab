@@ -1629,8 +1629,10 @@ def klusters_spike_extract(ppath, name, groups, group_name='', pnoise=True, sep_
             N = pickle.load(fp)['N']
         except UnicodeDecodeError:
             # to load pickle objects created using python 2
+            fp.close()
+            fp = open(os.path.join(ppath, name, 'spk_ts.p'), 'rb')
             N = pickle.load(fp, encoding='latin1')['N']
-        #N = pickle.load(fp)['N']
+        N = tmp['N']
         fp.close()
     else:
         N = len(load_laser(ppath, name))*FF
@@ -3269,7 +3271,7 @@ def fr_sleepcycle(ppath, file_listing, backup='', nstates_rem=10, nstates_itrem=
                   single_mode=False, sf=0, ylim=[]):
     """
     plot firing rate of units in file_listing throughout the sleep cycle;
-    A sleep cycle starts with REM periods i and end with REM period i+1;
+    A sleep cycle starts with REM periods i and ends with REM period i+1;
     REM periods and inter-vening NREM and Wake periods (=inter-REM periods)
     are normalized to the same length.
     Example,
