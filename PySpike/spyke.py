@@ -4739,6 +4739,125 @@ def spectralfield(ppath, name, grp, un, pre, post, fmax=20, theta=0, states=[1,2
 
 
 
+def spectralfield_highres(ppath, name, grp, un, pre, post, fmax = 60, theta=[0], states=[1,2,3], 
+                          nsr_seg=2, perc_overlap=0.75, nsmooth=0, pzscore=False, pplot=True):
+    """
+    Calculate the "spectral field" best mapping the EEG spectrogram onto the neural activity
+    The spectrogram calculation is flexible, i.e. can be adjusted by the paramters nsr_seg and perc_overlap.
+
+    :param ppath: base folder
+    :param name: name
+    :params grp, un: unit
+    :param pre: duration (in seconds) that the spectral fields fields into the past
+    :param post: duration (in seconds) that the spectral fields extends into the future
+    :param fmax: maximum frequency for spectrogram
+    :param theta: float or list of floats; regularization parameter for ridge regression. If a list is provided the
+           the function picks the parameters resulting in best performance on the test set.
+    :param states: brain states used for calculation; 1=REM, 2=Wake, 3=NREM
+    :param nsr_seg: float, defines the window length used for FFT calculation in seconds.
+    :param perc_overlap: percentage that two consecutive FFT windows overlap
+    :param nsmooth: smoothing factor for firing rates calculation; if 0, no smoothing
+    :param pzscore: if True, z-score firing rates
+    :param pplot: if True, plot spectral field
+    :return: k, f, k; spectral field (np.array(frequency x time)), time, frequency vectors,
+    """        
+    from pyphi import build_featmx, cross_validation, ridge_regression
+    
+    if not type(theta) == list:
+        theta = [theta]
+
+    sr = get_snr(ppath, name)
+    nbin = np.round(2.5*sr)
+    EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
+    # calculate "high resolution" EEG spectrogram
+    freq, t, SP = scipy.signal.spectrogram(EEG, fs=sr, window='hanning', nperseg=int(nsr_seg * sr), noverlap=int(nsr_seg * sr * perc_overlap))
+    # time is centered
+    N = SP.shape[1]
+    #fdt = freq[1]-freq[0]
+    ifreq = np.where(freq <= fmax)[0]
+    nfreq = len(ifreq)
+    dt = t[1]-t[0]
+
+    ipre  =  int(np.round(pre/dt))
+    ipost = int(np.round(post/dt))
+
+    pfilt=True
+    if pfilt:
+        filt = np.ones((6,1))
+        filt = filt / np.sum(filt)
+        SP = scipy.signal.convolve2d(SP, filt, mode='same')
+
+    sp_norm=True
+    if sp_norm:
+        for i in range(SP.shape[0]):
+            SP[i,:] = SP[i,:] / SP[i,:].mean()
+
+    MX = build_featmx(SP[ifreq,:], ipre, ipost)
+
+    # load spike train
+    # time points per time bin in spectrogram:
+    ndown = int(nsr_seg * sr) - int(nsr_seg * sr * perc_overlap)
+    ninit = int(np.round(t[0]/dt))
+    train = unpack_unit(ppath, name, grp, un)[1]
+    spikesd = downsample_vec(train, ndown)
+    spikesd = sleepy.smooth_data(spikesd, nsmooth)
+    spikesd = spikesd[ninit:]
+    if pzscore:
+        spikesd = (spikesd-spikesd.mean()) / spikesd.std()
+
+    spikesd = spikesd[ipre:N-ipost]
+
+    ibin = np.array([], dtype='int64')
+    M,K = sleepy.load_stateidx(ppath, name)
+    for s in states:
+        seq = sleepy.get_sequences(np.where(M==s)[0])
+        for p in seq:
+            seqm = np.arange(int(p[0]*nbin / ndown), int(((p[-1]+1)*nbin-1)/ ndown))
+            ibin = np.concatenate((ibin, seqm))
+
+    ibin = ibin[ibin>=ipre]
+    ibin = ibin[ibin<N-ipost]
+
+
+    MX = MX[ibin-ipre,:]
+    spikesd = spikesd[ibin-ipre]
+    # mean zero response vector and columns of stimulus matrix
+    rmean = spikesd.mean()
+    spikesd = spikesd - rmean
+    mmean = MX.mean(axis=0)
+    for i in range(MX.shape[1]):
+        MX[:,i] -= mmean[i]
+
+    # perform cross validation
+    Etest, Etrain = cross_validation(MX, spikesd, theta)
+    print("CV results on training set:")
+    print(Etrain)
+    print("CV results on test set")
+    print(Etest)
+
+    # calculate kernel for optimal theta
+    imax = np.argmax(Etest)
+    print("Recording %s; optimal theta: %2.f" % (name, theta[imax]))
+    k = ridge_regression(MX, spikesd, theta[imax])
+    k = np.reshape(k, ((ipre + ipost), nfreq)).T
+    t = np.arange(-ipre, ipost) * dt
+
+    perf_max = Etest[imax]
+
+    if pplot:
+        plt.ion()
+        plt.figure()
+        f = freq[ifreq]
+        plt.pcolormesh(t, f, k, cmap='bwr')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Freq. (Hz)')
+        plt.colorbar()
+        plt.show()
+
+    return k, t, freq[ifreq], perf_max
+
+
+
 #######################################################################################
 # VIDEO Processing/Annotation Stuff ###################################################
 ####################################################################################### 
