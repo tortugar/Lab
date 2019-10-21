@@ -878,7 +878,7 @@ def corr_activity(ppath, recordings, states, nskip=10, pzscore=True, bands=[]):
     :param ppath: base filder
     :param recordings: list of recordings
     :param states: list of len 1 to 3, states to correlate EEG power with; if you want to correlate power during
-           NREM and REM, then set states = [1,3]
+           NREM and REM, then set states = [3,1]
     :param nskip: number of seconds in the beginning to be skipped
     :param pzscore, if Tue z-score activity, i.e. DF/F - mean(DF/F) / std(DF/F)
     :return: n/a
@@ -2518,9 +2518,10 @@ def dff_spectrum(ppath, recordings, twin=30, tstart=0, tend=-1, ma_thr=20, pnorm
 
 
 ### SPECTRALFIELDS #####################################################################################################
-def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0, states=[1,2,3], nsr_seg=2, perc_overlap=0.75, pzscore=False, pplot=True):
+def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0,
+                          states=[1,2,3], nsr_seg=2, perc_overlap=0.75, pzscore=False, pplot=True):
     """
-    Calculate the "receptive field = spectral field" best matching the EEG spectrogram onto the neural activity
+    Calculate the "receptive field = spectral field" best mapping the EEG spectrogram onto the neural activity
     The spectrogram calculation is flexible, i.e. can be adjusted by the paramters nsr_seg and perc_overlap.
 
     :param ppath: base folder
@@ -2543,10 +2544,10 @@ def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0, states=[1,
     sr = get_snr(ppath, name)
     nbin = np.round(2.5*sr)
     EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
+    # calculate "high resolution" EEG spectrogram
     freq, t, SP = scipy.signal.spectrogram(EEG, fs=sr, window='hanning', nperseg=int(nsr_seg * sr), noverlap=int(nsr_seg * sr * perc_overlap))
     # time is centered
     N = SP.shape[1]
-    #fdt = freq[1]-freq[0]
     ifreq = np.where(freq <= fmax)[0]
     nfreq = len(ifreq)
     dt = t[1]-t[0]
@@ -2573,8 +2574,6 @@ def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0, states=[1,
     ninit = int(np.round(t[0]/dt))
     dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dff']*100
     dffd = downsample_vec(dff, ndown)
-
-    #dffd = sleepy.smooth_data(dffd, 2.0)
     dffd = dffd[ninit:]
 
     if pzscore:
@@ -2591,7 +2590,6 @@ def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0, states=[1,
 
     ibin = ibin[ibin>=ipre]
     ibin = ibin[ibin<N-ipost]
-    #ibin = ibin-ipre
 
     MX = MX[ibin-ipre,:]
     dffd = dffd[ibin-ipre]
@@ -2879,15 +2877,16 @@ def build_featmx(MX, pre, post):
 
 
 
-def ridge_regression(S, r, theta):
+def ridge_regression(A, r, theta):
     """
-    r = S * k
-    S' * r = (S'*S + I*lambda) * k
-    SR = (S'*S + I*lambda) * k
-    k = CC \ SR
+    r = A * k
+    A' * r = (A'*A + I*theta) * k
+    AR = (A'*A + I*theta) * k
+    k = CC \ AR
     :return:
     """
-
+    # copy matrix, because otherwise it's overwritten
+    S = A.copy()
     AC = np.dot(S.T, S)
     n = S.shape[1]
     AC = AC + np.eye(n)*theta
