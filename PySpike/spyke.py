@@ -4025,7 +4025,7 @@ def laser_reliability(ppath, name, grp, un, win=10, offs=1, iter=1):
 
 
 
-def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters=1):
+def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters=1, istate=-1):
     """
     plot each laser stimulation trial in a raster plot, plot laser triggered firing rate and
     bar plot showing firing rate before, during, and after laser stimulation
@@ -4038,10 +4038,17 @@ def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters
     :param nbin: downsample firing rate by a factor of $nbin
     :param offs: int, the first shown laser trial
     :param iters: int, show every $iters laser trial
-    :return:
+    :param istate: int, only plot laser trials, where the onset falls on brain state $istate
+                   istate=-1 - consider all states, 
+                   istate=1 - consider only REM trials
+                   istate=2 - consider only Wake trials 
+                   istate=3 - consider only NREM trials
+    :return: n/a
     """
-
     import matplotlib.patches as patches
+
+    # load brain state
+    M = sleepy.load_stateidx(ppath, name)[0]
 
     sr = get_snr(ppath, name)
     dt = 1.0 / sr
@@ -4049,6 +4056,19 @@ def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters
     post = int(np.round(post/dt))
     laser = sleepy.load_laser(ppath, name)
     idxs, idxe = sleepy.laser_start_end(laser)
+    
+    # only collect laser trials starting during brain state istate
+    tmps = []
+    tmpe = []
+    if istate > -1:
+        nbin_state = int(np.round(sr) * 2.5)
+        for (i,j) in zip(idxs, idxe):
+            if M[int(i/nbin_state)] == istate:
+                tmps.append(i)
+                tmpe.append(j)                
+        idxs = tmps
+        idxe = tmpe
+
     laser_dur = np.mean(idxe[offs::iters] - idxs[offs::iters] + 1)*dt
     print ('laser duration: ', laser_dur)
     train = unpack_unit(ppath, name, grp, un)[1]
