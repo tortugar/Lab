@@ -4066,8 +4066,8 @@ def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters
             if M[int(i/nbin_state)] == istate:
                 tmps.append(i)
                 tmpe.append(j)                
-        idxs = tmps
-        idxe = tmpe
+        idxs = np.array(tmps)
+        idxe = np.array(tmpe)
 
     laser_dur = np.mean(idxe[offs::iters] - idxs[offs::iters] + 1)*dt
     print ('laser duration: ', laser_dur)
