@@ -508,7 +508,6 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False) :
     sp_time = np.arange(0, sdt*M.shape[0], sdt)
     #img_time = imaging_timing(ipath, name)
 
-    pdb.set_trace()
     # Plotting all together: First, time dependent calcium traces
     plt.figure()
     ax = plt.subplot(212)
@@ -1217,12 +1216,16 @@ def combine_tiffs2h5(path, name, nframes, ndown, nblock=100) :
 
 
 
-def avi2h5(rawfolder, ppath, name, ndown=1, infowrite=True):
+def avi2h5(rawfolder, ppath, name, ndown=1):
+    """
+    transform avi movies in folder $rawfolder
+    to a hdf5 stack saved in $ppath/$name/recording_$name_downsamp.hdf5
+    :param ndown: spatially downsample each frame by factor $ndown
+    
+    """
     import cv2
     
     new_name = 'recording_' + name + '_downsamp.hdf5'
-    
-    
     files = os.listdir(os.path.join(rawfolder))
     files = [f for f in files if re.match('^msCam\d+', f)]
     print files
@@ -1258,7 +1261,6 @@ def avi2h5(rawfolder, ppath, name, ndown=1, infowrite=True):
 
             if ret:
                 nframes += 1
-                print nframes
                 vframes += 1
         frames_per_video[f] = vframes
         cap.release()
@@ -1272,6 +1274,7 @@ def avi2h5(rawfolder, ppath, name, ndown=1, infowrite=True):
     nx_down = int(np.floor(nx / (ndown*1.0)))
     ny_down = int(np.floor(ny / (ndown*1.0)))
     A = np.zeros((nx_down, ny_down))
+    # images are unit8; that's how they're returned from cv2
     dset = fmat.create_dataset('images', shape=(nframes, nx_down, ny_down), dtype='uint8')
     
     offset = 0
@@ -1284,8 +1287,8 @@ def avi2h5(rawfolder, ppath, name, ndown=1, infowrite=True):
         cap = cv2.VideoCapture(os.path.join(rawfolder, f))                    
         for j in range(frames_per_video[f]):
             ret,frame = cap.read()                
-            pdb.set_trace()
-            frame = frame.sum(axis=2) / 3            
+            #frame = frame.sum(axis=2) / 3
+            frame = frame[:,:,0]
             if ndown > 1:
                 frame = downsample_image(frame, ndown)
             D[j,:,:] = frame
@@ -1298,7 +1301,9 @@ def avi2h5(rawfolder, ppath, name, ndown=1, infowrite=True):
     
     A = A / (1.0 * nframes)
     so.savemat(os.path.join(ppath, name, 'recording_' + name + '_mean.mat'), {'mean': A})
-    # add nframes to info file
+
+    # copy file timestamp.dat to $ppath/$name
+    shutil.copyfile(os.path.join(ppath, name, 'timestamp.dat'), os.path.join(ppath, name))
 
 
 def downsample_hdf5(path, name, ndown, nblock=1000, psave_mean=1) :
@@ -1530,8 +1535,7 @@ def disk_filter(ppath, name, nframes, pfilt=1, nblock=1000, psave=1) :
 
 
 
-
-def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1) :
+def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1, nw=2):
     """A = disk_filter(ppath, name, pfilt=1, nblock=1000)
     $ppath/$name refers to a H5DF stack.
     performs disk filtering on a h5df stack
@@ -1564,6 +1568,7 @@ def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1) :
     # reference to data set holding all frames
     dset = f.create_dataset('images', (nframes, nx, ny))
 
+    filt = 1.0*np.ones((nw,nw)) / (nw*nw)
     D = np.zeros((nblock, nx, ny))
     A = np.zeros((nx, ny)) # average across frames
     offset = 0
@@ -1573,6 +1578,8 @@ def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1) :
         #for image in stack.iter_images() :
         for index in range(0, nframes) :
             image = stack[index,:,:]
+            if nw > 1:
+                image = scipy.signal.fftconvolve(image.astype('float64'), filt, mode='same')
             tmp = image - scipy.signal.fftconvolve(image.astype('float64'), disk, mode='same')
             D[j,:,:] = tmp
             A = A + tmp
@@ -1742,13 +1749,13 @@ def get_corr_ranges(nx, ny, sx, sy) :
 
 
 
-def align_frames(ppath, name, nframes=-1, nblock=100, pdisk=1, psave=1, pwrite=1) :
+def align_frames(ppath, name, nframes=-1, nblock=1000, pdisk=1, psave=1, pwrite=1, pcorr_time=True) :
     """
     Shift = align_frames(ppath, name, nblock=1000) : \
     motion correlction by phase correlation
     This function assumes that the following files exist:
     o name-stem_diskmean.mat  | name-stem_mean.mat
-    o name-stemp_downsamp.hdf5 | name-stem_disk.hdf5
+    o name-stem_downsamp.hdf5 | name-stem_disk.hdf5
     o name-stem_downsamp.hdf5
     
     The function creates a new hdf5 stack called
@@ -1762,25 +1769,32 @@ def align_frames(ppath, name, nframes=-1, nblock=100, pdisk=1, psave=1, pwrite=1
     psave    -    if psave==1: save aligned mean frame and Shift vector
     pwrite   -    if pwrite==1: write frames to hdf5 data set called name-stem_aligned.hdf5\
                   otherwise just return Shift vector specifying displacement in x and y direction
+    pcorr_time -  use stack the stack name-stem_downsampcorr.hdf5, where redundant frames were kicked out
     @RETURN:
     Shift    -    2D vector specifying correction in x and y direction
     """
+    #plt.ion()
     
     fstem = '_'.join(re.split('_', name)[0:-1])
-    
     if pdisk == 1 :
         (idx, ref) = align_stencil(ppath, name, pdisk=1)
     else :
         (idx, ref) = align_stencil(ppath, name, pdisk=0)
+
+    #plt.imshow(ref, cmap='gray')
     
     # original downsampled stack
-    ostack = TIFFStack(ppath, fstem + '_downsamp.hdf5', nblock=1000)
+    if not pcorr_time:
+        ostack = TIFFStack(ppath, fstem + '_downsamp.hdf5', nblock=1000)
+    else:
+        ostack = TIFFStack(ppath, fstem + '_downsampcorr.hdf5', nblock=1000)
     if pdisk == 1 :
         # disk (high-pass filtered) stack
         dstack = TIFFStack(ppath, fstem + '_disk.hdf5', nblock=1000)
     else :
         dstack = ostack
-           
+
+    pdb.set_trace()
     (nx, ny) = (dstack.nx, dstack.ny)
     if nframes < 0 :
         nframes = dstack.nframes
@@ -1812,6 +1826,11 @@ def align_frames(ppath, name, nframes=-1, nblock=100, pdisk=1, psave=1, pwrite=1
 
         for j in range(D.shape[0]) :
             (sx, sy) = normxcorr2(ref, D[j, idx[0]:idx[1], idx[2]:idx[3]])
+            if np.abs(sx)>20:
+                sx = 0
+            if np.abs(sy)>20:
+                sy = 0
+             
             (arangex, arangey, brangex, brangey) = get_corr_ranges(nx, ny, sx, sy)
             if pwrite == 1:
                 N[j,arangex[0]:arangex[-1]+1,arangey[0]:arangey[-1]+1] = C[j,brangex[0]:brangex[-1]+1,brangey[0]:brangey[-1]+1]
@@ -2144,8 +2163,10 @@ def imaging_timing(ipath, name, SR=1000):
 
 
 def minisc_timing(ipath, name):
+    """
+    throw out redundant imaging frames
+    """
     
-
     # load timestamp file
     d = np.loadtxt(os.path.join(ipath, name,'timestamp.dat'),
                             delimiter='\t',
@@ -2162,7 +2183,7 @@ def minisc_timing(ipath, name):
     nx = stack.shape[1]
     ny = stack.shape[2]
 
-    fname_stack_new = os.path.join(ipath, name, 'recording_%s_downsamp_corr.hdf5'%name)
+    fname_stack_new = os.path.join(ipath, name, 'recording_%s_downsampcorr.hdf5'%name)
     fid_new = h5py.File(fname_stack_new, 'w')
 
     unique_imgs = [0]
@@ -2188,14 +2209,14 @@ def minisc_timing(ipath, name):
     for index in unique_imgs:
         stack_new[i,:,:] = stack[index,:,:]
         i+=1
-
     
     corr_img_time = img_time[np.array(unique_imgs)]
     so.savemat(os.path.join(ipath, name, 'img_time.mat'), {'time' : corr_img_time})
 
     fid.close()
     fid_new.close()
-    pdb.set_trace()
+    # add nframes to info file
+    add_infoparam(os.path.join(ipath, name, 'info.txt'), 'FRAMES', [nframes_new])
 
 
 
