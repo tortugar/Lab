@@ -240,7 +240,7 @@ def intan_video_timing(ppath, rec, tscale=0):
     vfile = os.path.join(ppath, rec, 'videotime_' + rec + '.mat')
     vid = so.loadmat(vfile, squeeze_me=True)['video']
 
-    # transform signal such that is movie frame onset
+    # transform signal such that a movie frame onset
     # corresponds to a flip from 0 to 1
     vid = (vid - 1.0)*-1.0
     vid = vid.astype('int')
@@ -287,6 +287,7 @@ def intan_correct_videotiming(ppath, rec, fr=1, pplot=True):
     idxs,_ = sleepy.laser_start_end(vid, SR=sr, intval=0.01)
     A = so.loadmat(os.path.join(ppath, rec, timestamp), squeeze_me=True)
     tstamp = A['timelist']
+    tstamp[np.where(tstamp<0)[0]] += 1000000
 
     # list for each videoframe the corresponding index in idxs
     ndropped = 0
@@ -435,7 +436,7 @@ def zipdir(path, zip_file):
     """
     zip directory $path to zip file $zip_file
     Note: only the parent directory of path is preserved (i.e.
-    if the folder it /A/B/C all files and dirs within C are zipped and only
+    if the folder is /A/B/C, all files and dirs within C are zipped and only
     directly C is preserved in the zipped file
     """
     print("zipping folder %s to %s" % (path, zip_file))
