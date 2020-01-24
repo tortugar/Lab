@@ -579,7 +579,7 @@ def power_spectrum(data, length, dt):
     @Return:
         power density, frequencies
 
-        The function return power density in units V^2 / Hz
+        The function returns power density in units V^2 / Hz
         Note that
             np.var(data) ~ np.sum(power density) * (frequencies[1]-frequencies[0])
     """
@@ -731,8 +731,12 @@ def whiten_spectrogram(ppath, name, fmax=50):
     return W, D, L
 
 
-def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True):
-    P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'), squeeze_me=True)
+def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True, sptype='', filt_dim=[]):
+    if (len(sptype) == 0) or (sptype=='std'):
+        P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'), squeeze_me=True)
+    elif sptype == 'fine':
+        P = so.loadmat(os.path.join(ppath, name,  'sp_fine_' + name + '.mat'), squeeze_me=True)
+           
     SPE = P['SP']
     freq = P['freq']
     t = P['t']
@@ -753,12 +757,10 @@ def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True):
     sp_mean = SPE.mean(axis=1)
     
     SPE = np.divide(SPE, np.tile(sp_mean, (SPE.shape[1], 1)).T)
-    nfilt = 12
-    filt = np.ones((nfilt,2))
-    filt = np.divide(filt, filt.sum())
-
-    #SPE = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
-
+    if len(filt_dim):
+        filt = np.ones(filt_dim)
+        filt = np.divide(filt, filt.sum())
+        SPE = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
 
     # get high gamma peaks
     iband = np.where((freq >= band[0]) & (freq <= band[-1]))[0]
@@ -783,7 +785,6 @@ def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True):
             plt.draw()
 
     return SPE, t, freq[ifreq]
-
 
 
 
@@ -4942,19 +4943,19 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
         tmp = so.loadmat(os.path.join(ppath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
         if not pemg2:
             MSP = tmp['mSP'][:,istart:iend]
+            freq_emg = tmp['freq']
         else:
             MSP = tmp['mSP2'][:,istart:iend]
-        imu = np.where((freq>=mu[0]) & (freq<=mu[-1]))[0]
+        imu = np.where((freq_emg>=mu[0]) & (freq_emg<=mu[-1]))[0]
         
         if harmcs > 0:
-            harm_freq = np.arange(0, freq.max(), harmcs)
+            harm_freq = np.arange(0, freq_emg.max(), harmcs)
             for h in harm_freq:
-                imu = np.setdiff1d(imu, imu[np.where(np.round(freq[imu], decimals=1)==h)[0]])
+                imu = np.setdiff1d(imu, imu[np.where(np.round(freq_emg[imu], decimals=1)==h)[0]])
             tmp = 0
             for i in imu:
-                tmp += MSP[i,:] * (freq[i]-freq[i-1])
-            emg_ampl = np.sqrt(tmp)
-            
+                tmp += MSP[i,:] * (freq_emg[i]-freq_emg[i-1])
+            emg_ampl = np.sqrt(tmp)            
         else:
             emg_ampl = np.sqrt(MSP[imu,:].sum(axis=0)*df)
         ###################################################
@@ -5513,13 +5514,12 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160,
         else:
             SP = np.squeeze(P['SP2'])[:, istart:iend]
         freq = np.squeeze(P['freq'])
-        ifreq = np.where((freq>=band[0]) & (freq<=band[1]))
+        ifreq = np.where((freq>=band[0]) & (freq<=band[1]))[0]
         pow_band = SP[ifreq,:].mean(axis=0)
         
         seq = [s for s in seq if len(s)*dt >= min_dur]   
         for s in seq:
-            y,f = power_spectrum(pow_band[:,s], win, dt)
-            y = y.mean(axis=0)
+            y,f = power_spectrum(pow_band[s], win, dt)
             Spec[idf].append(y)
         
     # Transform %Spec to ndarray
@@ -5653,6 +5653,7 @@ def ma_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160, band=[10,15],
         plt.show()
 
     return SpecMx, f
+
 
 
 ### pandas support functions ##################################################
