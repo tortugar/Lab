@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Information on intan data formats: 
+http://intantech.com/files/Intan_RHD2000_data_file_formats.pdf
 
 --Channel Allocation for EEG, EMG, LFP
 If you want to set a specific EEG channel as EEG.mat 
@@ -44,6 +46,10 @@ DATE 04/17/19:
 
 DATE 05/01/19:
     upgraded to py3
+
+DATE 01/25/2020:
+    strobe signal from camera 1 and camera 2 are separately processed:
+    Signal from cam1 goes to digital input 2, signal from cam2 goes to digital input 11
 
 @author: Franz and Justin
 """
@@ -291,7 +297,7 @@ def intan_video_timing(ppath, rec, tscale=0):
     onset       -     the onset of each video frame as decoded from the cameras strobing signal
     tick_onset  -     defines a time scale along which behaviors/frames are annotated
     tscale      -     if tscale==0, the annotation time scale is the same as the timing
-                      of the video frames; otherwise specific in s.
+                      of the video frames; otherwise specified in s.
     """
     sr = get_snr(ppath, rec)
     vfile = os.path.join(ppath, rec, 'videotime_' + rec + '.mat')
@@ -435,16 +441,17 @@ for mouse in mice:
         if 'X' not in name:
             first_cl += 1
 
-    # save Video signal
-    # Note: till 12/11/2017 I accidentally called the dictionary entry 'laser'
-    so.savemat(os.path.join(PPATH, name, 'videotime_' + name + '.mat'), {'video':Din[:,2]})
-
+    # save Video signals
+    # NOTE: 01/25/2020: Distinguising between port 2 and 11 for camera signals
+    # from box1 and box2
     # copy timestamp file #####################################################################################
     if imouse < 2:
+        so.savemat(os.path.join(PPATH, name, 'videotime_' + name + '.mat'), {'video':Din[:,2]})
         tfiles = [f for f in os.listdir(intan_dir) if re.match('^timestamp\d', f)]
         if 'timestamp1.mat' in tfiles:
             copy2(os.path.join(intan_dir, 'timestamp1.mat'), os.path.join(PPATH, name, 'timestamp_%s.mat' % name))
     else:
+        so.savemat(os.path.join(PPATH, name, 'videotime_' + name + '.mat'), {'video':Din[:,11]})
         tfiles = [f for f in os.listdir(intan_dir) if re.match('^timestamp\d', f)]
         if 'timestamp2.mat' in tfiles:
             copy2(os.path.join(intan_dir, 'timestamp2.mat'), os.path.join(PPATH, name, 'timestamp_%s.mat' % name))
@@ -489,6 +496,9 @@ for mouse in mice:
     # copy info.rhd from intan_dir to PPATH/name
     copy2(os.path.join(intan_dir, 'info.rhd'), os.path.join(PPATH, name))
     
+    # copy time.dat file
+    copy2(os.path.join(intan_dir, 'time.dat'), os.path.join(PPATH, name))
+        
     # end of loop over mice
     imouse += 1
     
