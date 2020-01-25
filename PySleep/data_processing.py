@@ -63,10 +63,8 @@ import scipy.io as so
 from shutil import copy2, move
 from functools import reduce
 
-import pdb
-# to do: copy video file, process video file, time.dat
-# Channel allocation
 
+debug_mode = True
 
 def get_snr(ppath, name):
     """
@@ -391,7 +389,7 @@ recording_list = []
 # save data to individual mouse folders
 imouse = 0
 first_cl = 3
-ch_offset = 0 # channel offset; 
+ch_offset = 0 # channel offset;
 for mouse in mice:
     print("Processing Mouse %s" % mouse)
     ch_alloc = parse_challoc(params['ch_alloc'][imouse])
@@ -462,7 +460,7 @@ for mouse in mice:
 
     ###########################################################################################################
 
-    # save on/off signal (signal indicate when the recording started and ended)
+    # save on/off signal (signal indicates when the recording started and ended)
     # only save first and last index, when signal is on
     onoff = np.where(Din[:,0]>0.1)[0][[0,-1]]
     so.savemat(os.path.join(PPATH, name, 'onoff_' + name + '.mat'), {'onoff':onoff})
@@ -501,6 +499,30 @@ for mouse in mice:
         
     # end of loop over mice
     imouse += 1
+    
+
+if debug_mode:
+    import matplotlib.pylab as plt
+    
+    name1 = recording_list[0]
+    name2 = recording_list[-1]
+    
+    vid1 = so.loadmat(os.path.join(PPATH, name1, 'videotime_' + name1 + '.mat'), squeeze_me=True)['video']
+    vid2 = so.loadmat(os.path.join(PPATH, name2, 'videotime_' + name2 + '.mat'), squeeze_me=True)['video']
+    
+    plt.ion()
+    plt.figure()
+    vid_start1 = vid1[0:10000]
+    vid_start2 = vid2[0:10000]
+    
+    t = np.arange(0, 10000) * (1.0/1000)    
+    plt.plot(t, vid1[0:10000])
+    plt.plot(t, vid2[0:10000])    
+    plt.xlabel('Time (s)')
+    plt.ylabel('TTL camera strobe')
+    
+    
+    
     
 
 
