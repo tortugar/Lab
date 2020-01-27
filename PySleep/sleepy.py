@@ -732,6 +732,24 @@ def whiten_spectrogram(ppath, name, fmax=50):
 
 
 def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True, sptype='', filt_dim=[]):
+    """
+    Normalize EEG spectrogram by deviding each frequency band by its average value.
+    
+    :param ppath, name: base folder, recording name
+    :param fmax: maximum frequency; frequency axis of spectrogram goes from 0 to fmax
+                 if fmax=0, use complete frequency axis
+    :param band: list or tuple, define lower and upper range of a frequency band, 
+                 if pplot=True, plot band, along with spectrogram;
+                 if band=[], disregard
+    :param vm: color range for plotting spectrogram
+    :pplot: if True, plot spectrogram along with power band
+    :sptype: if sptype='fine' plot 'special' spectrogram, save under sp_fine_$name.mat;
+             otherwise plot 'normal' spectrogram sp_$name.mat
+    :filt_dim: list or tuple; the two values define the dimensions of box filter 
+               used to filter the normalized spectrogram; if filt_dim=[], then no filtering
+               
+    :return SPE, t, freq: normalized spectrogram (np.array), time axis, frequency axis
+    """
     if (len(sptype) == 0) or (sptype=='std'):
         P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'), squeeze_me=True)
     elif sptype == 'fine':
@@ -751,22 +769,25 @@ def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True, sptype
     filt = np.ones((nfilt,nfilt))
     filt = np.divide(filt, filt.sum())
 
-    SPE = SPE[ifreq]
-    W = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
-    sp_mean = W.mean(axis=1)
+    SPE = SPE[ifreq,:]
+    # before
+    #SPE = SPE[ifreq]
+    #W = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
+    #sp_mean = W.mean(axis=1)
     sp_mean = SPE.mean(axis=1)
     
     SPE = np.divide(SPE, np.tile(sp_mean, (SPE.shape[1], 1)).T)
-    if len(filt_dim):
+    if len(filt_dim) > 0:
         filt = np.ones(filt_dim)
         filt = np.divide(filt, filt.sum())
         SPE = scipy.signal.convolve2d(SPE, filt, boundary='symm', mode='same')
 
     # get high gamma peaks
-    iband = np.where((freq >= band[0]) & (freq <= band[-1]))[0]
-    pow_band = SPE[iband,:].mean(axis=0)
-    thr = pow_band.mean() + pow_band.std()
-    idx = np.where(pow_band > thr)[0]
+    if len(band) > 0:
+        iband = np.where((freq >= band[0]) & (freq <= band[-1]))[0]
+        pow_band = SPE[iband,:].mean(axis=0)
+        thr = pow_band.mean() + pow_band.std()
+        idx = np.where(pow_band > thr)[0]
 
     # plot normalized spectrogram, along with band
     if pplot:
@@ -4840,7 +4861,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
 
 
 def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, mu=[10,100], ci='sd', 
-                          pmode=1, pnorm = False, pplot=True, harmcs=0, pemg2=False, csv_files=[]):
+                          pmode=1, pnorm = False, pplot=True, harmcs=0, pemg2=False, exclusive_mode=False, csv_files=[]):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -4924,6 +4945,20 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     
             idx_lsr   = np.intersect1d(idx, laser_idx)
             idx_nolsr = np.setdiff1d(idx, laser_idx)
+            
+            if exclusive_mode == True:
+                rm_idx = []
+                rem_seq = get_sequences(np.where(M==1)[0])
+                for s in rem_seq:
+                    d = np.intersect1d(s, idx_lsr)
+                    if len(d) > 0:
+                        # that's the part of the REM period with laser
+                        # that does not overlap with laser
+                        drm = np.setdiff1d(s, d)
+                        rm_idx.append(drm)
+                        idx_nolsr = np.setdiff1d(idx_nolsr, drm)
+            
+            print(len(idx_nolsr))
         ###################################################
 
         # load EEG spectrogram
@@ -5113,7 +5148,6 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
 
     # dict mouse_id --> number of trials
     num_trials = {k:len(MouseMx[k]) for k in MouseMx}
-    ntrials = sum(num_trials.values())
 
     # Markov Computation & Bootstrap 
     # time axis:
