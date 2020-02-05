@@ -239,6 +239,7 @@ def get_infoparam(ifile, field):
     return values
     
 
+
 def add_infoparam(ifile, field, vals):
     fid = open(ifile, 'a')
     vals = [str(s) for s in vals]
@@ -246,6 +247,7 @@ def add_infoparam(ifile, field, vals):
     fid.write('%s:\t%s' % (field, param))
     fid.write(os.linesep)
     fid.close()
+
 
 
 def laser_start_end(laser, SR=1525.88, intval=5):
@@ -901,6 +903,7 @@ def recursive_sleepstate_rem(ppath, recordings, sf=0.3, alpha=0.3, past_mu=0.2, 
         ppath        base folder with recordings
         recordings   list of recordings
         sf           smoothing factor for each powerspectrum
+        alpha        smoothing factor along time dimension
         past_mu      percentage (0 .. 1) of brain states that are allowed to have EMG power larger than threshold
                      during the last $past_len seconds
         past_len     window to calculate $past_mu
@@ -1032,6 +1035,7 @@ def recursive_sleepstate_rem(ppath, recordings, sf=0.3, alpha=0.3, past_mu=0.2, 
         fid.write(('PAST_MU: %.2f'+os.linesep) % past_mu)
         fid.write(('SF: %.2f'+os.linesep) % sf)
         fid.write(('ALPHA: %.2f'+os.linesep) % alpha)
+        fid.write(('Bern: %.2f' + os.linesep) % 0.5)
         if xemg:
             fid.write(('XEMG: %d'+os.linesep) % 1)
         else:
