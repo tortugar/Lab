@@ -574,6 +574,11 @@ def power_spectrum(data, length, dt):
     """
     scipy's implementation of Welch's method using hanning window to estimate
     the power spectrum
+    
+    The function returns power density with units V**2/Hz 
+    see also https://docs.scipy.org/doc/scipy-0.14.0/reference/generated/scipy.signal.welch.html
+    The label on the y-axis should say PSD [V**2/Hz]
+    
     @Parameters
         data    -   time series; float vector!
         length  -   length of hanning window, even integer!
@@ -913,7 +918,8 @@ def recursive_sleepstate_rem(ppath, recordings, sf=0.3, alpha=0.3, past_mu=0.2, 
     
     """        
     idf = re.split('_', recordings[0])[0]
-    past_len = int(np.round(past_len/sdt))
+    # 02/05/2020 changed from int to float:
+    past_len = float(np.round(past_len/sdt))
     
     # calculate spectrogram
     (SE, SM) = ([],[])
@@ -981,7 +987,8 @@ def recursive_sleepstate_rem(ppath, recordings, sf=0.3, alpha=0.3, past_mu=0.2, 
                 rem_idx[i] = 1
             else:
                 prem = 0 #turn laser off
-
+    # for loop ends
+    
     # Determine which channel is EEG, EMG
     ch_alloc = get_infoparam(os.path.join(ppath, recordings[0], 'info.txt'),  'ch_alloc')[0]
       
@@ -2459,7 +2466,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     filt = np.ones((nfilt,nfilt))
     filt = np.divide(filt, filt.sum())
     EEGLsr = scipy.signal.convolve2d(EEGLsr, filt, boundary='symm', mode='same')
-    EMGLsr = scipy.signal.convolve2d(EMGLsr, filt, boundary='symm', mode='same')
+    #EMGLsr = scipy.signal.convolve2d(EMGLsr, filt, boundary='symm', mode='same')
 
     if pnorm == 2:    
         for i in range(EEGLsr.shape[0]):
@@ -2526,6 +2533,8 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
         ax = plt.axes([0.62, 0.1, 0.35, 0.35])
         mf = np.where((f>=mu[0]) & (f <= mu[1]))[0]
         df = f[1]-f[0]
+        
+        pdb.set_trace()
         # amplitude is square root of (integral over each frequency)
         avg_emg = np.sqrt(EMGLsr[mf,:].sum(axis=0)*df)    
         m = np.max(avg_emg)*1.5
@@ -4165,7 +4174,22 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
     a simpler version is sleep_timecourse_list
     
     @Parameters
-    trace_file-  text file, specifies control and experimental recordings
+    trace_file - text file, specifies control and experimental recordings, 
+                 the syntax for the file is the same as required for load_dose_recording
+                 Example: with one control and two experimental groups (1 or 2 third column)
+                 # Comments
+                 #Mouse Recording    dose
+                 C   B1_01012020n1
+                 C   B2_01012020n1
+                 # no dose value for controls
+                 
+                 E   B1_01022020n1   1
+                 E   B2_01022020n1   1
+                 
+                 E   B1_01032020n1   2
+                 E   B2_01032020n1   2 
+
+                 
     tbin    -    size of time bin in seconds
     n       -    number of time bins
     @Optional:
@@ -4614,7 +4638,6 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
             # get all sequences of state $istate
             M = M[istart:iend]
             seq = get_sequences(np.where(M==istate)[0])
-
             EEG = EEG[istart_eeg:iend_eeg]
 
             if pnorm:
@@ -4713,12 +4736,14 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                         if sup[-1]>len(EEG):
                             sup = list(range(int(s[0]*nbin), len(EEG)))
                         # changed line on 02/08/2019
+                        #pdb.set_trace()
                         if len(sup) >= nwin:
                             Pow, F = power_spectrum(EEG[sup], nwin, 1/sr)
                             if pnorm:
                                 Pow = np.divide(Pow, pow_norm)
                             Spectra[idf][0].append(Pow)
 
+    mF = F.copy()
     if f_max > -1:
         ifreq = np.where(F<=f_max)[0]
         F = F[ifreq]
@@ -4800,8 +4825,8 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
             # plot EMG
             Ampl = {}
             # range of frequencies
-            mfreq = np.where((F >= mu[0]) & (F <= mu[1]))[0]
-            df = F[1] - F[0]
+            mfreq = np.where((mF >= mu[0]) & (mF <= mu[1]))[0]
+            df = mF[1] - mF[0]
             if pmode>=1:
                 for i in [0, 1]:
                     Ampl[i] = np.sqrt(Pow[i][:,mfreq].sum(axis=1)*df)
