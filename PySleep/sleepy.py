@@ -4736,7 +4736,6 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                         if sup[-1]>len(EEG):
                             sup = list(range(int(s[0]*nbin), len(EEG)))
                         # changed line on 02/08/2019
-                        #pdb.set_trace()
                         if len(sup) >= nwin:
                             Pow, F = power_spectrum(EEG[sup], nwin, 1/sr)
                             if pnorm:
@@ -4744,11 +4743,16 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                             Spectra[idf][0].append(Pow)
 
     mF = F.copy()
-    if f_max > -1:
-        ifreq = np.where(F<=f_max)[0]
-        F = F[ifreq]
+    
+    if sig_type == 'EEG':
+        if f_max > -1:
+            ifreq = np.where(F<=f_max)[0]
+            F = F[ifreq]
+        else:
+            f_max = F[-1]
     else:
         f_max = F[-1]
+        ifreq = range(0, F.shape[0])
 
     Pow = {0:[], 1:[]}
     if len(Ids)==1:
@@ -4773,14 +4777,6 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                 Pow[1][i,:] = np.array(tmp).mean(axis=0)                
             i += 1
 
-    #if f_max > -1:
-    #    ifreq = np.where(F<=f_max)[0]
-    #    F = F[ifreq]
-    #    Pow[0] = Pow[0][:,ifreq]
-    #    if pmode==1 or pmode==2:
-    #        Pow[1] = Pow[1][:,ifreq]
-    #else:
-    #    f_max = F[-1]
     
     if pplot:
         plt.ion()
@@ -4823,10 +4819,11 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
             nmice = len(mouse_order)
             clrs = sns.color_palette("husl", nmice)
             # plot EMG
-            Ampl = {}
+            Ampl = {0:[], 1:[]}
             # range of frequencies
             mfreq = np.where((mF >= mu[0]) & (mF <= mu[1]))[0]
             df = mF[1] - mF[0]
+            
             if pmode>=1:
                 for i in [0, 1]:
                     Ampl[i] = np.sqrt(Pow[i][:,mfreq].sum(axis=1)*df)
@@ -4839,8 +4836,12 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                 ax.bar([1], Ampl[1].mean(), color='blue', label='laser')
                 plt.legend(bbox_to_anchor=(0., 1.0, 1., .102), loc=3, mode='expand', frameon=False)
 
-                for i in range(nmice):
-                    plt.plot([0,1], [Ampl[0][i], Ampl[1][i]], color=clrs[i], label=mouse_order[i])
+                if len(Ids) == 1:
+                    i=0
+                    plt.plot([0,1], [np.mean(Ampl[0]), np.mean(Ampl[1])], color=clrs[i], label=mouse_order[i])
+                else:
+                    for i in range(nmice):
+                        plt.plot([0,1], [Ampl[0][i], Ampl[1][i]], color=clrs[i], label=mouse_order[i])
 
                 box_off(ax)
                 plt.ylabel('EMG Ampl. ($\mathrm{\mu V}$)')
@@ -4848,8 +4849,8 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                 ax.set_xticklabels(['', ''])
 
                 # some basic stats
-                [tstats, p] = stats.ttest_rel(Ampl[0], Ampl[1])
-                print("Stats for EMG amplitude: t-statistics: %.3f, p-value: %.3f" % (tstats, p))
+                #[tstats, p] = stats.ttest_rel(Ampl[0], Ampl[1])
+                #print("Stats for EMG amplitude: t-statistics: %.3f, p-value: %.3f" % (tstats, p))
 
     if len(fig_file) > 0:
         save_figure(fig_file)
