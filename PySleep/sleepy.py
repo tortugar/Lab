@@ -47,7 +47,6 @@ Upgraded to py3
 import scipy.signal
 import numpy as np
 import scipy.io as so
-import scipy.stats as stats
 import os.path
 import re
 import matplotlib.pylab as plt
@@ -2341,6 +2340,102 @@ def plot_hypnograms(ppath, recordings, tbin=0, unit='h', ma_thr=20, title='', ts
         ax.text(max_dur+max_dur*0.01, 0.5, rec)
 
     plt.show()
+
+
+def plot_swa(ppath, name, delta_win, alpha, swa_yrange=[]):
+    """
+    plot slow wave (delta) activity during NREM
+    The top plot shows the hynogram.
+    The middle plot shows the delta power (irrespective of brain state) as line plot
+    The bottom plot shows for consecutive $delta_win seconds long bins, the
+    median delta power (SWA) during NREM, if the ration of NREM during the
+    corresponding bin >= $alpha
+    
+    Example call:
+    dm=plot_swa(ppath, name, 30, 0.5, swa_yrange=[0, 0.012])    
+        
+    
+    :param ppath, name: basefolder, recording name
+    :param delta_win: plot median swa value for each consecutive $delta_win seconds long window, if
+    :param alpha: the ratio of NREM in this window is larger than alpha (value between 0 and 1)
+    :param swa_yrange: tuple, minimun and maximum value of yrange for SWA
+    
+    :return df: pd.DataFrame with SWA time points and corresponding median SWA values
+    """
+    r_delta = [0.5, 4.5]
+
+    sr = get_snr(ppath, name)
+    nbin = int(np.round(2.5*sr))
+    dt = nbin*(1.0/sr)
+    M,_ = load_stateidx(ppath, name)
+    t = np.arange(0, len(M))*dt
+
+    P = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
+    SP = P['SP']
+    freq = P['freq']
+    df = freq[1]-freq[0]
+    idelta = np.where((freq>=r_delta[0]) & (freq<=r_delta[1]))[0]
+    pow_delta = SP[idelta,:].sum(axis=0)*df
+
+    # get NREM sequences contributing points for fitting
+    iwin = int(delta_win/dt)
+    #seq = get_sequences(nrem_idx, ibreak=int((delta_win/dt)*0.1))
+    delta_med = []
+    for j in range(0, len(M)-iwin, iwin):
+        s = range(j, j+iwin)
+        sc = j+int(iwin/2)
+        Mcut = M[s]
+        if (1.0*len(np.where(Mcut==3)[0])) / len(s) >= alpha:
+            i = np.where(Mcut==3)[0]
+            i = i+s[0]
+            a = np.median(pow_delta[i])
+            delta_med.append((t[sc],a))
+
+    df = pd.DataFrame(columns=['time', 'pow'], data=delta_med)
+
+    # generate figure
+    # show brainstate
+    plt.ion()
+    plt.figure(figsize=(10, 4))
+    axes_brs = plt.axes([0.1, 0.85, 0.8, 0.1])
+    cmap = plt.cm.jet
+    my_map = cmap.from_list('brs', [[0, 0, 0], [0, 1, 1], [0.6, 0, 1], [0.8, 0.8, 0.8]], 4)
+    tmp = axes_brs.pcolorfast(t, [0, 1], np.array([M]), vmin=0, vmax=3)
+    tmp.set_cmap(my_map)
+    axes_brs.axis('tight')
+    axes_brs.axes.get_xaxis().set_visible(False)
+    axes_brs.axes.get_yaxis().set_visible(False)
+    axes_brs.spines["top"].set_visible(False)
+    axes_brs.spines["right"].set_visible(False)
+    axes_brs.spines["bottom"].set_visible(False)
+    axes_brs.spines["left"].set_visible(False)
+
+    # plot delta power as function of time
+    c = 1000**2
+    axes_tdelta = plt.axes([0.1, 0.55, 0.8, 0.2], sharex=axes_brs)
+    plt.plot(t, pow_delta/c, 'k')
+    box_off(axes_tdelta)
+    axes_tdelta.axes.get_xaxis().set_visible(False)
+    axes_tdelta.spines["bottom"].set_visible(False)
+    plt.ylabel('SWA (mV$\mathrm{^2}$)')
+    
+    # plot delta power medians    
+    axes_delta = plt.axes([0.1, 0.12, 0.8, 0.35], sharex=axes_brs)
+    for (s,delta) in delta_med:
+        plt.plot(s, delta/c, 'ko')
+    print(t)
+    plt.xlim((t[0], t[-1]))
+    box_off(axes_delta)
+    plt.xlabel('Time (s)')
+    plt.ylabel('NREM SWA (mV$\mathrm{^2}$)')
+    if swa_yrange == []:
+        ymax = df['pow'].max()/c
+        plt.ylim([0, ymax+0.1*ymax])
+    else:
+        plt.ylim(swa_yrange)
+    plt.show()
+    
+    return df
 
 
 
