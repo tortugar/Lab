@@ -240,6 +240,11 @@ def get_infoparam(ifile, field):
 
 
 def add_infoparam(ifile, field, vals):
+    """
+    :param ifile: info file 
+    :param field: Parameters specifier, e.g. 'SR'
+    :param vals: list with parameters
+    """
     fid = open(ifile, 'a')
     vals = [str(s) for s in vals]
     param = " ".join(vals)
@@ -1475,7 +1480,7 @@ def recursive_sleepstate_nrem(ppath, recordings, sf=0.3, alpha=0.3, std_thdelta 
 
 
 
-def rem_online_analysis(ppath, recordings, backup='', single_mode=False, fig_file=''):
+def rem_online_analysis(ppath, recordings, backup='', single_mode=False, fig_file='', overlap=0):
     """
     analyze results from closed-loop experiments
     :param ppath: base folder
@@ -1483,12 +1488,15 @@ def rem_online_analysis(ppath, recordings, backup='', single_mode=False, fig_fil
     :param backup: string, potential second backup folder with recordings
     :param single_mode: boolean, if True, average across all REM periods (irrespective of mouse)
            and plot each single REM period as dot
+    :param overlap: float between 0 and 100; specifices percentage by which the online detected REM period has to
+           overlap with real (annotated) REM period to be further consided for analysis;
+           if overlap == 0, then any overlap counts, i.e. this parameter has no influence
     :return: df, pd.DataFrame, with control and experimental REM durations as data columns
     """
-    import pandas as pd
-
     if type(recordings) != list:
         recordings = [recordings]
+    overlap = overlap / 100.0
+    
 
     paths = dict()
     for rec in recordings:
@@ -1532,10 +1540,14 @@ def rem_online_analysis(ppath, recordings, backup='', single_mode=False, fig_fil
         seq = get_sequences(np.where(M==1)[0])
         for s in seq:
             # check true REM sequences overlapping with online detected sequences
-            if len(np.intersect1d(s, rem_idx)) > 0:
+            isect = np.intersect1d(s, rem_idx)
+            print(len(isect)/ len(s))
+            # test if real REM period s overlaps with online detected REM periods and, 
+            # if yes, make sure that the overlap is at least overlap *100 percent
+            if len(np.intersect1d(s, rem_idx)) > 0 and float(len(isect)) / len(s) >= overlap:
                 drn = (s[-1]-s[0]+1)*dt
                 # does the sequence overlap with laser?
-                if len(np.intersect1d(s, laser_idx))>0:
+                if len(np.intersect1d(isect, laser_idx))>0:
                     dur_exp[idf].append(drn)
                 else:
                     dur_ctr[idf].append(drn)
@@ -2640,8 +2652,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
         plt.plot(t,avg_emg, color='black', lw=2)
         box_off(ax)     
         plt.xlabel('Time (s)')
-        plt.ylabel('EMG ampl. (uV)')
-        
+        plt.ylabel('EMG ampl. (uV)')        
         plt.show()
         
         if psave:
@@ -5082,6 +5093,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                         drm = np.setdiff1d(s, d)
                         rm_idx.append(drm)
                         idx_nolsr = np.setdiff1d(idx_nolsr, drm)
+                        idx_lsr = np.union1d(idx_lsr, drm)
             
             print(len(idx_nolsr))
         ###################################################
