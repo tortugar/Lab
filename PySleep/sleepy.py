@@ -1541,7 +1541,7 @@ def rem_online_analysis(ppath, recordings, backup='', single_mode=False, fig_fil
         for s in seq:
             # check true REM sequences overlapping with online detected sequences
             isect = np.intersect1d(s, rem_idx)
-            print(len(isect)/ len(s))
+            #print(len(isect)/ len(s))
             # test if real REM period s overlaps with online detected REM periods and, 
             # if yes, make sure that the overlap is at least overlap *100 percent
             if len(np.intersect1d(s, rem_idx)) > 0 and float(len(isect)) / len(s) >= overlap:
