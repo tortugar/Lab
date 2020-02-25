@@ -134,7 +134,7 @@ def fit_dff(a465, a405, sr, nskip=5, wcut=2, wcut405=0, shift_only=False):
     :param nskip: number of seconds at the beginning to throw away for the fit
     :param wcut: float, cutoff frequency (in Hz) for lowpass filtering of 465 signal
     :param wcut405: float, cutoff frequency (in Hz) for lowpass filtering of 405 signal
-                    if 0, then wcut405 = wcut
+                    if wcut405 == 0, then wcut405 defaults to wcut
     :param shift_only: if True, only shift (and do not scale) 405 signal to optimally fit 465 signal
     :return: np.vector, DF/F signal
     """
@@ -289,7 +289,7 @@ def plot_rawtraces(ppath, name, tskip=10, wcut=2.0, ndown=100, vm=3, tstart=0, t
     afit = downsample_vec(afit, ndown)
     dff = downsample_vec(dff, ndown)
     traw = np.linspace(0, (len(a405) - 1) * dt, len(a405))
-    it = np.argmin(np.abs(traw - nskip))
+    #it = np.argmin(np.abs(traw - nskip))
 
     # load brainstate
     M,S = sleepy.load_stateidx(ppath, name)
@@ -631,7 +631,7 @@ def brstate_dff(ppath, name, nskip=30, offline_plot=True):
 
 
 
-def avg_activity(ppath, name, tstart = 10, tend = -1):
+def avg_activity(ppath, name, tstart = 10, tend = -1, awake=False, mu=[10,100]):
     """
     calculate average DF/F activity for given recording.
     &avg_activity uses
@@ -639,7 +639,12 @@ def avg_activity(ppath, name, tstart = 10, tend = -1):
     :param name: recording
     :param tstart: discard first $tstart seconds for calculation
     :param tend: discard last $tend seconds for calculation
-    :return: np.array( average REM, Wake, NREM activity
+    :param awake: it True, also plot active and quite wake. Active wake is determine
+                  based on an EMG threshold; which is the mean EMG amplitude 
+                  during wake + 1 std.
+    :param mu: range of frequencies used to calculated EMG amplitude
+
+    :return: np.array( average REM, Wake, NREM activity )
     """
     sr = get_snr(ppath, name)
     # number of time bins for each time bin in spectrogram
@@ -656,29 +661,61 @@ def avg_activity(ppath, name, tstart = 10, tend = -1):
 
     dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dffd'][istart:iend]
 
-    dff_mean = np.zeros((3,))
-    dff_std  = np.zeros((3,))
+    dff_mean = np.zeros((5,))
+    dff_std  = np.zeros((5,))
 
     for i in range(1,4):
         idx = np.where(M==i)[0]
         dff_mean[i-1] = np.mean(dff[idx])*100
         dff_std[i-1]  = np.std(dff[idx]*100)/np.sqrt(len(idx))
 
-    plt.ion()
-    plt.figure()
-    ax = plt.axes([0.3, 0.1, 0.35, 0.8])
-    ax.bar([1,2,3], dff_mean, yerr=dff_std, align='center', color='gray')
-    sleepy.box_off(ax)
-    plt.xticks([1,2,3], ['REM', 'Wake', 'NREM'])
-    plt.ylabel('DF/F (%)')
-    plt.title(name)
-    plt.show()
-
+    if not awake:
+        plt.ion()
+        plt.figure()
+        ax = plt.axes([0.3, 0.1, 0.35, 0.8])
+        ax.bar([1,2,3], dff_mean[0:3], yerr=dff_std[0:3], align='center', color='gray')
+        sleepy.box_off(ax)
+        plt.xticks([1,2,3], ['REM', 'Wake', 'NREM'])
+        plt.ylabel('DF/F (%)')
+        plt.title(name)
+        plt.show()
+    else:
+        tmp = so.loadmat(os.path.join(ppath, name, 'msp_%s.mat'%name), squeeze_me=True)
+        MSP = tmp['mSP']
+        freq = tmp['freq']
+        df = freq[1] - freq[0]
+        imu = np.where((freq>=mu[0]) & (freq<=mu[1]))[0]
+        
+        MSP = MSP[:,istart:iend]
+        widx = np.where(M==2)[0]
+        ampl = np.sqrt(MSP[imu, :].sum(axis=0)*df)
+        wampl = ampl[widx]
+        thr = wampl.mean() + wampl.std()
+        awk_idx = widx[np.where(wampl>thr)[0]]
+        qwk_idx = np.setdiff1d(widx, awk_idx)
+        M[awk_idx] = 4
+        dff_mean[3] = np.mean(dff[awk_idx])*100       
+        dff_std[3]  = np.std(dff[awk_idx]*100)/np.sqrt(len(awk_idx))
+        dff_mean[4] = np.mean(dff[qwk_idx])*100       
+        dff_std[4]  = np.std(dff[qwk_idx]*100)/np.sqrt(len(qwk_idx))
+        
+        pdb.set_trace()
+        plt.ion()
+        plt.figure()
+        ax = plt.axes([0.3, 0.1, 0.35, 0.8])
+        ax.bar([1,2,3,4,5], dff_mean, yerr=dff_std, align='center', color='gray')
+        sleepy.box_off(ax)
+        plt.xticks([1,2,3,4,5], ['REM', 'Wake', 'NREM', 'QWK', 'AWK'])
+        plt.ylabel('DF/F (%)')
+        plt.title(name)
+        plt.show()
+        
+            
     return dff_mean
 
 
 
-def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzscore=False, fig_file='', csv_file=''):
+def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzscore=False, awake=False, mu=[10,100], fig_file='', csv_file=''):
     """
     calculate average DF/F activity during each brainstate for a list of recordings.
     If the recordings come from several mice, the function averages across mice.
@@ -697,6 +734,10 @@ def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzsc
     :param tend: discard last $tend seconds for calculation
     :param backup: string, optional backup folder for recordings; e.g. an external hard drive
     :param pzscore: if True, z-score data
+    :param awake: it True, also plot active and quite wake. Active wake is determine
+                  based on an EMG threshold; which is the mean EMG amplitude 
+                  during wake + 1 std.
+    :param mu: range of frequencies used to calculated EMG amplitude
     :param fig_file: string, if non-empty, save file to specific file name; can be just a file name
            or complete path including file name. If single filename, the file is saved, in the
            current working directory from where python was started
@@ -705,6 +746,10 @@ def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzsc
     """
     if type(recordings) != list:
         recordings = [recordings]
+
+    nstates = 3
+    if awake:
+        nstates = 5
 
     paths = dict()
     for rec in recordings:
@@ -721,7 +766,7 @@ def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzsc
         idf = re.split('_', rec)[0]
         mean_act[idf] = []
         mean_var[idf] = []
-        state_vals[idf] = {1:[], 2:[], 3:[]}
+        state_vals[idf] = {1:[], 2:[], 3:[], 4:[], 5:[]}
         num_states[idf] = []
 
     for rec in recordings:
@@ -745,24 +790,46 @@ def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzsc
         else:
             dff *= 100.0
 
-        dff_mean = np.zeros((3,))
-        dff_var  = np.zeros((3,))
-        num = np.zeros((3,))
+        dff_mean = np.zeros((5,))
+        dff_var  = np.zeros((5,))
+        num = np.zeros((5,))
+        
         for i in range(1,4):
             idx = np.where(M==i)[0]
             dff_mean[i-1] = np.mean(dff[idx])
             dff_var[i-1]  = np.var(dff[idx])
             state_vals[idf][i] = np.concatenate((state_vals[idf][i], dff[idx]))
             num[i-1] += len(idx)
+        
+        if awake:
+            tmp = so.loadmat(os.path.join(ppath, rec, 'msp_%s.mat'%rec), squeeze_me=True)
+            MSP = tmp['mSP']
+            freq = tmp['freq']
+            df = freq[1] - freq[0]
+            imu = np.where((freq>=mu[0]) & (freq<=mu[1]))[0]
+            
+            MSP = MSP[:,istart:iend]
+            widx = np.where(M==2)[0]
+            ampl = np.sqrt(MSP[imu, :].sum(axis=0)*df)
+            wampl = ampl[widx]
+            thr = wampl.mean() + wampl.std()
+            awk_idx = widx[np.where(wampl>thr)[0]]
+            qwk_idx = np.setdiff1d(widx, awk_idx)
+            M[awk_idx] = 4
+            dff_mean[3] = np.mean(dff[awk_idx])       
+            dff_var[3]  = np.std(dff[awk_idx])/np.sqrt(len(awk_idx))
+            dff_mean[4] = np.mean(dff[qwk_idx])       
+            dff_var[4]  = np.std(dff[qwk_idx])/np.sqrt(len(qwk_idx))
+        
 
         mean_act[idf].append(dff_mean)
         mean_var[idf].append(dff_var)
         num_states[idf].append(num)
 
     nmice = len(mean_act)
-    mean_mx = np.zeros((nmice, 3))
-    var_mx  = np.zeros((nmice, 3))
-    num_mx  = np.zeros((nmice, 3))
+    mean_mx = np.zeros((nmice, 5))
+    var_mx  = np.zeros((nmice, 5))
+    num_mx  = np.zeros((nmice, 5))
     i = 0
     for idf in mean_act:
         mean_mx[i,:] = np.array(mean_act[idf]).mean(axis=0)
@@ -770,20 +837,23 @@ def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzsc
         num_mx[i, :] = np.array(num_states[idf]).sum(axis=0)
         i += 1
 
+
     # FIGURE
     plt.figure()
     plt.ion()
     ax = plt.axes([0.3, 0.1, 0.35, 0.8])
 
     if nmice == 1:
-        ax.bar([1,2,3], mean_mx[0,:], yerr=np.sqrt(var_mx[0,:]) / np.sqrt(num_mx[0,:]), align='center', color='gray')
+        ax.bar(range(1, nstates+1), mean_mx[:,0:nstates], yerr=np.sqrt(var_mx[:,0:nstates]) / np.sqrt(num_mx[:,0:nstates]), align='center', color='gray')
     else:
-        #ax.bar([1,2,3], mean_mx.mean(axis=0), yerr=mean_mx.std(axis=0) / np.sqrt(nmice), align='center', color='gray')
-        ax.bar([1, 2, 3], mean_mx.mean(axis=0), align='center', color='gray')
+        ax.bar(range(1, nstates+1), mean_mx[:,0:nstates].mean(axis=0), align='center', color='gray')
         for i in range(nmice):
-            plt.plot([1,2,3], mean_mx[i,:], color='black')
+            plt.plot(range(1, nstates+1), mean_mx[i,0:nstates], color='black')
     sleepy.box_off(ax)
-    plt.xticks([1, 2, 3], ['REM', 'Wake', 'NREM'])
+    if awake:
+        plt.xticks(range(1, nstates+1), ['REM', 'Wake', 'NREM', 'AWK', 'QWK'])
+    else:
+        plt.xticks(range(1, nstates+1), ['REM', 'Wake', 'NREM'])
     if not pzscore:
         plt.ylabel('$\Delta$F/F (%)')
     else:
@@ -793,7 +863,7 @@ def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzsc
     if len(fig_file) > 0:
         sleepy.save_figure(fig_file)
 
-    # STATISTICS
+    # STATISTICSs
     # (1) Single mouse statistics
     from statsmodels.stats.multicomp import MultiComparison
     fvalues = {}
@@ -842,15 +912,18 @@ def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzsc
     mice = list(state_vals.keys())
     res_anova = stats.friedmanchisquare(mean_mx[:,0], mean_mx[:,1], mean_mx[:,2])
     print("\nPopulation statistics - Friedman X-square test: statistics: %.3f, p-value: %.3f" % (res_anova[0], res_anova[1]))
-    data = np.reshape(mean_mx.T, (nmice*3,))
+    data = np.reshape(mean_mx[:,0:3].T, (nmice*3,))
     labels = ['REM']*nmice + ['Wake']*nmice + ['NREM']*nmice
     mc = MultiComparison(data, labels)
     results = mc.tukeyhsd()
     print(results)
 
     # Generate pandas DataFrame and save to csv file, if requested
-    columns = ['REM', 'Wake', 'NREM']
-    df = pd.DataFrame(mean_mx, index=mice, columns=columns)
+    if awake:
+        columns = ['REM', 'Wake', 'NREM', 'AWK', 'QWK']
+    else:
+        columns = ['REM', 'Wake', 'NREM']
+    df = pd.DataFrame(mean_mx[:,:nstates], index=mice, columns=columns)
     if len(csv_file) > 0:
         if not re.match('\.csv$', csv_file):
             csv_file += '.csv'
@@ -1011,7 +1084,7 @@ def freqband_vs_activity(ppath, name, band, win=120, ndown=763, tstart=0, tend=-
     plot frequency band of EEG spectrogram vs DF/F
     and plot cross-correlation of DF/F and EEG band.
     Note: Negative time points in the cross-correlation mean that 
-    the neural activity precedes activating in the power band
+    the neural activity precedes activation in the power band
 
     :param ppath: base folder
     :param name: name of recording
@@ -1144,7 +1217,7 @@ def freqband_vs_activity(ppath, name, band, win=120, ndown=763, tstart=0, tend=-
     iwin = win / dt
     #pdb.set_trace()
     xx = scipy.signal.correlate(dffd[0:m][idx]-dffd.mean(), pow_band[0:m][idx]-pow_band.mean(),  'same')
-    # negative time points mean that the neural activity precedes activating in the power band
+    # negative time points mean that the neural activity precedes activation in the power band
     ii = np.arange(len(xx)/2-iwin, len(xx)/2+iwin+1)
     ii = [int(i) for i in ii]
     t = np.arange(-iwin, iwin+1)*dt
@@ -1261,7 +1334,7 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
 
 
 def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold, sj_threshold,
-                         backup='', mu=[10, 100], fmax=30, ma_thr=20, ylim=[], xticks=[], cb_ticks=[], vm = [],
+                         backup='', mu=[10, 100], fmax=30, ma_thr=20, ylim=[], xticks=[], cb_ticks=[], vm=[],
                          tstart=0, tend=-1, pzscore=False, sf=0, base_int = 10, fig_file=''):
     """
     calculate average DFF activity along brain state transitions
@@ -2618,11 +2691,19 @@ def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0,
         plt.ion()
         plt.figure()
         f = freq[ifreq]
-        plt.pcolormesh(t, f, k, cmap='bwr')
+
+        dfk = sleepy.nparray2df(k, f, t, 'coeff', 'freq', 'time')  
+        dfk = df_trig.pivot("freq", "time", "coeff") 
+        ax=sns.heatmap(dfk, cbar=False, cmap="jet") 
+        ax.invert_yaxis()        
+        plt.ylabel('Freq (Hz)')
         plt.xlabel('Time (s)')
-        plt.ylabel('Freq. (Hz)')
-        plt.colorbar()
-        plt.show()
+
+        #plt.pcolormesh(t, f, k, cmap='bwr')
+        #plt.xlabel('Time (s)')
+        #plt.ylabel('Freq. (Hz)')
+        #plt.colorbar()
+        #plt.show()
 
     return k, t, freq[ifreq]
 
@@ -2879,11 +2960,13 @@ def build_featmx(MX, pre, post):
 
 def ridge_regression(A, r, theta):
     """
-    r = A * k
-    A' * r = (A'*A + I*theta) * k
-    AR = (A'*A + I*theta) * k
-    k = CC \ AR
-    :return:
+    S = A
+    
+    r = S * k
+    S' * r = (S'*S + I*theta) * k
+    SR = (S'*S + I*theta) * k
+    k = CC \ SR
+    :return k: optimal linear soluation k that best approximates S*k = r
     """
     # copy matrix, because otherwise it's overwritten
     S = A.copy()
