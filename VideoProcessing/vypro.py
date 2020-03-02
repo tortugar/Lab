@@ -1055,6 +1055,9 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=3, fmax=20, emg_legend=10
     Generate a sequence videos for optogenetic sleep recording (recorded using intan).
     Each video sequence is introduced by a title.
 
+    Example call:
+        vypro.opto_videoseq(ppath, name, [1000, 3000], [1100, 3100], nidle=5, titles=['part1', 'part2']) 
+
     Note: The function requires that ffmpeg is installed on your system (http://ffmpeg.org).
     Windows Users: Specify the full path to the ffmpeg program
 
