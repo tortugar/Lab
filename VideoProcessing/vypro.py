@@ -1049,12 +1049,13 @@ def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legen
 
 
 
-def opto_videoseq(ppath, name, ts_list, te_list, nidle=3, fmax=20, emg_legend=1000, 
+def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=1000, 
                     vm=2.0, time_legend=10, ffmpeg_path='ffmpeg', titles=[], color_map='jet'):
     """
     Generate a sequence videos for optogenetic sleep recording (recorded using intan).
     Each video sequence is introduced by a title.
-
+    The frame rate of the movie is 1Hz.
+    
     Example call:
         vypro.opto_videoseq(ppath, name, [1000, 3000], [1100, 3100], nidle=5, titles=['part1', 'part2']) 
 
@@ -1064,8 +1065,9 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=3, fmax=20, emg_legend=10
     The resulting video has 1 Hz resolution and will be saved in folder $ppath/$name
     :param ppath: base folder
     :param name: name of recording
-    :param ts: start time in seconds
-    :param te: end time in second
+    :param ts_list: list of float; start time points of video parts in seconds
+    :param te_list: list of float; end time points of video parts in seconds
+    :param nidle: number of frames for which each title is shown
     :param fmax: maximum frequency on EEG spectrogram
     :param emg_legend: EMG legend in micro Volts
     :param vm: controls saturation of EEG spectrogram; a value in the range from 1 to 2 should work best.
