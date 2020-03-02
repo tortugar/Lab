@@ -1171,7 +1171,7 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
         #plt.gcf().text(0.905, 0.21,  "%.1f mV" % (emg_legend/1000.0), rotation=90, verticalalignment='center', horizontalalignment='center')
         plt.gcf().text(0.11, 0.25, 'EMG')
         
-        ax_emgleg.plot([0,0], (-emg_legend/2.0, emg_legend/2.0), color='red', linewidth=2)
+        ax_emgleg.plot([0,0], (-emg_legend/2.0, emg_legend/2.0), color='black', linewidth=2)
         ax_emgleg.set_xlim([-1, 1])
         ax_emgleg.set_ylim((-emg_max, emg_max))
         ax_emgleg.get_xaxis().set_visible(False)
@@ -1180,7 +1180,7 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
         ax_emgleg.spines["right"].set_visible(False)
         ax_emgleg.spines["bottom"].set_visible(False)
         ax_emgleg.spines["left"].set_visible(False)
-        ax_emgleg.text(0.5, 0, "%.1f mV" % (emg_legend/1000.0), rotation=90, verticalalignment='center', horizontalalignment='left', color='red', fontsize=12)
+        ax_emgleg.text(0.5, 0, "%.1f mV" % (emg_legend/1000.0), rotation=90, verticalalignment='center', horizontalalignment='left', color='black', fontsize=12)
     
         ax_bs.get_xaxis().set_visible(False)
         ax_bs.get_yaxis().set_visible(False)
@@ -1215,7 +1215,7 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
         plt.gcf().text(0.77, 0.01,  'Wake', color=state_map[1])
         plt.gcf().text(0.84, 0.01,  'NREM', color=state_map[2])
     
-        # setup time legend (beolow DF/F panel)
+        # setup time legend, below hypnogram
         ax_time.plot((tspec[0], tspec[0]+time_legend), [1, 1], color='black', linewidth=2)
         ax_time.set_xlim((tspec[0], tspec[-1]))
         ax_time.set_ylim((-1,1.1))
