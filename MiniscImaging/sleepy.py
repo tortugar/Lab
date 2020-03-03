@@ -4059,11 +4059,21 @@ def caim_snip(ppath, recording):
         cam_on = cam_on[0]
         signal_onoff[0:cam_on] = 0
         signal_onoff[cam_on] = 1
-        
+
+    # sometimes the camera signal doesn't end with 0. In this case,
+    # I define the time point where the camera switches for the last
+    # time from 0 to 1 as the end point of the recording
+    cam_off = -1
+    if signal_onoff[-1] == 1:
+        cam_off = np.where(np.diff(signal_onoff) == 1)[0][-1] + 1
+        signal_onoff[cam_off::] = 0
+
     start_i, end_i = laser_start_end(signal_onoff, SR=1000)
     start_i = start_i[0]
     real_start_i = start_i
     end_i = end_i[0]
+    if cam_off > -1:
+        end_i = cam_off
     initial_cut = signal_onoff[start_i:end_i]
     for i in range(len(initial_cut)):
         if initial_cut[i] == 0:
