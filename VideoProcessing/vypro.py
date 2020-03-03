@@ -1429,7 +1429,6 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
     for (ts, te) in zip(ts_list, te_list):
         its = closest_neighbor(t, ts)[1]
         ite = closest_neighbor(t, te)[1]
-        #data_eeg = EEG[its:ite]
         states = sleepy.downsample_states(Mup[its:ite], int(np.round(sr)))
         state_map = [[0, 1, 1], [0.5, 0, 1], [0.6, 0.6, 0.6]]
     
@@ -1452,7 +1451,7 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
         # setup axes for EEG spectrogram
         sleepy.box_off(ax_eeg)
         ax_eeg.set_xticks([])
-        plt.gcf().text(0.11, 0.38, 'EEG', color='white')
+        plt.gcf().text(0.11, 0.40, 'EEG', color='white')
     
         # setup axes for EMG
         ax_emg.get_xaxis().set_visible(False)
