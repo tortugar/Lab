@@ -432,8 +432,6 @@ def intan_correct_videotiming_old(ppath, rec, fr=1, pplot=True):
 
 
 
-
-
 def intan_correct_videotiming2(ppath, rec, fr=1, pplot=True):
     """
     set annotation time scale for videos from intan.
@@ -863,6 +861,268 @@ def fibpho_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_leg
 
 
 
+def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=1000, vm=2.0, time_legend=10, dff_legend=10,
+                    ffmpeg_path='ffmpeg', titles=[], color_map='jet'):
+    """
+    Generate a sequence of videos for fiber photometry recordings.
+    The function requires that ffmpeg is installed on your system (http://ffmpeg.org).
+    Windows Users: Specify the full path to the ffmpeg program
+    The resulting video has 1 Hz time resolution and will be saved in folder $ppath/$name
+
+    :param ppath: base folder
+    :param name: name of recording
+    :param ts_list: list of float; start time points of video parts in seconds
+    :param te_list: list of float; end time points of video parts in seconds
+    :param nidle: number of frames for which each title is shown
+    :param fmax: maximum frequency on EEG spectrogram
+    :param emg_legend: EMG legend in microVolts!
+    :param vm: controls saturation of EEG spectrogram; a value in the range from 1 to 2 should work best
+    :param time_legend: time legend in seconds
+    :param dff_legend: DF/F in %
+    :param ffmpeg_path: full, absolute path to ffmpeg program; important for to set in Windows
+    :param titles: list of strings; provide a title for each movie sequence
+    :param color_map: string; set a matplotlib colormap
+    :return: n/a
+    """
+    # helper function ######################
+    def closest_neighbor(vec, x):
+        d = np.abs(vec-x)
+        el = np.min(d)
+        idx = np.argmin(d)
+        return el, idx
+    ########################################
+
+    # setup figure arrangement
+    sleepy.set_fontsize(12)
+    sleepy.set_fontarial()
+    plt.ion()
+    plt.figure()
+    plt.figure(figsize=(8, 6))
+
+    ax_video = plt.axes([0.1, 0.55, 0.8, 0.43])
+    ax_eeg   = plt.axes([0.1, 0.38, 0.8, 0.15])
+    ax_emg   = plt.axes([0.1, 0.25, 0.8, 0.1])
+    ax_emgleg = plt.axes([0.9, 0.25, 0.05, 0.1])
+    ax_bs    = plt.axes([0.1, 0.22, 0.8, 0.02])
+    ax_bs_legend = plt.axes([0.1, 0.24, 0.2, 0.02])
+    ax_dff   = plt.axes([0.1, 0.05, 0.8, 0.15])
+    ax_dff_legend = plt.axes([0.05, 0.05, 0.05, 0.15])
+    ax_time  = plt.axes([0.1, 0.001, 0.8, 0.03])
+
+    movie_stack = os.path.join(ppath, name, 'MStack')
+    if not(os.path.isdir(movie_stack)):
+        os.mkdir(movie_stack)
+
+    sr = sleepy.get_snr(ppath, name)
+    M = sleepy.load_stateidx(ppath, name)[0]
+    dt = 1.0 / sr
+
+    nbins = int(np.round(sr) * 5.0 / 2)
+    Mup = spyke.upsample_mx(M, nbins)
+
+    EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
+    EMG = so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG']
+    vid_time = so.loadmat(os.path.join(ppath, name, 'video_timing.mat'), squeeze_me=True)['onset']
+    len_eeg = EEG.shape[0]
+    t = np.arange(0, len_eeg) * dt
+
+    # load and resample DF/F
+    dff_orig = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dff'] * 100
+
+    # get min and max DF/F values
+    idx = np.array([], dtype='int')
+    for (ts, te) in zip(ts_list, te_list):
+        its = closest_neighbor(t, ts)[1]
+        ite = closest_neighbor(t, te)[1]
+        idx = np.concatenate((idx, np.arange(its, ite)))
+
+    dff_orig[idx]
+    dff_max = np.max(dff_orig[idx])
+    dff_max = dff_max + 0.2*dff_max
+    dff_min = np.min(dff_orig[idx])
+    dff_min = dff_min - 0.1*dff_min
+
+    # get max value for EMG
+    emg_max = np.max(np.abs(EMG[idx]))
+    emg_max = emg_max + emg_max * 0.1
+
+    # calculate spectrogram
+    SPEC = []
+    for (ts, te) in zip(ts_list, te_list):
+        data_eeg = EEG[its:ite]
+        fspec, tspec, Sxx = scipy.signal.spectrogram(data_eeg, fs=sr, nperseg=int(2*np.round(sr)), noverlap=int(np.round(sr)))
+        SPEC.append(Sxx)
+
+    ifreq = np.where(fspec<=fmax)[0]
+    # concatenate all spectrograms to calculate median value used to set color range
+    SPEC_comp = SPEC[0]
+    for tmp in SPEC[1:]:
+        SPEC_comp = np.concatenate((SPEC_comp, tmp), axis=0)
+
+    med = np.median(SPEC_comp.max(axis=0))
+
+    # index for saved figures
+    ifig=0
+    ipart=0
+    for (ts, te) in zip(ts_list, te_list):
+
+        its = closest_neighbor(t, ts)[1]
+        ite = closest_neighbor(t, te)[1]
+        states = sleepy.downsample_states(Mup[its:ite], int(np.round(sr)))
+        state_map = [[0, 1, 1], [0.5, 0, 1], [0.6, 0.6, 0.6]]
+
+        dff = spyke.downsample_vec(dff_orig[its:ite], int(np.round(sr)))
+
+        # setup axis for video
+        ax_video.get_xaxis().set_visible(False)
+        ax_video.get_yaxis().set_visible(False)
+        ax_video.spines["top"].set_visible(False)
+        ax_video.spines["right"].set_visible(False)
+        ax_video.spines["bottom"].set_visible(False)
+        ax_video.spines["left"].set_visible(False)
+    
+        # setup axes for EEG spectrogram
+        sleepy.box_off(ax_eeg)
+        ax_eeg.set_xticks([])
+        plt.gcf().text(0.11, 0.49, 'EEG', color='white')
+        plt.gcf().text(0.11, 0.17, '$\mathrm{\Delta F/F}$', color='blue')
+
+        # setup axes for EMG
+        ax_emg.get_xaxis().set_visible(False)
+        ax_emg.get_yaxis().set_visible(False)
+        ax_emg.spines["top"].set_visible(False)
+        ax_emg.spines["right"].set_visible(False)
+        ax_emg.spines["bottom"].set_visible(False)
+        ax_emg.spines["left"].set_visible(False)
+        plt.gcf().text(0.11, 0.35, 'EMG')
+
+        ax_emgleg.plot([0,0], (-emg_legend/2.0, emg_legend/2.0), color='black', linewidth=2)
+        ax_emgleg.set_xlim([-1, 1])
+        ax_emgleg.set_ylim((-emg_max, emg_max))
+        ax_emgleg.get_xaxis().set_visible(False)
+        ax_emgleg.get_yaxis().set_visible(False)
+        ax_emgleg.spines["top"].set_visible(False)
+        ax_emgleg.spines["right"].set_visible(False)
+        ax_emgleg.spines["bottom"].set_visible(False)
+        ax_emgleg.spines["left"].set_visible(False)
+        ax_emgleg.text(0.5, 0, "%.1f mV" % (emg_legend/1000.0), rotation=90, verticalalignment='center', horizontalalignment='left', color='black', fontsize=12)
+
+        ax_dff.get_xaxis().set_visible(False)
+        ax_dff.get_yaxis().set_visible(False)
+        ax_dff.spines["top"].set_visible(False)
+        ax_dff.spines["right"].set_visible(False)
+        ax_dff.spines["bottom"].set_visible(False)
+        ax_dff.spines["left"].set_visible(False)
+    
+        ax_bs.get_xaxis().set_visible(False)
+        ax_bs.get_yaxis().set_visible(False)
+        ax_bs.spines["top"].set_visible(False)
+        ax_bs.spines["right"].set_visible(False)
+        ax_bs.spines["bottom"].set_visible(False)
+        ax_bs.spines["left"].set_visible(False)
+    
+        # setup time legend (beolow DF/F panel)
+        ax_time.plot((tspec[0], tspec[0]+time_legend), [1, 1], color='black', linewidth=2)
+        ax_time.set_xlim((tspec[0], tspec[-1]))
+        ax_time.set_ylim((-1,1.1))
+        ax_time.get_xaxis().set_visible(False)
+        ax_time.get_yaxis().set_visible(False)
+        ax_time.spines["top"].set_visible(False)
+        ax_time.spines["right"].set_visible(False)
+        ax_time.spines["bottom"].set_visible(False)
+        ax_time.spines["left"].set_visible(False)
+        ax_time.text(tspec[0], -1, '%s s' % str(time_legend))
+    
+        # setup legend for DF/F
+        ax_dff_legend.set_xlim((tspec[0], tspec[-1]))
+        ax_dff_legend.set_ylim((-1,1))
+        ax_dff_legend.get_xaxis().set_visible(False)
+        ax_dff_legend.get_yaxis().set_visible(False)
+        ax_dff_legend.spines["top"].set_visible(False)
+        ax_dff_legend.spines["right"].set_visible(False)
+        ax_dff_legend.spines["bottom"].set_visible(False)
+        ax_dff_legend.spines["left"].set_visible(False)
+        ax_dff_legend.set_ylim((dff_min, dff_max))
+        ax_dff_legend.set_xlim((0, 1))
+        ax_dff_legend.plot((0.5,0.5), (dff_min, dff_min+dff_legend), color='black', linewidth=2)
+        ax_dff_legend.text(0, dff_min+(dff_legend-dff_min)/2, str(dff_legend)+' %', rotation=90,
+                           verticalalignment='center')
+        # legend for brain states
+        ax_bs_legend.set_ylim((0, 2))
+        ax_bs_legend.set_xlim((0, 10))
+        ax_bs_legend.text(0.5, 0.5, 'REM', color=state_map[0])
+        ax_bs_legend.text(3.3, 0.5, 'NREM', color=state_map[2])
+        ax_bs_legend.text(7, 0.5, 'Wake', color=state_map[1])
+        ax_bs_legend.get_xaxis().set_visible(False)
+        ax_bs_legend.get_yaxis().set_visible(False)
+        ax_bs_legend.spines["top"].set_visible(False)
+        ax_bs_legend.spines["right"].set_visible(False)
+        ax_bs_legend.spines["bottom"].set_visible(False)
+        ax_bs_legend.spines["left"].set_visible(False)
+    
+        tstart = t[its]
+        i=1
+        idx_idle = 0
+        while i < len(tspec):
+            curr_t = tstart + tspec[i]
+
+            Sxx = SPEC[ipart]
+            ax_eeg.cla()
+            ax_eeg.pcolor(tspec[:i], fspec[ifreq], Sxx[ifreq,:i], vmin=0, vmax=med*vm, cmap=color_map)
+            ax_eeg.set_xlim((tspec[0], tspec[-1]))
+            ax_eeg.set_xticks([])
+            ax_eeg.set_ylabel('Freq. (Hz)')
+    
+            # display current movie frame
+            ax_video.cla()
+            iframe = closest_neighbor(vid_time, curr_t)[1]
+            img = cv2.imread(os.path.join(ppath, name, 'Stack', 'fig%d.jpg' % (iframe+1)))
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            ax_video.imshow(cv2.transpose(img))
+    
+            # show EMG
+            emg = EMG[its:closest_neighbor(t, curr_t)[1]]
+            ax_emg.cla()
+            temg = np.arange(0, len(emg))*dt
+            ax_emg.plot(temg, emg, color='black', linewidth=0.5)
+            ax_emg.set_xlim((tspec[0], tspec[-1]))
+            ax_emg.set_ylim((-emg_max, emg_max))
+
+            # plot brain state patches
+            j = i-1
+            ax_bs.add_patch(patches.Rectangle((tspec[j], 0), tspec[j+1]-tspec[j], 1, facecolor=state_map[int(states[j])-1], edgecolor=state_map[int(states[j])-1]))
+            ax_bs.set_xlim((tspec[0], tspec[-1]))
+            ax_bs.set_ylim((0,1))
+    
+            ax_dff.cla()
+            ax_dff.plot(tspec[:i], dff[:i], color='blue')
+            ax_dff.set_xlim((tspec[0], tspec[-1]))
+            ax_dff.set_ylim((dff_min, dff_max))
+
+            if idx_idle < nidle:
+                # write title on figure:
+                ny = img.shape[0]
+                nx = img.shape[1]
+                if len(titles) >0:
+                    ax_video.text(nx/2, ny/2, titles[ipart], color='yellow', 
+                                  horizontalalignment='center', verticalalignment='center', fontsize=20)
+                idx_idle += 1                
+            else :
+                i += 1
+            if i % 10 == 0:
+                print("done with frame %d out of %d frames in movie part %d" % (i, len(tspec), ipart+1))
+            plt.savefig(os.path.join(movie_stack, 'fig%d.png' % ifig))
+
+            ifig += 1
+        
+        ax_bs.cla()
+        ax_dff_legend.cla()
+        ipart += 1
+
+    encode_video(ppath, name, stack='MStack', ending='.png', fr=10, outpath=os.path.join(ppath, name), ffmpeg_path=ffmpeg_path, vidname='movie_fibpho_')
+
+
+
 def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legend=10, ffmpeg_path='ffmpeg'):
     """
     Generate video for optogenetic sleep recording.
@@ -1052,9 +1312,9 @@ def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legen
 def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=1000, 
                     vm=2.0, time_legend=10, ffmpeg_path='ffmpeg', titles=[], color_map='jet'):
     """
-    Generate a sequence videos for optogenetic sleep recording (recorded using intan).
+    Generate a sequence of videos for optogenetic sleep recording (recorded using intan).
     Each video sequence is introduced by a title.
-    The frame rate of the movie is 1Hz.
+    The frame rate of the movie is 1Hz and will be saved in folder $ppath/$name.
     
     Example call:
         vypro.opto_videoseq(ppath, name, [1000, 3000], [1100, 3100], nidle=5, titles=['part1', 'part2']) 
@@ -1228,7 +1488,6 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
         ax_time.text(tspec[0], -1, '%s s' % str(time_legend))
     
         tstart = t[its]
-        #for i in range(2,len(tspec)):
         i=1
         idx_idle = 0
         while (i < len(tspec)):
@@ -1275,7 +1534,7 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
                 # write title on figure:
                 ny = img.shape[0]
                 nx = img.shape[1]
-                if len(titles) >0:
+                if len(titles)>0:
                     ax_video.text(nx/2, ny/2, titles[ipart], color='yellow', 
                                   horizontalalignment='center', verticalalignment='center', fontsize=20)
                 idx_idle += 1                
