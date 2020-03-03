@@ -862,7 +862,7 @@ def fibpho_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_leg
 
 
 def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=1000, vm=2.0, time_legend=10, dff_legend=10,
-                    ffmpeg_path='ffmpeg', titles=[], color_map='jet'):
+                    ffmpeg_path='ffmpeg', titles=[], color_map='jet', filt_dim=()):
     """
     Generate a sequence of videos for fiber photometry recordings.
     The function requires that ffmpeg is installed on your system (http://ffmpeg.org).
@@ -882,6 +882,11 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
     :param ffmpeg_path: full, absolute path to ffmpeg program; important for to set in Windows
     :param titles: list of strings; provide a title for each movie sequence
     :param color_map: string; set a matplotlib colormap
+    :param filt_dim: tuple, defines dimension of a box filter for smoothing the EEG spectrogram;
+                     the larger filt_dim[0], the more the time axis is smoothed, larger values for filt_dim[1]
+                     result in a smoother frequency axis. Previously, I used filt_dim = (2,4).
+                     If filt_dim = (), no filtering operation is performed
+
     :return: n/a
     """
     # helper function ######################
@@ -946,11 +951,18 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
     emg_max = np.max(np.abs(EMG[idx]))
     emg_max = emg_max + emg_max * 0.1
 
+    # setup box filter
+    if len(filt_dim) > 0:
+        filt = np.ones(filt_dim)
+        filt = filt / np.sum(filt)
+
     # calculate spectrogram
     SPEC = []
     for (ts, te) in zip(ts_list, te_list):
         data_eeg = EEG[its:ite]
         fspec, tspec, Sxx = scipy.signal.spectrogram(data_eeg, fs=sr, nperseg=int(2*np.round(sr)), noverlap=int(np.round(sr)))
+        if len(filt_dim) > 0:
+            Sxx = scipy.signal.convolve2d(Sxx, filt, boundary='symm', mode='same')
         SPEC.append(Sxx)
 
     ifreq = np.where(fspec<=fmax)[0]
