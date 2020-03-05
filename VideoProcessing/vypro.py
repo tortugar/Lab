@@ -861,7 +861,7 @@ def fibpho_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_leg
 
 
 
-def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=1000, vm=2.0, time_legend=10, dff_legend=10,
+def fibpho_videoseq(ppath, name, tsegs, nidle=5, fmax=20, emg_legend=1000, vm=2.0, time_legend=10, dff_legend=10,
                     ffmpeg_path='ffmpeg', titles=[], color_map='jet', filt_dim=()):
     """
     Generate a sequence of videos for fiber photometry recordings.
@@ -869,10 +869,12 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
     Windows Users: Specify the full path to the ffmpeg program
     The resulting video has 1 Hz time resolution and will be saved in folder $ppath/$name
 
+    Example call:
+        vypro.fibpho_videoseq(ppath, name, [(2400,2600), (3500,3600)], titles=['NREM', 'Wake'], filt_dim=(2,4))
+
     :param ppath: base folder
     :param name: name of recording
-    :param ts_list: list of float; start time points of video parts in seconds
-    :param te_list: list of float; end time points of video parts in seconds
+    :param tsegs: list of tuples; each tuple defines the start and end time point [in seconds] of one video segment
     :param nidle: number of frames for which each title is shown
     :param fmax: maximum frequency on EEG spectrogram
     :param emg_legend: EMG legend in microVolts!
@@ -896,6 +898,8 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
         kdx = np.argmin(d)
         return el, kdx
     ########################################
+    #ts_list = [t[0] for t in tsegs]
+    #te_list = [t[1] for t in tsegs]
 
     # setup figure arrangement
     sleepy.set_fontsize(12)
@@ -936,7 +940,7 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
 
     # get min and max DF/F values
     idx = np.array([], dtype='int')
-    for (ts, te) in zip(ts_list, te_list):
+    for (ts, te) in tsegs:
         its = closest_neighbor(t, ts)[1]
         ite = closest_neighbor(t, te)[1]
         idx = np.concatenate((idx, np.arange(its, ite)))
@@ -959,9 +963,12 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
     # calculate spectrogram
     SPEC = []
     spec_time = []
-    for (ts, te) in zip(ts_list, te_list):
+    for (ts, te) in tsegs:
+        its = closest_neighbor(t, ts)[1]
+        ite = closest_neighbor(t, te)[1]
         data_eeg = EEG[its:ite]
-        fspec, tspec, Sxx = scipy.signal.spectrogram(data_eeg, fs=sr, nperseg=int(2*np.round(sr)), noverlap=int(np.round(sr)))
+        fspec, tspec, Sxx = scipy.signal.spectrogram(data_eeg, fs=sr,
+                                                     nperseg=int(2*np.round(sr)), noverlap=int(np.round(sr)))
         if len(filt_dim) > 0:
             Sxx = scipy.signal.convolve2d(Sxx, filt, boundary='symm', mode='same')
         SPEC.append(Sxx)
@@ -971,14 +978,14 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
     # concatenate all spectrograms to calculate median value used to set color range
     SPEC_comp = SPEC[0]
     for tmp in SPEC[1:]:
-        SPEC_comp = np.concatenate((SPEC_comp, tmp), axis=0)
+        SPEC_comp = np.concatenate((SPEC_comp, tmp), axis=1)
 
     med = np.median(SPEC_comp.max(axis=0))
 
     # index for saved figures
     ifig=0
     ipart=0
-    for (ts, te) in zip(ts_list, te_list):
+    for (ts, te) in tsegs:
         its = closest_neighbor(t, ts)[1]
         ite = closest_neighbor(t, te)[1]
         states = sleepy.downsample_states(Mup[its:ite], int(np.round(sr)))
@@ -1078,9 +1085,9 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
         idx_idle = 0
         while i < len(tspec):
             curr_t = tstart + tspec[i]
-
             Sxx = SPEC[ipart]
             tspec = spec_time[ipart]
+
             ax_eeg.cla()
             ax_eeg.pcolor(tspec[:i], fspec[ifreq], Sxx[ifreq,:i], vmin=0, vmax=med*vm, cmap=color_map)
             ax_eeg.set_xlim((tspec[0], tspec[-1]))
@@ -1323,7 +1330,7 @@ def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legen
 
 
 
-def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=1000, 
+def opto_videoseq(ppath, name, tsegs, nidle=5, fmax=20, emg_legend=1000,
                     vm=2.0, time_legend=10, ffmpeg_path='ffmpeg', titles=[], color_map='jet', filt_dim=()):
     """
     Generate a sequence of videos for optogenetic sleep recording (recorded using intan).
@@ -1331,7 +1338,7 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
     The frame rate of the movie is 1Hz and will be saved in folder $ppath/$name.
     
     Example call:
-        vypro.opto_videoseq(ppath, name, [1000, 3000], [1100, 3100], nidle=5, titles=['part 1', 'part 2'])
+        vypro.opto_videoseq(ppath, name, [(1000, 1100), (3000, 3100)], nidle=5, titles=['part 1', 'part 2'])
 
     Note: The function requires that ffmpeg is installed on your system (http://ffmpeg.org).
     Windows Users: Specify the full path to the ffmpeg program
@@ -1339,8 +1346,7 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
     The resulting video has 1 Hz resolution and will be saved in folder $ppath/$name
     :param ppath: base folder
     :param name: name of recording
-    :param ts_list: list of float; start time points of video parts in seconds
-    :param te_list: list of float; end time points of video parts in seconds
+    :param tsegs: list of tuples; each tuple defines the start and end time point [in seconds] of one video segment
     :param nidle: number of frames for which each title is shown
     :param fmax: maximum frequency on EEG spectrogram
     :param emg_legend: EMG legend in micro Volts
@@ -1364,6 +1370,8 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
         kdx = np.argmin(d)
         return el, kdx
     ########################################
+    #ts_list = [t[0] for t in tsegs]
+    #te_list = [t[1] for t in tsegs]
 
     # setup figure arrangement
     sleepy.set_fontsize(12)
@@ -1409,11 +1417,10 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
     # get max value for EMG to set ylims
     # get min and max DF/F values
     idx = np.array([], dtype='int')
-    for (ts, te) in zip(ts_list, te_list):
+    for (ts, te) in tsegs:
         its = closest_neighbor(t, ts)[1]
         ite = closest_neighbor(t, te)[1]
         idx = np.concatenate((idx, np.arange(its, ite)))
-
     emg_max = np.max(np.abs(EMG[idx]))
     emg_max = emg_max + emg_max * 0.1
 
@@ -1424,9 +1431,12 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
     # calculate spectrogram
     SPEC = []
     spec_time = []
-    for (ts, te) in zip(ts_list, te_list):
+    for (ts, te) in tsegs:
+        its = closest_neighbor(t, ts)[1]
+        ite = closest_neighbor(t, te)[1]
         data_eeg = EEG[its:ite]
-        fspec, tspec, Sxx = scipy.signal.spectrogram(data_eeg, fs=sr, nperseg=int(2*np.round(sr)), noverlap=int(np.round(sr)))
+        fspec, tspec, Sxx = scipy.signal.spectrogram(data_eeg, fs=sr,
+                                                     nperseg=int(2*np.round(sr)), noverlap=int(np.round(sr)))
         if len(filt_dim) > 0:
             Sxx = scipy.signal.convolve2d(Sxx, filt, boundary='symm', mode='same')
         SPEC.append(Sxx)
@@ -1436,13 +1446,13 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
     # concatenate all spectrograms to calculate median value used to set color range
     SPEC_comp = SPEC[0]
     for tmp in SPEC[1:]:
-        SPEC_comp = np.concatenate((SPEC_comp, tmp), axis=0)
+        SPEC_comp = np.concatenate((SPEC_comp, tmp), axis=1)
     med = np.median(SPEC_comp.max(axis=0))
 
     # index for saved figures
     ifig=0
     ipart=0
-    for (ts, te) in zip(ts_list, te_list):
+    for (ts, te) in tsegs:
         its = closest_neighbor(t, ts)[1]
         ite = closest_neighbor(t, te)[1]
         states = sleepy.downsample_states(Mup[its:ite], int(np.round(sr)))
@@ -1541,7 +1551,7 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
         tstart = t[its]
         i=1
         idx_idle = 0
-        while (i < len(tspec)):
+        while i < len(tspec):
             curr_t = tstart + tspec[i]
             Sxx = SPEC[ipart]
             tspec = spec_time[ipart]
@@ -1573,7 +1583,6 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
     
             # plot brain state patches
             ax_bs.add_patch(patches.Rectangle((tspec[i-1], 0), tspec[i]-tspec[i-1], 1, facecolor=state_map[int(states[i])-1], edgecolor=state_map[int(states[i])-1]))
-            #pdb.set_trace()
             ax_bs.set_xlim((tspec[0], tspec[-1]))
             ax_bs.set_ylim((0,1))
     
