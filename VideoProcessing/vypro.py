@@ -958,12 +958,14 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
 
     # calculate spectrogram
     SPEC = []
+    spec_time = []
     for (ts, te) in zip(ts_list, te_list):
         data_eeg = EEG[its:ite]
         fspec, tspec, Sxx = scipy.signal.spectrogram(data_eeg, fs=sr, nperseg=int(2*np.round(sr)), noverlap=int(np.round(sr)))
         if len(filt_dim) > 0:
             Sxx = scipy.signal.convolve2d(Sxx, filt, boundary='symm', mode='same')
         SPEC.append(Sxx)
+        spec_time.append(tspec)
 
     ifreq = np.where(fspec<=fmax)[0]
     # concatenate all spectrograms to calculate median value used to set color range
@@ -977,7 +979,6 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
     ifig=0
     ipart=0
     for (ts, te) in zip(ts_list, te_list):
-
         its = closest_neighbor(t, ts)[1]
         ite = closest_neighbor(t, te)[1]
         states = sleepy.downsample_states(Mup[its:ite], int(np.round(sr)))
@@ -1079,6 +1080,7 @@ def fibpho_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=
             curr_t = tstart + tspec[i]
 
             Sxx = SPEC[ipart]
+            tspec = spec_time[ipart]
             ax_eeg.cla()
             ax_eeg.pcolor(tspec[:i], fspec[ifreq], Sxx[ifreq,:i], vmin=0, vmax=med*vm, cmap=color_map)
             ax_eeg.set_xlim((tspec[0], tspec[-1]))
@@ -1421,12 +1423,14 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
 
     # calculate spectrogram
     SPEC = []
+    spec_time = []
     for (ts, te) in zip(ts_list, te_list):
         data_eeg = EEG[its:ite]
         fspec, tspec, Sxx = scipy.signal.spectrogram(data_eeg, fs=sr, nperseg=int(2*np.round(sr)), noverlap=int(np.round(sr)))
         if len(filt_dim) > 0:
             Sxx = scipy.signal.convolve2d(Sxx, filt, boundary='symm', mode='same')
         SPEC.append(Sxx)
+        spec_time.append(tspec)
 
     ifreq = np.where(fspec<=fmax)[0]
     # concatenate all spectrograms to calculate median value used to set color range
@@ -1540,6 +1544,7 @@ def opto_videoseq(ppath, name, ts_list, te_list, nidle=5, fmax=20, emg_legend=10
         while (i < len(tspec)):
             curr_t = tstart + tspec[i]
             Sxx = SPEC[ipart]
+            tspec = spec_time[ipart]
             ax_eeg.cla()
             ax_eeg.pcolor(tspec[:i+1], fspec[ifreq], Sxx[ifreq,:i+1], vmin=0, vmax=med*vm, cmap=color_map)
             ax_eeg.set_xlim((tspec[0], tspec[-1]))
