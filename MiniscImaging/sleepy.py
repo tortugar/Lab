@@ -4046,41 +4046,74 @@ def ma_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160, band=[10,15],
     return SpecMx, f
 
 
-def caim_snip(ppath, recording):
+
+def caim_snip(ppath, recording, frame_thr=1.0):
+    """
+    The camera strobe signal is saved in laser_$recording.mat. Each "jump" of the signal
+    corresponds to a frame flip.
+    
+    
+    :param frame_thr: float, a "frame" lasting longer than frame_thr [s], is considered as 
+                      camera turned off
+    """
 	# to use this function, first remove all the prexisting EEG and EMG spectrogram sp.mat files, remidx text, and EEG2 and EMG2
     if os.path.isfile(os.path.join(ppath, recording, 'laser_orig_%s.mat'%recording)):
-        signal_onoff = so.loadmat(os.path.join(ppath, recording, 'laser_orig_'+recording+'.mat'))['laser'][0]
+        laser = so.loadmat(os.path.join(ppath, recording, 'laser_orig_'+recording+'.mat'))['laser'][0]
     else:
-        signal_onoff = so.loadmat(os.path.join(ppath, recording, 'laser_'+recording+'.mat'))['laser'][0]
-
+        laser = so.loadmat(os.path.join(ppath, recording, 'laser_'+recording+'.mat'))['laser'][0]
+    signal_onoff = laser.copy()
+   
+    
+    # OLD
     # sometimes the camera signal starts with 1s
-    if signal_onoff[0] == 1:
-        cam_on = np.where(np.diff(signal_onoff)==-1)[0] + 1
-        cam_on = cam_on[0]
-        signal_onoff[0:cam_on] = 0
-        signal_onoff[cam_on] = 1
+#    if signal_onoff[0] == 1:
+#        cam_on = np.where(np.diff(signal_onoff)==-1)[0] + 1
+#        cam_on = cam_on[0]
+#        signal_onoff[0:cam_on] = 0
+#        signal_onoff[cam_on] = 1
 
     # sometimes the camera signal doesn't end with 0. In this case,
     # I define the time point where the camera switches for the last
     # time from 0 to 1 as the end point of the recording
-    cam_off = -1
-    if signal_onoff[-1] == 1:
-        cam_off = np.where(np.diff(signal_onoff) == 1)[0][-1] + 1
-        signal_onoff[cam_off::] = 0
+#    cam_off = -1
+#    if signal_onoff[-1] == 1:
+#        cam_off = np.where(np.diff(signal_onoff) == 1)[0][-1] + 1
+#        signal_onoff[cam_off::] = 0
+#
+#    start_i, end_i = laser_start_end(signal_onoff, SR=1000)
+#    start_i = start_i[0]
+#    real_start_i = start_i
+#    end_i = end_i[0]
+#    if cam_off > -1:
+#        end_i = cam_off
+#    initial_cut = signal_onoff[start_i:end_i]
+#    for i in range(len(initial_cut)):
+#        if initial_cut[i] == 0:
+#            start_i = i
+#            break
+#    real_start_i = real_start_i + start_i
+#    real_end_i = end_i + 50
 
-    start_i, end_i = laser_start_end(signal_onoff, SR=1000)
-    start_i = start_i[0]
-    real_start_i = start_i
-    end_i = end_i[0]
-    if cam_off > -1:
-        end_i = cam_off
-    initial_cut = signal_onoff[start_i:end_i]
-    for i in range(len(initial_cut)):
-        if initial_cut[i] == 0:
-            start_i = i
-            break
-    real_start_i = real_start_i + start_i
-    real_end_i = end_i + 50
+
+    # NEW
+    SR = get_snr(ppath, recording)
+    dt = 1.0/SR
+    iframe_thr = 1.0/dt
+    cam_off = np.where(np.diff(signal_onoff)==-1)[0] + 1
+    cam_on = np.where(np.diff(signal_onoff) == 1)[0] + 1
+    cam_jumps = np.sort(np.union1d(cam_on, cam_off))
+    
+    d = np.diff(cam_jumps)
+    ilong_frame = np.where(d>iframe_thr)[0]
+    
+    real_start_i = cam_jumps[0]
+    if len(ilong_frame) == 1:
+        real_end_i = cam_jumps[ilong_frame[0]]
+    elif len(ilong_frame) == 0:   
+        real_end_i   = cam_jumps[-1]
+    else:
+        print('Something wrong here? No idea what to do...')
+
 
     if os.path.isfile(os.path.join(ppath, recording, 'EEG_orig.mat')):
         eeg = np.squeeze(so.loadmat(os.path.join(ppath, recording, 'EEG_orig.mat'))['EEG'])
@@ -4118,7 +4151,7 @@ def caim_snip(ppath, recording):
     so.savemat(os.path.join(ppath, recording, 'EMG_orig.mat'), {'EMG': emg})
     so.savemat(os.path.join(ppath, recording, 'EEG2_orig.mat'), {'EEG2': eeg})  
     so.savemat(os.path.join(ppath, recording, 'EMG2_orig.mat'), {'EMG2': emg})
-    so.savemat(os.path.join(ppath, recording, 'laser_orig_'+ recording +'.mat'), {'laser':signal_onoff})
+    so.savemat(os.path.join(ppath, recording, 'laser_orig_'+ recording +'.mat'), {'laser':laser})
 
     calculate_spectrum(ppath, recording)
 
