@@ -17,7 +17,7 @@ import pdb
 import sleepy
 
 # new import
-import Utlity as ut
+import Utility as ut
 
 ### DEBUGGER
 #import pdb
@@ -510,7 +510,6 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False, vm=[], fr
     cmap = cmap(range(0, 256))[:,0:3]
     cmap = ut.downsample_matrix(cmap, int(np.floor(256/nroi)))
     fmax = F.max()
-
     
     # collect brainstate information
     sdt = 2.5
@@ -544,7 +543,6 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False, vm=[], fr
     plt.show(block=False)
     axes_dff.spines["left"].set_visible(False)
     sleepy.box_off(axes_dff)
-
 
     # Second figure: brain state dependent averages
     nroi = F.shape[1]
