@@ -14,6 +14,10 @@ import scipy.io as so
 from roipoly import roipoly
 import shutil
 import pdb
+import sleepy
+
+# new import
+import Utlity as ut
 
 ### DEBUGGER
 #import pdb
@@ -283,7 +287,7 @@ def calc_brstates(ipath, name, roi_id, cf=0, bcorr=1) :
             idx = idx[np.where(idx>FIRSTFRAMES)[0]]
             v = a[idx]
             t = img_time[idx]
-            p = least_squares(t, v, 1)[0]
+            p = ut.least_squares(t, v, 1)[0]
             basel = img_time*p[0]+p[1]
         else :
             basel = pc
@@ -415,7 +419,8 @@ def baseline_correction(F, time, perc=20, firstframes=100) :
 
 
  
-def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False) :
+def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False, vm=[], freq_max=30,
+                  pemg_ampl=True, r_mu = [10, 100], dff_legend=100):
     """
     plot Ca traces in a nice and organized way along with brain state annotation
     @ARGS
@@ -424,6 +429,12 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False) :
     roi_id    -     id of roi list to be plotted
     cf        -     correction factor
     bcorr     -     baseline correction? [0|1]
+    pltSpec   -     plot EEG spectrogram and EMG?
+    vm        -     tuple, upper and lower range of color range of EEG spectrogram
+    freq_max  -     maximum frequency for EEG spectrogram
+    pemg_ampl -     if True, plot EMG amplitude, otherwise raw EMG
+    r_mu      -     frequency range for EMG amplitude calculation
+    dff_legend -    value between 0 and 100, length of scale bar for DF/F signal
     """
     import matplotlib.patches as patches
     plt.ion()
@@ -483,7 +494,7 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False) :
             idx = idx[np.where(idx>FIRSTFRAMES)[0]]
             v = a[idx]
             t = img_time[idx]
-            p = least_squares(t, v, 1)[0]
+            p = ut.least_squares(t, v, 1)[0]
             # 10/06/17 added 0:nframes to process Johnny's data
             #basel = img_time[0:nframes]*p[0]+p[1]
             basel = img_time*p[0]+p[1]
@@ -493,50 +504,49 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False) :
         F[:,i] = np.divide(a-basel, basel)
     
 
-    # pdb.set_trace()
     # create colormap for CA traces
     nroi = F.shape[1]
     cmap = plt.get_cmap('jet')
     cmap = cmap(range(0, 256))[:,0:3]
-    cmap = downsample_matrix(cmap, int(np.floor(256/nroi)))
+    cmap = ut.downsample_matrix(cmap, int(np.floor(256/nroi)))
     fmax = F.max()
 
     
     # collect brainstate information
     sdt = 2.5
-    M = load_stateidx(ipath, name)
+    M = sleepy.load_stateidx(ipath, name)[0]
     sp_time = np.arange(0, sdt*M.shape[0], sdt)
-    #img_time = imaging_timing(ipath, name)
 
     # Plotting all together: First, time dependent calcium traces
     plt.figure()
-    ax = plt.subplot(212)
+    axes_dff = plt.axes([0.1, 0.1, 0.8, 0.4])
     for istate in range(1,4):
         idx = np.nonzero(M==istate)[0]
-        seq = get_sequences(idx)
+        seq = sleepy.get_sequences(idx)
     
         for s in seq :
             if istate == 1 :
-                ax.add_patch(patches.Rectangle((s[0]*sdt, -fmax), len(s)*sdt, (nroi+1)*fmax, color=[0.8, 1.0, 1.0]))
+                axes_dff.add_patch(patches.Rectangle((s[0]*sdt, -fmax), len(s)*sdt, (nroi+1)*fmax, color=[0.8, 1.0, 1.0]))
             if istate == 2 :
-                ax.add_patch(patches.Rectangle((s[0]*sdt, -fmax), len(s)*sdt, (nroi+1)*fmax, color=[1, 0.8, 1]))
-    
-    
+                axes_dff.add_patch(patches.Rectangle((s[0]*sdt, -fmax), len(s)*sdt, (nroi+1)*fmax, color=[1, 0.8, 1]))
+        
     for i in range(nroi):
         plt.plot(img_time[0:nframes], F[0:nframes,i]+i*fmax, color=cmap[i,:])
-        plt.text(10, i*fmax+fmax/4, str(i), fontsize=14, color=cmap[i,:],bbox=dict(facecolor='w', alpha=0.))
+        plt.text(100, i*fmax+fmax/4, str(i), fontsize=12, color=cmap[i,:],bbox=dict(facecolor='w', alpha=0.))
 
-
-    # vertical indication 20% DF/F
-    plt.plot(np.ones((2,))*(img_time[nframes-1]-30), [0, 0.2], color='black', lw=3)
+    # vertical legend for DF/F
+    plt.plot(np.ones((2,))*(img_time[nframes-1]-30), [0, dff_legend/100.0], color='black', lw=1)
 
     plt.xlim((0, img_time[nframes-1]))
     plt.ylim([-fmax, fmax*nroi])
     plt.yticks([])
     plt.xlabel('Time (s)')
     plt.show(block=False)
+    axes_dff.spines["left"].set_visible(False)
+    sleepy.box_off(axes_dff)
 
-    # Second, brain state dependent averages
+
+    # Second figure: brain state dependent averages
     nroi = F.shape[1]
     S = np.zeros((nroi,3))
     tborder = 10
@@ -544,7 +554,7 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False) :
     for i in range(nroi) :
         for istate in range(1,4) :
             idx = np.nonzero(M==istate)[0]
-            seq = get_sequences(idx)
+            seq = sleepy.get_sequences(idx)
 
             fidx = []
             for s in seq :
@@ -555,30 +565,70 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False) :
             S[i,istate-1] = np.mean(F[np.array(fidx),i])
 
     if pltSpec == True:
-        ES = so.loadmat(os.path.join(ipath, name, 'sp_' + name + '.mat'))
-        ES = ES['SP'][0:60, :]
-        ax2 = plt.subplot(5,1,2, sharex=ax)
+        P = so.loadmat(os.path.join(ipath, name, 'sp_' + name + '.mat'), squeeze_me=True)
+        freq = P['freq']
+        ifreq = np.where(freq <= freq_max)[0]
+        ES = P['SP'][ifreq, :]
         med = np.median(ES.max(axis=0))
-        ax2.pcolorfast(sp_time, np.linspace(0,30,60), ES, vmin = 0, vmax = med*1.4)
-        ax2.set_xlim([0,sp_time[-1]])
+        if len(vm) == 0:
+            vm = [0, med*2.5]
 
+        axes_spec = plt.axes([0.1, 0.7, 0.8, 0.2], sharex=axes_dff)
+        axes_spec.pcolorfast(sp_time, freq[ifreq], ES[ifreq, :], cmap='jet', vmin=vm[0], vmax=vm[1])
+        axes_spec.axis('tight')
+        #axes_spec.set_xticklabels([])
+        #axes_spec.set_xticks([])
+        axes_spec.spines["bottom"].set_visible(False)
+        plt.ylabel('Freq (Hz)')
+        sleepy.box_off(axes_spec)
+        plt.xlim([sp_time[0], sp_time[-1]])
 
+        if pemg_ampl:
+            P = so.loadmat(os.path.join(ipath, name, 'msp_%s.mat' % name), squeeze_me=True)
+            SPEMG = P['mSP']
+        else:
+            emg = so.loadmat(os.path.join(ipath, name, 'EMG.mat'), squeeze_me=True)['EMG']
+        axes_emg = plt.axes([0.1, 0.57, 0.8, 0.1], sharex=axes_dff)
+        
+        if pemg_ampl:
+            i_mu = np.where((freq >= r_mu[0]) & (freq <= r_mu[1]))[0]
+            p_mu = np.sqrt(SPEMG[i_mu, :].sum(axis=0) * (freq[1] - freq[0]))
+            axes_emg.plot(sp_time, p_mu, color='black')
+
+            # * 1000: to go from mV to uV
+            #if len(emg_ticks) > 0:
+            #    axes_emg.set_yticks(emg_ticks)
+            plt.ylabel('Ampl. ' + '$\mathrm{(\mu V)}$')
+            plt.xlim((sp_time[0], sp_time[-1]))
+        else:
+            SR = sleepy.get_snr(ipath, name)
+            t_emg = np.arange(0, emg.shape[0])*(1.0/SR)
+            axes_emg.plot(t_emg, emg, color='black', lw=0.2)
+            plt.xlim((t_emg[0], t_emg[-1] + 1))
+            plt.ylabel('EMG ' + '$\mathrm{(\mu V)}$')
+            
+        sleepy.box_off(axes_emg)
+
+        plt.setp(axes_spec.get_xticklabels(), visible=False)
+        plt.setp(axes_emg.get_xticklabels(), visible=False)
+
+    # plot brain state dependent DF/F averages
     plt.figure()
-    # average bars
-    plt.subplot(121)
+    ax = plt.subplot(121)
     y = S.mean(axis=0)
     std = S.std(axis=0)
     state_colors = np.array([[0.8, 1.0, 1.0], [1.0, 0.8, 1.0], [0.8, 0.8, 0.8]])
     #plt.bar(np.array([1,2,3])-0.25, y, width=0.5, yerr=std/np.sqrt(nroi))
     for i in range(3) :
-        plt.bar(i+1-0.25, y[i], width=0.5, yerr=std[i]/np.sqrt(nroi), color=state_colors[i,:])
+        plt.bar(i+1, y[i], width=0.5, yerr=std[i]/np.sqrt(nroi), color=state_colors[i,:], align='center')
     
-    plt.ylabel('DF/F')
+    plt.ylabel('$\Delta$F/F')
     plt.xticks([1,2,3], ('REM', 'Wake', 'NREM'))
 
     # single cells
     for i in range(nroi) :
         plt.plot(range(1,4), S[i,:], color=cmap[i,:], marker='o')
+    sleepy.box_off(ax)    
     plt.show()
 
 
@@ -594,8 +644,6 @@ def plot_catraces_simple(ipath, name, roi_id, cf=0, bcorr=1, SR=0):
     bcorr     -     baseline correction? [0|1]
     SR        -     sampling rate or frames per second of ca camera
     """
-    import matplotlib.patches as patches
-
     # sometimes the first frames are black; discard these frames
     FIRSTFRAMES = 100
     
@@ -1794,7 +1842,6 @@ def align_frames(ppath, name, nframes=-1, nblock=1000, pdisk=1, psave=1, pwrite=
     else :
         dstack = ostack
 
-    pdb.set_trace()
     (nx, ny) = (dstack.nx, dstack.ny)
     if nframes < 0 :
         nframes = dstack.nframes
