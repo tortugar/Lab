@@ -17,6 +17,7 @@ from matplotlib.backends.backend_wxagg import \
     NavigationToolbar2WxAgg as NvigationToolbar
 from Utility import *
 from imaging import *
+import imaging as img
 
 # to test whehter point lies within polygon
 from shapely.geometry import Point
@@ -58,7 +59,7 @@ class ImageViewer(wx.Frame) :
         self.sr = -1
         # recording contains spectrogram
         self.sp_exists = True
-        self.pcorr_stack = True
+        #self.pcorr_stack = True
 
         self.create_menu()
 
@@ -75,6 +76,7 @@ class ImageViewer(wx.Frame) :
             self.stime = P['t'][0]
             self.sdt = self.stime[1]-self.stime[0]
             self.sp_exists = True
+            self.file_type = '_aligned.hdf5'
         
         # read image stack
         if os.path.isfile(os.path.join(self.ipath, self.name, 'recording_' + self.name + '_aligned.hdf5')):
@@ -82,7 +84,7 @@ class ImageViewer(wx.Frame) :
             print "loaded motion corrected file (*_aligned.hdf5)"
         else:
             fid = h5py.File(os.path.join(self.ipath, self.name, 'recording_' + self.name + '_downsampcorr.hdf5'))
-
+            self.file_type = '_downsampcorr.hdf5'
         
         self.stack = fid['images']
         self.nframes = self.stack.shape[0]
@@ -573,16 +575,17 @@ class ImageViewer(wx.Frame) :
         extract ROIs and Halo Background
         """
         ddir = os.path.join(self.ipath, self.name)
-        if not self.pcorr_stack:
-            arec = 'recording_' + self.name + '_downsamp.hdf5'
-        else:
-            arec = 'recording_' + self.name + '_downsampcorr.hdf5'
-        stack = TIFFStack(ddir, arec)
+        #if not self.pcorr_stack:
+        #    arec = 'recording_' + self.name + '_downsamp.hdf5'
+        #else:
+        #    arec = 'recording_' + self.name + '_downsampcorr.hdf5'
+        arec = 'recording_' + self.name + self.file_type
+        stack = img.TIFFStack(ddir, arec)
         
         # get the surround of each roi for background subtraction
-        Bkg, Halo = halo_subt(self.ROI_coords, 20, stack.nx, stack.ny, zonez=5)
+        Bkg, Halo = img.halo_subt(self.ROI_coords, 20, stack.nx, stack.ny, zonez=5)
         # extract ROIs
-        print "starting to extract ROIs"
+        print "starting to extract ROIs for roi list %d" % (self.roi_id)
         ROI = stack.get_rois(self.ROI_coords)
         print "got ROIs"
         print "starting to extract background..."
@@ -590,7 +593,7 @@ class ImageViewer(wx.Frame) :
         print "got surround of ROIs"
 
         # Finally save Ca traces for later analysis
-        save_catraces(self.ipath, self.name, self.roi_id, ROI, bROI)
+        img.save_catraces(self.ipath, self.name, self.roi_id, ROI, bROI)
 
     # plot calcium traces along with color coded brainstates
     def plot_rois(self, corr):
@@ -598,15 +601,15 @@ class ImageViewer(wx.Frame) :
         plot rois by calling function in InscopixAnalyze.py
         """
         if os.path.isfile(os.path.join(self.ipath, self.name, 'remxidx_%s.txt'%self.name)):
-            plot_catraces(self.ipath, self.name, self.roi_id, cf=corr)
+            img.plot_catraces(self.ipath, self.name, self.roi_id, cf=corr)
         else:
-            plot_catraces_simple(self.ipath, self.name, self.roi_id, cf=corr, SR=10)
+            img.plot_catraces_simple(self.ipath, self.name, self.roi_id, cf=corr, SR=10)
 
 
     def save_rois(self):
         #transform gui ROI format to save format
         self.set_roicoords()
-        save_roilist(self.ipath, self.name, self.ROI_coords, self.ROIs, roi_id=self.roi_id)
+        img.save_roilist(self.ipath, self.name, self.ROI_coords, self.ROIs, roi_id=self.roi_id)
         print "Saved roi list"
 
         
@@ -621,7 +624,7 @@ class ImageViewer(wx.Frame) :
             a = re.search('^' + fname_base + "(\d+)", self.roi_name)
             self.roi_id = int(a.group(1))
 
-            (self.ROI_coords, self.ROIs) = load_roilist(self.ipath, self.name, self.roi_id)
+            (self.ROI_coords, self.ROIs) = img.load_roilist(self.ipath, self.name, self.roi_id)
             #nroi = len(self.ROIs)
             #cmap = plt.get_cmap('jet')
             #cmap = cmap(range(0, 256))[:,0:3]
@@ -668,9 +671,6 @@ class ImageViewer(wx.Frame) :
 
         self.ROI_coords = Coords
 
-
-
-
                         
 
 # adding functionality to run as script:
@@ -678,6 +678,7 @@ if __name__ == '__main__':
     # adjust to your system:
     ipath = '/Volumes/BB8/Penn/Data/RawImaging'
     ipath = '/Volumes/Transcend/Miniscope/'
+    ipath = '/Volumes/Seagate Expansion Drive/Justin DataBackup/Processed/ASD_Imaging/WTGad/JB9/'
 
     ##################################3
     import sys
