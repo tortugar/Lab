@@ -22,6 +22,9 @@ will be assigned to mouse S10. But the note
 //lights problems today
 will go to all recorded mice 
 
+DATE 03/24/2020
+Added intan conversion factor into script
+
 @author: FW
 
 """
@@ -225,6 +228,8 @@ def parse_challoc(ch_alloc):
 # Parameters to set at each computer:
 PPATH = '/Volumes/Transcend/Miniscope'
 ndig = 16
+# To convert to electrode voltage in microvolts, multiply by 0.195
+FACTOR = 0.195
 
 # chose directory with intan raw files to be processed:
 root = Tk.Tk()
@@ -236,6 +241,12 @@ param_file = get_param_file(intan_dir)
 params = get_infoparam(intan_dir, param_file)
 mice = params['mouse_ID']
 print "We have here the following mice: %s" % (' '.join(mice))
+# 3/24/2020 inserted the following 5 lines:
+if 'conversion' in params:
+    FACTOR = float(params['conversion'][0])
+    print("Found conversion factor: %f" % FACTOR)
+else:
+    params['conversion'] = [str(FACTOR)]
 
 # total number of recorded channels
 ntotal_channels = sum([len(a) for a in params['ch_alloc']])
@@ -251,6 +262,7 @@ print "Using %s as date tag" % dtag
 # load all data
 print("Reading data file...")
 data_amp = np.fromfile(os.path.join(intan_dir, 'amplifier.dat'), 'int16')
+data_amp = data_amp * FACTOR
 print("Processing digital inputs...")
 data_din = np.fromfile(os.path.join(intan_dir, 'digitalin.dat'), 'int16')
 
@@ -346,14 +358,9 @@ for mouse in mice:
 
 
     so.savemat(os.path.join(PPATH, name, 'pull_' + name + '.mat'), {'pull':Din[:,first_dep]})
-    # if 'S38' in name:
-    #     first_dep += 2
-    # else:
     first_dep += 1
-
     
     # save Video signal
-    # Note: till 12/11/2017 I accidentally called the dictionary entry 'laser'
     so.savemat(os.path.join(PPATH, name, 'videotime_' + name + '.mat'), {'video':Din[:,2]})
 
     
