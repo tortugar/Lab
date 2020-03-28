@@ -17,11 +17,14 @@ from matplotlib.backends.backend_wxagg import \
     NavigationToolbar2WxAgg as NvigationToolbar
 from Utility import *
 from imaging import *
-import imaging as img
-
 # to test whehter point lies within polygon
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
+
+# new imports 
+import imaging as img
+import Utility as ut
+import matplotlib.pylab as plt
 
 ### Debugger
 import pdb
@@ -66,8 +69,6 @@ class ImageViewer(wx.Frame) :
         
 
     def setup_imaging(self) :
-        
-
         # load spectrum
         if os.path.isfile(os.path.join(self.ipath, self.name, 'sp_' + self.name + '.mat')):
             P = so.loadmat(os.path.join(self.ipath, self.name, 'sp_' + self.name + '.mat'))
@@ -163,7 +164,7 @@ class ImageViewer(wx.Frame) :
         self.axes = self.fig.add_axes([0.05, 0.28, 0.9, 0.72])
 
         if self.sp_exists:
-            img_time = imaging_timing(self.ipath, self.name)
+            img_time = img.imaging_timing(self.ipath, self.name)
             closest_time = lambda(it, st) : np.argmin(np.abs(it-st))    
             nf = np.min((self.nframes, img_time.shape[0]))
             last_state = closest_time((img_time[nf-1], self.stime))
@@ -415,7 +416,7 @@ class ImageViewer(wx.Frame) :
 
     def on_text_enter(self, event) :
         self.dt = int( float(self.textbox.GetValue()) / (1.0 / self.sr) )
-        print "dt %d" % self.dt
+        #print "dt %d" % self.dt
 
 
     # left mouse button was pressed:
@@ -424,11 +425,11 @@ class ImageViewer(wx.Frame) :
         mouse has been clicked on the canvas
         """
         box_points = (event.xdata, event.ydata)
-        print "coords:"
-        print box_points
-        print self.axes.get_xlim()
-        print self.axes.get_ylim()
-        print self.stack.shape
+        #print "coords:"
+        #print box_points
+        #print self.axes.get_xlim()
+        #print self.axes.get_ylim()
+        #print self.stack.shape
         
         if event.inaxes == self.axes :
             if (self.proi_mode == True) and (self.pcollect_roi == True) :
@@ -591,17 +592,16 @@ class ImageViewer(wx.Frame) :
         print "starting to extract background..."
         bROI = stack.get_rois(Halo)
         print "got surround of ROIs"
-
         # Finally save Ca traces for later analysis
         img.save_catraces(self.ipath, self.name, self.roi_id, ROI, bROI)
 
     # plot calcium traces along with color coded brainstates
     def plot_rois(self, corr):
         """
-        plot rois by calling function in InscopixAnalyze.py
+        plot rois by calling function in imaging.py
         """
-        if os.path.isfile(os.path.join(self.ipath, self.name, 'remxidx_%s.txt'%self.name)):
-            img.plot_catraces(self.ipath, self.name, self.roi_id, cf=corr)
+        if os.path.isfile(os.path.join(self.ipath, self.name, 'remidx_%s.txt'%self.name)):
+            img.plot_catraces(self.ipath, self.name, self.roi_id, cf=corr, pltSpec=True)
         else:
             img.plot_catraces_simple(self.ipath, self.name, self.roi_id, cf=corr, SR=10)
 
@@ -610,14 +610,14 @@ class ImageViewer(wx.Frame) :
         #transform gui ROI format to save format
         self.set_roicoords()
         img.save_roilist(self.ipath, self.name, self.ROI_coords, self.ROIs, roi_id=self.roi_id)
-        print "Saved roi list"
+        print "Saved roi list %d" % (self.roi_id)
 
         
     def load_rois(self):
-        wildcard = "*roilist*"
+        #wildcard = "*roilist*"
         #dialog = wx.FileDialog(None, "Choose a ROI list", os.path.join(self.ipath, self.name), "", wildcard, wx.OPEN)
         #09/08/17: no idea why wildcard is not working anymore??
-        dialog = wx.FileDialog(None, "Choose a ROI list", os.path.join(self.ipath, self.name), "", ".*", wx.FD_OPEN)
+        dialog = wx.FileDialog(None, "Choose a ROI list", os.path.join(self.ipath, self.name), "", ".*", wx.OPEN)
         if dialog.ShowModal() == wx.ID_OK:
             self.roi_name = dialog.GetFilename()
             fname_base = 'recording_' + self.name + '_roilistn'
@@ -630,15 +630,14 @@ class ImageViewer(wx.Frame) :
             #cmap = cmap(range(0, 256))[:,0:3]
             #self.cmap = downsample_matrix(cmap, int(np.floor(256/nroi)))
             self.set_cmap()
-
-            print "ROI set chosen..."
+            print "Selected roi list %d" % (self.roi_id)
 
 
     def set_cmap(self) :
         nroi = len(self.ROIs)
         cmap = plt.get_cmap('jet')
         cmap = cmap(range(0, 256))[:,0:3]
-        self.cmap = downsample_matrix(cmap, int(np.floor(256/nroi)))
+        self.cmap = ut.downsample_matrix(cmap, int(np.floor(256/nroi)))
     
             
     def set_roicoords(self):
