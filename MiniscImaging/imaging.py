@@ -224,6 +224,7 @@ def show_roilist(ipath, name, n, blk=True) :
     plt.show(block=blk)
 
 
+
 def save_catraces(ipath, name, n, ROI, bROI, F=0, cf=0) :
     """
     save the calcium traces belonging to roilist n in file
@@ -1998,7 +1999,6 @@ def halo_subt(roi_list, rng, nx, ny, zonez=2) :
     urange = []
     vrange = []
     for roi in roi_list :
-        print np.min(roi[0])
         u = ( np.max([0, np.min(roi[0])-rng]), np.min([nx, np.max(roi[0])+rng]) )
         v = ( np.max([0, np.min(roi[1])-rng]), np.min([ny, np.max(roi[1])+rng]) )
         rad.append( np.max( (np.diff(u), np.diff(v)) ) )
