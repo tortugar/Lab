@@ -530,6 +530,24 @@ def intan_correct_videotiming2(ppath, rec, fr=1, pplot=True):
     return onset, idxs
 
 
+def intan_fake_timing(ppath, rec, fr=1):
+    """
+    When to use this function? In case you have an intan recording w/o video,
+    but you want to annotate something in the EEG or EMG.
+    
+    The function set an arbitrary onset time for each (non-existing) video frame
+    and sets tick_onset as specified by $fr
+    """
+    sr = sleepy.get_snr(ppath, rec)
+    dt = 1.0/sr
+    n = so.loadmat(os.path.join(ppath, rec, 'EEG.mat'), squeeze_me=True)['EEG'].shape[0]
+
+    vid_fr = 5
+    onset = np.arange(0, n, int(sr/vid_fr))*dt
+    tick_onset = np.arange(0, n, int(sr/fr))*dt
+    so.savemat(os.path.join(ppath, rec, 'video_timing.mat'), {'onset':onset, 'tick_onset':tick_onset})
+    
+
 
 def tdt_video_timing(ppath, rec, dt=1):
     """
