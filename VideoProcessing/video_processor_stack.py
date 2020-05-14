@@ -153,7 +153,7 @@ class MainWindow(QtGui.QMainWindow):
         # Variables related to EEG representation
         # maximum length of shown EEG
     
-        self.twin_eeg = 2.5
+        self.twin_eeg = 5
         self.twin_view = self.twin_eeg
         # number of time point in EEG; set in self.load_session()
         self.len_eeg = 0
@@ -737,7 +737,7 @@ class MainWindow(QtGui.QMainWindow):
         ii = np.arange(np.max([0,ictr-iwin]),np.min([ictr+iwin+1, self.len_eeg]), 1)
         t = ii / self.SR_eeg
         self.graph_eeg.plot(t,self.EEG[ii])
-        #self.graph_eeg.plot([self.curr_time], [0.0], pen=(0,0,0), symbolPen=(255,0,0), symbolBrush=(255,0,0), symbolSize=5)
+        self.graph_eeg.plot([self.curr_time], [0.0], pen=(0,0,0), symbolPen=(255,0,0), symbolBrush=(255,0,0), symbolSize=5)
 
         ax = self.graph_eeg.getAxis(name='bottom')
         self.twin_view = ax.range[-1] - ax.range[0]        
@@ -748,8 +748,7 @@ class MainWindow(QtGui.QMainWindow):
 
         self.graph_emg.clear()
         self.graph_emg.plot(t,self.EMG[ii])
-        self.graph_emg.plot([self.curr_time], [0.0], pen=(0, 0, 0), symbolPen=(255, 0, 0), symbolBrush=(255, 0, 0),
-                        symbolSize=5)
+        self.graph_emg.plot([self.curr_time], [0.0], pen=(0,0,0), symbolPen=(255,0,0), symbolBrush=(255,0,0), symbolSize=5)
         ax = self.graph_emg.getAxis(name='left')
         labelStyle = {'color': '#FFF', 'font-size': '12pt'}
         ax.setLabel('EMG' + ' ' + str(self.emg_pointer+1), units='V', **labelStyle)
