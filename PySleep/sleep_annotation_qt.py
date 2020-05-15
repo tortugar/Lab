@@ -41,7 +41,7 @@ def get_cycles(ppath, name):
     nswitch = int(np.floor(total_dur / (12*3600)))
     switch_points = [0]
     cycle = {'light': [], 'dark':[]}
-    
+        
     if hour >= 7 and hour < 19:
         # recording starts during light cycle
         a = 19*3600 - (hour*3600+mi*60+sec)
@@ -973,7 +973,7 @@ class MainWindow(QtGui.QMainWindow):
                         self.suppl_treck[i:j + 1] = 1
             ##################################
         else:
-            self.laser_raw = np.zeros((len(self.EEG),))
+            self.laser_raw = np.zeros((len(self.EEG),), dtype='int8')
             
         # load information of light/dark cycles
         self.dark_cycle = get_cycles(self.ppath, self.name)['dark']
