@@ -1,8 +1,8 @@
-import sys
-# sys.path.append('/Users/tortugar/Google Drive/Berkeley/Data/Programming/CommonModules')
-#sys.path.append('/home/franz/GDrive/Programming/CommonModules')
-from Utility import *
-# from libtiff import TIFF
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+compatible with python 3, but not yet fully tested
+"""
 import os
 import os.path
 import numpy as np
@@ -15,9 +15,7 @@ from roipoly import roipoly
 import shutil
 import pdb
 import sleepy
-
-# new import
-import Utility as ut
+from scipy import linalg as LA
 
 ### DEBUGGER
 #import pdb
@@ -66,7 +64,7 @@ class TIFFStack:
         save_mean() :
         save self.avg to mat file
         """
-        print self.mean_name
+        print(self.mean_name)
         so.savemat(os.path.join(self.path, self.mean_name), {'mean' : self.avg})
 
 
@@ -115,7 +113,6 @@ class TIFFStack:
 
 
 
-
 def save_roilist(ipath, name, roi_list, bnd_list, roi_id=0) :
     """
     save a list of ROIs following my naming convention
@@ -144,10 +141,11 @@ def save_roilist(ipath, name, roi_list, bnd_list, roi_id=0) :
         n = roi_id
 
     fname = fname_base + str(n) + '.mat'
-    print "Saving roi list to %s" % fname
+    print("Saving roi list to %s" % fname)
     so.savemat(os.path.join(ddir, fname), {'roi_list': roi_list, 'bnd_list': bnd_list})
 
-    return (n, fname)
+    return n, fname
+
 
 
 def load_roilist(ipath, name, n) :
@@ -172,8 +170,8 @@ def load_roilist(ipath, name, n) :
         bnd_list = [(list(k[0][0]), list(k[1][0])) for k in b]
         #bnd_list = [(k[0][0], k[1][0]) for k in b]
     
-
     return (roi_list, bnd_list)
+
 
 
 def show_rois(ipath, name, idx_list, bnd_list,blk=False) :
@@ -186,7 +184,7 @@ def show_rois(ipath, name, idx_list, bnd_list,blk=False) :
     bnd_list  -     list of all boundary pixels
     """
     ddir = os.path.join(ipath, name)
-    img = so.loadmat(os.path.join(ddir, 'recording_' + name + '_alignedmean.mat'))['mean']
+    #img = so.loadmat(os.path.join(ddir, 'recording_' + name + '_alignedmean.mat'))['mean']
     img = so.loadmat(os.path.join(ddir, 'recording_' + name + '_diskmean.mat'))['mean']
 
     # show the image with both ROIs and their mean values
@@ -197,10 +195,10 @@ def show_rois(ipath, name, idx_list, bnd_list,blk=False) :
     # get colormap
     nroi = len(idx_list)
     cmap = plt.get_cmap('jet')
-    cmap = cmap(range(0, 256))[:,0:3]
+    cmap = cmap(list(range(0, 256)))[:, 0:3]
     cmap = downsample_matrix(cmap, int(np.floor(1.0*256/nroi)))
 
-    for (r,i) in zip(bnd_list,range(0, len(bnd_list))) :
+    for (r,i) in zip(bnd_list,list(range(0, len(bnd_list)))):
         allxpoints = r[0]
         allypoints = r[1]
         l = plt.Line2D(allxpoints+[allxpoints[0]], allypoints+[allypoints[0]], color=cmap[i,:], lw=2.)
@@ -242,7 +240,7 @@ def save_catraces(ipath, name, n, ROI, bROI, F=0, cf=0) :
     fname_base = 'recording_' + name + '_tracesn' 
     
     fname = fname_base + str(n) + '.mat'
-    print "Saving Ca traces of roilist %d to %s" % (n, fname)
+    print("Saving Ca traces of roilist %d to %s" % (n, fname))
 
     so.savemat(os.path.join(ddir, fname), {'ROI': ROI, 'bROI': bROI, 'F' : F, 'cf' : cf})
     return fname
@@ -288,7 +286,7 @@ def calc_brstates(ipath, name, roi_id, cf=0, bcorr=1) :
             idx = idx[np.where(idx>FIRSTFRAMES)[0]]
             v = a[idx]
             t = img_time[idx]
-            p = ut.least_squares(t, v, 1)[0]
+            p = least_squares(t, v, 1)[0]
             basel = img_time*p[0]+p[1]
         else :
             basel = pc
@@ -297,7 +295,7 @@ def calc_brstates(ipath, name, roi_id, cf=0, bcorr=1) :
 
     # collect brainstate information
     sdt = 2.5
-    M = load_stateidx(ipath, name)
+    M = sleepy.load_stateidx(ipath, name)[0]
     sp_time = np.arange(0, sdt*M.shape[0], sdt)
     # assigns to each frame a time point:
     img_time = imaging_timing(ipath, name)
@@ -316,7 +314,7 @@ def calc_brstates(ipath, name, roi_id, cf=0, bcorr=1) :
             for s in seq :
                 # eeg2img_time: EEG time |---> Frame Indices
                 a = eeg2img_time([s[0]*sdt, s[-1]*sdt], img_time)
-                fidx = fidx+range(a[0],a[1]+1)
+                fidx = fidx + list(range(a[0],a[1]+1))
 
             S[i,istate-1] = np.mean(F[np.array(fidx),i])
 
@@ -370,7 +368,7 @@ def calc_catransition(ipath, name, roi_id, statei, statej, pre, post, thr_pre, t
     # load brainstate annotation
     sdt = 2.5
     idt = 1. / SR
-    M = load_stateidx(ipath, name)
+    M = sleepy.load_stateidx(ipath, name)[0]
     sp_time = np.arange(0, sdt*M.shape[0], sdt)
 
 
@@ -407,9 +405,8 @@ def calc_catransition(ipath, name, roi_id, statei, statej, pre, post, thr_pre, t
 
     
 
-def baseline_correction(F, time, perc=20, firstframes=100) :
-    
-    pc = np.percentile(F, 20)    
+def baseline_correction(F, time, perc=20, firstframes=100):
+    pc = np.percentile(F, perc)
     idx = np.where(F<pc)[0]
     idx = idx[np.where(idx>firstframes)[0]]
     p = least_squares(time[idx], F[idx], 1)[0]
@@ -418,9 +415,8 @@ def baseline_correction(F, time, perc=20, firstframes=100) :
     return basel
 
 
-
  
-def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False, vm=[], freq_max=30,
+def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq_max=30,
                   pemg_ampl=True, r_mu = [10, 100], dff_legend=100):
     """
     plot Ca traces in a nice and organized way along with brain state annotation
@@ -430,7 +426,7 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False, vm=[], fr
     roi_id    -     id of roi list to be plotted
     cf        -     correction factor
     bcorr     -     baseline correction? [0|1]
-    pltSpec   -     plot EEG spectrogram and EMG?
+    pspec     -     plot EEG spectrogram and EMG?
     vm        -     tuple, upper and lower range of color range of EEG spectrogram
     freq_max  -     maximum frequency for EEG spectrogram
     pemg_ampl -     if True, plot EMG amplitude, otherwise raw EMG
@@ -495,7 +491,7 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False, vm=[], fr
             idx = idx[np.where(idx>FIRSTFRAMES)[0]]
             v = a[idx]
             t = img_time[idx]
-            p = ut.least_squares(t, v, 1)[0]
+            p = least_squares(t, v, 1)[0]
             # 10/06/17 added 0:nframes to process Johnny's data
             #basel = img_time[0:nframes]*p[0]+p[1]
             basel = img_time*p[0]+p[1]
@@ -508,8 +504,8 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False, vm=[], fr
     # create colormap for CA traces
     nroi = F.shape[1]
     cmap = plt.get_cmap('jet')
-    cmap = cmap(range(0, 256))[:,0:3]
-    cmap = ut.downsample_matrix(cmap, int(np.floor(256/nroi)))
+    cmap = cmap(list(range(0, 256)))[:,0:3]
+    cmap = downsample_matrix(cmap, int(np.floor(256/nroi)))
     fmax = F.max()
     
     # collect brainstate information
@@ -559,11 +555,11 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False, vm=[], fr
             for s in seq :
                 if len(s)*2.5 >= 1.0*tborder :
                     a = eeg2img_time([s[0]*sdt + tborder, s[-1]*sdt], img_time)
-                    fidx = fidx+range(a[0],a[1]+1)
+                    fidx = fidx+list(range(a[0],a[1]+1))
             # pdb.set_trace()
             S[i,istate-1] = np.mean(F[np.array(fidx),i])
 
-    if pltSpec == True:
+    if pspec:
         P = so.loadmat(os.path.join(ipath, name, 'sp_' + name + '.mat'), squeeze_me=True)
         freq = P['freq']
         ifreq = np.where(freq <= freq_max)[0]
@@ -626,10 +622,14 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pltSpec = False, vm=[], fr
 
     # single cells
     for i in range(nroi) :
-        plt.plot(range(1,4), S[i,:], color=cmap[i,:], marker='o')
+        plt.plot(np.arange(1,4), S[i,:], color=cmap[i,:], marker='o')
     sleepy.box_off(ax)    
     plt.show()
 
+    t = img_time[0:nframes] 
+    F = ROI[0:nframes,:] - bROI[0:nframes,:]
+
+    return F, t
 
     
 def plot_catraces_simple(ipath, name, roi_id, cf=0, bcorr=1, SR=0):
@@ -676,16 +676,14 @@ def plot_catraces_simple(ipath, name, roi_id, cf=0, bcorr=1, SR=0):
     # create colormap for CA traces
     nroi = F.shape[1]
     cmap = plt.get_cmap('jet')
-    cmap = cmap(range(0, 256))[:,0:3]
-    print nroi
+    cmap = cmap(list(range(0, 256)))[:,0:3]
     cmap = downsample_matrix(cmap, int(np.floor(256/nroi)))
     fmax = F.max()
 
 
     # Plotting all together: First, time dependent calcium traces
     plt.figure()
-    ax = plt.subplot(111)
-    
+    plt.subplot(111)
     
     for i in range(nroi):
         plt.plot(img_time[0:nframes], F[0:nframes,i]+i*fmax, color=cmap[i,:])
@@ -701,6 +699,154 @@ def plot_catraces_simple(ipath, name, roi_id, cf=0, bcorr=1, SR=0):
     plt.xlabel('Time (s)')
     plt.show(block=False)
 
+
+
+def plot_catraces_avg(ipath, name, roi_id, roi_set=[], cf=0, bcorr=1, pspec = False, vm=[], freq_max=30, 
+                      pemg_ampl=True, r_mu = [10, 100], dff_legend=20):
+    """
+    Average calcium traces over set of rois and plot the avg Ca trace 
+    in a nice and organized way along with brain state annotation
+    
+    @ARGS
+    ipath     -     Imaging main folder
+    name      -     Name of Imaging session
+    roi_id    -     id of roi list to be plotted
+    roi_set   -     set (list of integers) that are selected to calculated avg dF/F signal;
+                    if roi_set == [], calculate average across all rois
+    cf        -     correction factor
+    bcorr     -     baseline correction? [0|1]
+    pspec     -     plot EEG spectrogram and EMG?
+    vm        -     tuple, upper and lower range of color range of EEG spectrogram
+    freq_max  -     maximum frequency for EEG spectrogram
+    pemg_ampl -     if True, plot EMG amplitude, otherwise raw EMG
+    r_mu      -     frequency range for EMG amplitude calculation
+    dff_legend-     value between 0 and 100, length of scale bar for DF/F signal
+    """
+    import matplotlib.patches as patches
+    plt.ion()
+
+    # sometimes the first frames are black; discard these frames
+    FIRSTFRAMES = 100
+    
+    D = so.loadmat(os.path.join(ipath, name, 'recording_' + name + '_tracesn' + str(roi_id) + '.mat'))
+    ROI  = D['ROI']
+    bROI = D['bROI']
+    img_time = so.loadmat(os.path.join(ipath, name, 'img_time.mat'), squeeze_me=True)['time']        
+    nframes = ROI.shape[0]
+    F = np.zeros((nframes, ROI.shape[1]))
+
+    for i in range(ROI.shape[1]) :
+        a = ROI[0:nframes,i]-cf*bROI[0:nframes,i]
+        pc = np.percentile(a, 20)
+
+        #baseline correction
+        if bcorr == 1:
+            idx = np.where(a<pc)[0]
+            idx = idx[np.where(idx>FIRSTFRAMES)[0]]
+            v = a[idx]
+            t = img_time[idx]
+            p = least_squares(t, v, 1)[0]
+            # 10/06/17 added 0:nframes to process Johnny's data
+            #basel = img_time[0:nframes]*p[0]+p[1]
+            basel = img_time*p[0]+p[1]
+        else :
+            basel = pc
+
+        F[:,i] = np.divide(a-basel, basel)
+
+    # create colormap for CA traces
+    if len(roi_set) > 0:
+        nroi = len(roi_set)
+    else:
+        nroi = F.shape[1]
+    if len(roi_set) == 0:
+        roi_set = list(range(0, nroi))
+    
+    Fmean = F[:,roi_set].mean(axis=1)
+
+    cmap = plt.get_cmap('jet')
+    cmap = cmap(list(range(0, 256)))[:,0:3]
+    cmap = downsample_matrix(cmap, int(np.floor(256/nroi)))
+    fmax = Fmean.max()
+    fmin = Fmean.min()
+    amp = fmax-fmin
+    
+    # collect brainstate information
+    sdt = 2.5
+    M = sleepy.load_stateidx(ipath, name)[0]
+    sp_time = np.arange(0, sdt*M.shape[0], sdt)
+
+    # Plotting all together: First, time dependent calcium traces
+    plt.figure()
+    axes_dff = plt.axes([0.1, 0.1, 0.8, 0.4])
+    for istate in range(1,4):
+        idx = np.nonzero(M==istate)[0]
+        seq = sleepy.get_sequences(idx)
+    
+        for s in seq :
+            if istate == 1 :
+                axes_dff.add_patch(patches.Rectangle((s[0]*sdt, fmin-0.1*amp), len(s)*sdt, amp*1.2, color=[0.8, 1.0, 1.0]))
+            if istate == 2 :
+                axes_dff.add_patch(patches.Rectangle((s[0]*sdt, fmin-0.1*amp), len(s)*sdt, amp*1.2, color=[1, 0.8, 1]))
+        
+    plt.plot(img_time[0:nframes], Fmean[0:nframes], color='blue')
+
+    # vertical legend for DF/F
+    plt.plot(np.ones((2,))*(img_time[nframes-1]-30), [0, dff_legend/100.0], color='black', lw=3)
+
+    plt.xlim((0, img_time[nframes-1]))
+    plt.ylim([fmin-0.1*amp, fmax+0.1*amp])
+    plt.yticks([])
+    plt.xlabel('Time (s)')
+    plt.show(block=False)
+    axes_dff.spines["left"].set_visible(False)
+    sleepy.box_off(axes_dff)
+
+    if pspec:
+        P = so.loadmat(os.path.join(ipath, name, 'sp_' + name + '.mat'), squeeze_me=True)
+        freq = P['freq']
+        ifreq = np.where(freq <= freq_max)[0]
+        ES = P['SP'][ifreq, :]
+        med = np.median(ES.max(axis=0))
+        if len(vm) == 0:
+            vm = [0, med*2.5]
+
+        axes_spec = plt.axes([0.1, 0.7, 0.8, 0.2], sharex=axes_dff)
+        axes_spec.pcolorfast(sp_time, freq[ifreq], ES[ifreq, :], cmap='jet', vmin=vm[0], vmax=vm[1])
+        axes_spec.axis('tight')
+        axes_spec.spines["bottom"].set_visible(False)
+        plt.ylabel('Freq (Hz)')
+        sleepy.box_off(axes_spec)
+        plt.xlim([sp_time[0], sp_time[-1]])
+
+        if pemg_ampl:
+            P = so.loadmat(os.path.join(ipath, name, 'msp_%s.mat' % name), squeeze_me=True)
+            SPEMG = P['mSP']
+        else:
+            emg = so.loadmat(os.path.join(ipath, name, 'EMG.mat'), squeeze_me=True)['EMG']
+        axes_emg = plt.axes([0.1, 0.57, 0.8, 0.1], sharex=axes_dff)
+        
+        if pemg_ampl:
+            i_mu = np.where((freq >= r_mu[0]) & (freq <= r_mu[1]))[0]
+            p_mu = np.sqrt(SPEMG[i_mu, :].sum(axis=0) * (freq[1] - freq[0]))
+            axes_emg.plot(sp_time, p_mu, color='black')
+            plt.ylabel('Ampl. ' + '$\mathrm{(\mu V)}$')
+            plt.xlim((sp_time[0], sp_time[-1]))
+        else:
+            SR = sleepy.get_snr(ipath, name)
+            t_emg = np.arange(0, emg.shape[0])*(1.0/SR)
+            axes_emg.plot(t_emg, emg, color='black', lw=0.2)
+            plt.xlim((t_emg[0], t_emg[-1] + 1))
+            plt.ylabel('EMG ' + '$\mathrm{(\mu V)}$')
+            
+        sleepy.box_off(axes_emg)
+
+        plt.setp(axes_spec.get_xticklabels(), visible=False)
+        plt.setp(axes_emg.get_xticklabels(), visible=False)
+
+    t = img_time[0:nframes] 
+
+    return Fmean, t
 
 
  
@@ -811,7 +957,7 @@ def tiff2h5(ppath, name, nframes, nblock=1000) :
     if os.path.isfile(fmat_name) == 1 :
         os.remove(fmat_name)
 
-    print "Creating h5 file %s" % fmat_name
+    print("Creating h5 file %s" % fmat_name)
     fmat = h5py.File(fmat_name, 'w')
     dset = fmat.create_dataset('images', shape=(nframes, nx, ny), dtype='uint16')
 
@@ -861,7 +1007,7 @@ def h52tiff(ppath, name) :
 
 
 
-def h52tiff_split(ppath, name) :
+def h52tiff_split(ppath, name):
     """
     convert h5 stack to tiff stack.
     tiff stack only allow for a maximum size of 4GB.
@@ -898,30 +1044,31 @@ def h52tiff_split(ppath, name) :
     stack_fid.close()
 
 
-# def h52tiff_annotation(ppath, name, sdt=2.5, location='SE') :
+
+# def h52tiff_annotation_time(ppath, name, sdt=2.5, location='SE') :
 #     """
 #     ppath     -      path containing tiff stack
 #     name      -      name of tiff stack
 #     convert h5 stack to tiff stack.
-#     tiff stack only allow for a maximum size of 4GB.
+#     tiff stack only allow fr a maximum size of 4GB.
 #     If the stack exceeds this limit, create a new stack.
 #     File one is name stem.tif, file two is named stem-001.tif etc.
-    
+#
 #     Additionally, add to each frame the current brain state annotation.
 #     """
 #     FLIMIT = 4000000000
 #     MAX_INT = np.power(2, 15)
 #     fbase = re.split('\.', name)[0]
-    
+#
 #     stack_fid = h5py.File(os.path.join(ppath, name), 'r')
 #     dset = stack_fid['images']
 #     (nframes, nx, ny) = dset.shape
-
+#
 #     tiff_name = os.path.join(ppath, fbase + '.tif')
 #     if os.path.isfile(tiff_name) == 1 :
 #         os.remove(tiff_name)
 #     tiff = TIFF.open(tiff_name, mode='w')
-
+#
 #     # Sleep State Data
 #     # get imaging time
 #     base_path = '/'.join(ppath.split('/')[0:-1])
@@ -929,16 +1076,23 @@ def h52tiff_split(ppath, name) :
 #     itime = imaging_timing(base_path, recording)
 #     M = map(int, load_stateidx(base_path, recording))
 #     stime = np.arange(0, len(M))*sdt
-#     Letters = [L.astype('uint16') for L in read_letters()]    
+#     Letters = [L.astype('uint16') for L in read_letters()]
+#     Numbers = [N.astype('uint16') for N in read_numbers()]
 #     (lx, ly) = Letters[0].shape
-
+#     (dx, dy) = Numbers[0].shape
+#
 #     # timing movie frame -> index brain state
-#     closest_time = lambda(it, st) : np.argmin(np.abs(it-st))
-
-#     pdb.set_trace()
+#     def closest_time(it, st):
+#         return np.argmin(np.abs(it-st))
+#
 #     fcount = 1
-#     for i in range(nframes) :
+#     for i in range(np.min((len(itime),nframes))) :
+#         if i % 1000 == 0 :
+#             print("Done with %d of %d frames" % (i, nframes))
+#
 #         frame = dset[i,:,:]
+#
+#         # Add R,N,W annotation
 #         # get the index of the brainstate index that is closest to the timing
 #         # of the current frame
 #         # state = M[int(eeg2img_time(itime[i], stime))]
@@ -961,10 +1115,23 @@ def h52tiff_split(ppath, name) :
 #             piece = frame[nx-lx:, :ly]
 #             piece[np.where(Letters[state-1]==1)] = MAX_INT
 #             frame[nx-lx:, :ly] = piece
-            
-#         # write frame        
+#
+#         # Add Time,
+#         # Could be faster if a preallocated an array for timestamp
+#         # instead of concatenating
+#         timestamp = np.zeros((dx,1))
+#         timestring = str(int(round(itime[i])))
+#         for i in range(len(timestring)) :
+#             timestamp=np.concatenate((timestamp,Numbers[int(timestring[i])]), axis=1)
+#             timestamp=np.concatenate((timestamp,np.zeros((dx,1))), axis=1)
+#         # add time to frame
+#         timepiece = frame[0:timestamp.shape[0], 0:timestamp.shape[1]]
+#         timepiece[np.where(timestamp==1)] = MAX_INT
+#         frame[0:timestamp.shape[0], 0:timestamp.shape[1]] = timepiece
+#
+#         # write frame
 #         tiff.write_image(frame)
-
+#
 #         # if too large, split TIFF stack
 #         if os.path.getsize(tiff_name) > FLIMIT :
 #             # generate next tiff file
@@ -973,162 +1140,60 @@ def h52tiff_split(ppath, name) :
 #             tiff_name = os.path.join(ppath, fbase + '-' + s + '.tif')
 #             if os.path.isfile(tiff_name) == 1 :
 #                 os.remove(tiff_name)
-
+#
 #             tiff = TIFF.open(tiff_name, mode='w')
 #             fcount = fcount + 1
-
+#
 #     tiff.close()
 #     stack_fid.close()
 
 
-def h52tiff_annotation_time(ppath, name, sdt=2.5, location='SE') :
-    """
-    ppath     -      path containing tiff stack
-    name      -      name of tiff stack
-    convert h5 stack to tiff stack.
-    tiff stack only allow fr a maximum size of 4GB.
-    If the stack exceeds this limit, create a new stack.
-    File one is name stem.tif, file two is named stem-001.tif etc.
     
-    Additionally, add to each frame the current brain state annotation.
-    """
-    FLIMIT = 4000000000
-    MAX_INT = np.power(2, 15)
-    fbase = re.split('\.', name)[0]
-    
-    stack_fid = h5py.File(os.path.join(ppath, name), 'r')
-    dset = stack_fid['images']
-    (nframes, nx, ny) = dset.shape
-
-    tiff_name = os.path.join(ppath, fbase + '.tif')
-    if os.path.isfile(tiff_name) == 1 :
-        os.remove(tiff_name)
-    tiff = TIFF.open(tiff_name, mode='w')
-
-    # Sleep State Data
-    # get imaging time
-    base_path = '/'.join(ppath.split('/')[0:-1])
-    recording = re.search('recording_(\S+_\S+)_', name).group(1)
-    itime = imaging_timing(base_path, recording)
-    M = map(int, load_stateidx(base_path, recording))
-    stime = np.arange(0, len(M))*sdt
-    Letters = [L.astype('uint16') for L in read_letters()]
-    Numbers = [N.astype('uint16') for N in read_numbers()]
-    (lx, ly) = Letters[0].shape
-    (dx, dy) = Numbers[0].shape
-
-    # timing movie frame -> index brain state
-    closest_time = lambda(it, st) : np.argmin(np.abs(it-st))
-
-    fcount = 1
-    for i in range(np.min((len(itime),nframes))) :
-        if i % 1000 == 0 :
-            print "Done with %d of %d frames" % (i, nframes)
-        
-        frame = dset[i,:,:]
-        
-        # Add R,N,W annotation
-        # get the index of the brainstate index that is closest to the timing
-        # of the current frame
-        # state = M[int(eeg2img_time(itime[i], stime))]
-        state = M[closest_time((itime[i], stime))]
-        MAX_INT = frame.max()
-        # write state onto frame
-        if location == 'SE' :
-            piece = frame[nx-lx:, ny-ly:]
-            piece[np.where(Letters[state-1]==1)] = MAX_INT
-            frame[nx-lx:, ny-ly:] = piece
-        elif location == 'NE' :
-            piece = frame[:lx:, ny-ly:]
-            piece[np.where(Letters[state-1]==1)] = MAX_INT
-            frame[:lx:, ny-ly:] = piece
-        elif location == 'NW' :
-            piece = frame[:lx:, :ly]
-            piece[np.where(Letters[state-1]==1)] = MAX_INT
-            frame[:lx:, :ly] = piece
-        else : # location == 'SW'
-            piece = frame[nx-lx:, :ly]
-            piece[np.where(Letters[state-1]==1)] = MAX_INT
-            frame[nx-lx:, :ly] = piece
-
-        # Add Time,
-        # Could be faster if a preallocated an array for timestamp
-        # instead of concatenating
-        timestamp = np.zeros((dx,1))
-        timestring = str(int(round(itime[i])))
-        for i in range(len(timestring)) :
-            timestamp=np.concatenate((timestamp,Numbers[int(timestring[i])]), axis=1)
-            timestamp=np.concatenate((timestamp,np.zeros((dx,1))), axis=1)
-        # add time to frame
-        timepiece = frame[0:timestamp.shape[0], 0:timestamp.shape[1]]
-        timepiece[np.where(timestamp==1)] = MAX_INT
-        frame[0:timestamp.shape[0], 0:timestamp.shape[1]] = timepiece
-        
-        # write frame        
-        tiff.write_image(frame)
-
-        # if too large, split TIFF stack
-        if os.path.getsize(tiff_name) > FLIMIT :
-            # generate next tiff file
-            s = "%03d" % fcount
-            tiff.close()
-            tiff_name = os.path.join(ppath, fbase + '-' + s + '.tif')
-            if os.path.isfile(tiff_name) == 1 :
-                os.remove(tiff_name)
-
-            tiff = TIFF.open(tiff_name, mode='w')
-            fcount = fcount + 1
-
-    tiff.close()
-    stack_fid.close()
-
-
-    
-    
-def read_letters() :
-    """
-    read masks for R, W, N saved in letters.txt
-    """
-    fid = open('letters.txt')
-    lines = fid.readlines()
-    fid.close()
-    L = re.findall("<([\s\S]*?)>",''.join(lines))
-
-    Letters = []
-    for letter in L:
-        A = []
-        lines = letter.split('\n')
-        for l in lines :
-            if not(re.match('^\s*$', l)) :
-                numbers = l.split(' ')
-                b = [int(i) for i in numbers if not(i=='')]
-                A.append(b)
-        Letters.append(np.array(A))
-
-    return Letters
-
-
-def read_numbers() :
-    """
-    read masks for R, W, N saved in letters.txt
-    """
-    fid = open('numbers.txt')
-    lines = fid.readlines()
-    fid.close()
-    L = re.findall("<([\s\S]*?)>",''.join(lines))
-
-    Numbers = []
-    for letter in L:
-        A = []
-        lines = letter.split('\n')
-        for l in lines :
-            if not(re.match('^\s*$', l)) :
-                numbers = l.split(' ')
-                b = [int(i) for i in numbers if not(i=='')]
-                A.append(b)
-        Numbers.append(np.array(A))
-
-    return Numbers
+#
+# def read_letters() :
+#     """
+#     read masks for R, W, N saved in letters.txt
+#     """
+#     fid = open('letters.txt')
+#     lines = fid.readlines()
+#     fid.close()
+#     L = re.findall("<([\s\S]*?)>",''.join(lines))
+#
+#     Letters = []
+#     for letter in L:
+#         A = []
+#         lines = letter.split('\n')
+#         for l in lines :
+#             if not(re.match('^\s*$', l)) :
+#                 numbers = l.split(' ')
+#                 b = [int(i) for i in numbers if not(i=='')]
+#                 A.append(b)
+#         Letters.append(np.array(A))
+#
+#     return Letters
+#
+#
+# def read_numbers() :
+#     """
+#     read masks for R, W, N saved in letters.txt
+#     """
+#     fid = open('numbers.txt')
+#     lines = fid.readlines()
+#     fid.close()
+#     L = re.findall("<([\s\S]*?)>",''.join(lines))
+#
+#     Numbers = []
+#     for letter in L:
+#         A = []
+#         lines = letter.split('\n')
+#         for l in lines :
+#             if not(re.match('^\s*$', l)) :
+#                 numbers = l.split(' ')
+#                 b = [int(i) for i in numbers if not(i=='')]
+#                 A.append(b)
+#         Numbers.append(np.array(A))
+#
+#     return Numbers
 
 
 
@@ -1153,7 +1218,7 @@ def combine_tiffs(path, name, ndown) :
     files.sort()
     files.insert(0, name)
     new_name = stem + '_downsamp.hdf5'
-    print "new stack will be called %s" % new_name
+    print("new stack will be called %s" % new_name)
     #new_stack = TIFF.open(os.path.join(path, new_name), mode='w')
 
     # start combining tiffs
@@ -1166,7 +1231,7 @@ def combine_tiffs(path, name, ndown) :
         else :
             new_stack = TIFF.open(os.path.join(path, new_name), mode='a')
         stack = TIFF.open(os.path.join(path, f))
-        print "reading stack %s" % f
+        print("reading stack %s" % f)
     
         for l in stack.iter_images() :
             # spatial downsampling
@@ -1175,7 +1240,8 @@ def combine_tiffs(path, name, ndown) :
                 l = downsample_image(l, ndown)
             new_stack.write_image(l)
             nframes = nframes + 1
-            if (nframes % 100) == 0 : print "Done with frame %d" % nframes
+            if (nframes % 100) == 0 :
+                print("Done with frame %d" % nframes)
         # important:
         stack.close()
         new_stack.close()    
@@ -1209,7 +1275,7 @@ def combine_tiffs2h5(path, name, nframes, ndown, nblock=100) :
     if os.path.isfile(new_name) == 1 :
         os.remove(new_name)
 
-    print "new stack will be called %s" % new_name
+    print("new stack will be called %s" % new_name)
     #new_stack = TIFF.open(os.path.join(path, new_name), mode='w')
     # get dimensions of images
     tmp_stack = TIFF.open(os.path.join(path, files[0]))
@@ -1230,7 +1296,7 @@ def combine_tiffs2h5(path, name, nframes, ndown, nblock=100) :
     for f in files :
         #open the current tiff stack
         stack = TIFF.open(os.path.join(path, f))
-        print "reading stack %s" % f
+        print("reading stack %s" % f)
 
         # read frame by frame of the current stack
         for l in stack.iter_images() :
@@ -1247,7 +1313,7 @@ def combine_tiffs2h5(path, name, nframes, ndown, nblock=100) :
                 offset = offset + j
                 j=0
                 
-            if (iframes % 100) == 0 : print "Done with frame %d" % iframes    
+            if (iframes % 100) == 0 : print("Done with frame %d" % iframes)
 
         # 6/24/16
         # make sure to not forget the last frame of the current tiff stack
@@ -1275,7 +1341,7 @@ def avi2h5(rawfolder, ppath, name, ndown=1):
     new_name = 'recording_' + name + '_downsamp.hdf5'
     files = os.listdir(os.path.join(rawfolder))
     files = [f for f in files if re.match('^msCam\d+', f)]
-    print files
+    print(files)
 
     # sort files
     num = {}
@@ -1328,7 +1394,7 @@ def avi2h5(rawfolder, ppath, name, ndown=1):
     for f in files:
         cap = cv2.VideoCapture(os.path.join(rawfolder, f))        
         ret = True
-        print "converting video %s" % f
+        print("converting video %s" % f)
 
         D = np.zeros((frames_per_video[f], nx_down, ny_down))
         cap = cv2.VideoCapture(os.path.join(rawfolder, f))                    
@@ -1375,7 +1441,7 @@ def downsample_hdf5(path, name, ndown, nblock=1000, psave_mean=1) :
     if os.path.isfile(new_name) == 1 :
         os.remove(new_name)
 
-    print "new stack will be called %s" % new_name
+    print("new stack will be called %s" % new_name)
 
     # get dimensions of images
     fid = h5py.File(f, 'r')
@@ -1411,7 +1477,7 @@ def downsample_hdf5(path, name, ndown, nblock=1000, psave_mean=1) :
             offset = offset + nblock
             A[:,:] = A[:,:] + D.sum(axis=0)
             j=0
-        if (i % 1000) == 0 : print "Done with frame %d" % i    
+        if (i % 1000) == 0 : print("Done with frame %d" % i)
 
     # make sure to not forget the last frame of the current tiff stack
     if j>0:
@@ -1454,28 +1520,6 @@ def downsample_image(img, ndown, dtype='uint16') :
     
     return A.astype(dtype)
 
-
-### DEPRICATED ###############################################
-def calc_meanprojection(ppath, name) :
-    """(A, nframes) =  calc_meanprojection(ppath, name) \
-    calculate the average frame of the tiff stack $ppath/$name
-    @RETURN:
-    mean frame @A
-    number of frames in stack $nframes
-    """
-    stack = TIFF.open(os.path.join(ppath, name))
-    A = np.zeros(stack.read_image().shape)
-
-    print "calculating mean projection..."
-    nframes = 0
-    for i in stack.iter_images() :
-        A = A+i
-        nframes = nframes+1
-
-    A = A.astype('float64')/nframes
-    stack.close()
-    return (A, nframes)
-################################################################
 
 
 def roi_manual(ppath, name, pdisk=1) :
@@ -1521,7 +1565,7 @@ def disk_filter(ppath, name, nframes, pfilt=1, nblock=1000, psave=1) :
     """A = disk_filter(ppath, name, nframes pfilt=1, nblock=1000)
     $ppath/$name refers to a TIFF stack.
     """
-    print "performing disk filtering ..."
+    print("performing disk filtering ...")
     # load disk filter
     disk = so.loadmat('disk.mat')['h']
     stack = TIFF.open(os.path.join(ppath, name))
@@ -1536,7 +1580,7 @@ def disk_filter(ppath, name, nframes, pfilt=1, nblock=1000, psave=1) :
     
     if os.path.isfile(h5_file) == 1 :
         # delete file
-        print "deleting file %s..." % h5_file
+        print("deleting file %s..." % h5_file)
         os.remove(h5_file)
 
     f = h5py.File(h5_file, 'w')
@@ -1556,8 +1600,8 @@ def disk_filter(ppath, name, nframes, pfilt=1, nblock=1000, psave=1) :
             j = j+1
             k = k+1
 
-            if j == nblock or k == nframes :
-                print "writing block..."
+            if j == nblock or k == nframes:
+                print("writing block...")
                 # write to mat file
                 dset[offset:offset+j,:,:] = D[0:j,:,:]
                 offset = offset + j
@@ -1575,7 +1619,7 @@ def disk_filter(ppath, name, nframes, pfilt=1, nblock=1000, psave=1) :
     A = A / (nframes*1.0)
 
     if psave == 1:
-        print "saving mean frame to %s" % disk_meanfname
+        print("saving mean frame to %s" % disk_meanfname)
         so.savemat(os.path.join(ppath, disk_meanfname), {'mean' : A})
     
     return A
@@ -1593,7 +1637,7 @@ def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1, nw=2):
     after the last '_' 'disk.mat' is appended to the new file name
     
     """
-    print "performing disk filtering ..."
+    print("performing disk filtering ...")
     # load disk filter
     disk = so.loadmat('disk.mat')['h']
     fid = h5py.File(os.path.join(ppath, name), 'r')
@@ -1608,7 +1652,7 @@ def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1, nw=2):
     
     if os.path.isfile(h5_file) == 1:
         # delete file
-        print "deleting file %s..." % h5_file
+        print("deleting file %s..." % h5_file)
         os.remove(h5_file)
 
     f = h5py.File(h5_file, 'w')
@@ -1634,7 +1678,7 @@ def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1, nw=2):
             k = k+1
 
             if j == nblock or k == nframes :
-                print "writing frame %d of %d frames" % (k, nframes)
+                print("writing frame %d of %d frames" % (k, nframes))
                 # write to mat file
                 dset[offset:offset+j,:,:] = D[0:j,:,:]
                 offset = offset + j
@@ -1647,7 +1691,7 @@ def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1, nw=2):
     A = A / (nframes*1.0)
 
     if psave == 1:
-        print "saving mean frame to %s" % disk_meanfname
+        print("saving mean frame to %s" % disk_meanfname)
         so.savemat(os.path.join(ppath, disk_meanfname), {'mean' : A})
     
     return A
@@ -1682,7 +1726,6 @@ def activity_map(ppath, name, nw=2):
 
     A = np.zeros((nx, ny)) # average across frames
     for index in range(0, nframes):
-        print index
         image = stack[index,:,:]
         proc_image = (image - mean_frame) / (mean_frame + mean_flu)
         proc_image = scipy.signal.fftconvolve(proc_image.astype('float64'), filt, mode='same')
@@ -1778,21 +1821,21 @@ def get_corr_ranges(nx, ny, sx, sy) :
     """
 
     if sx >= 0 :
-        arangex = range(sx,nx)
-        brangex = range(0,nx-sx)
+        arangex = np.arange(sx,nx)
+        brangex = np.arange(0,nx-sx)
     if sx < 0 :
         sx = -sx
-        arangex = range(0,nx-sx)
-        brangex = range(sx,nx)
+        arangex = np.arange(0,nx-sx)
+        brangex = np.arange(sx,nx)
     if sy >= 0 :
-        arangey = range(sy,ny)
-        brangey = range(0,ny-sy)
+        arangey = np.arange(sy,ny)
+        brangey = np.arange(0,ny-sy)
     if sy < 0 :
         sy = -sy
-        arangey = range(0,ny-sy)
-        brangey = range(sy, ny)
+        arangey = np.arange(0,ny-sy)
+        brangey = np.arange(sy, ny)
 
-    return (arangex, arangey, brangex, brangey)
+    return arangex, arangey, brangex, brangey
 
 
 
@@ -1889,7 +1932,7 @@ def align_frames(ppath, name, nframes=-1, nblock=1000, pdisk=1, psave=1, pwrite=
             aset[i*nblock:nup,:,:] = N
             amean = amean + np.sum(N, axis=0)
         if (k % 1000) == 0 :
-            print "Done with frame %d of %d frames" % (k, nframes)
+            print("Done with frame %d of %d frames" % (k, nframes))
         # end of i iteration
 
     # correction done
@@ -1904,7 +1947,7 @@ def align_frames(ppath, name, nframes=-1, nblock=1000, pdisk=1, psave=1, pwrite=
 
     if (pwrite == 1) and (psave == 1):
         mean_fname = os.path.join(ppath, fstem + '_alignedmean.mat')
-        print "saving mean aligned frame to %s" % mean_fname
+        print("saving mean aligned frame to %s" % mean_fname)
         so.savemat(mean_fname, {'mean' : amean, 'shift' : Shift})
 
     return Shift
@@ -1950,7 +1993,7 @@ def align_stencil(ppath, name, pdisk=1, psquare=1, psave=1) :
     return (idx_list, A)
 
 
-def crop_dataset(ppath, name, nblock=1000) :
+def crop_dataset(ppath, name, nblock=1000):
     """
     crop_dataset(ppath, name)
     draw a square on the average image used to crop the stack
@@ -1961,7 +2004,7 @@ def crop_dataset(ppath, name, nblock=1000) :
     # original stack:
     ostack = TIFFStack(ppath, fstem + '_downsamp.hdf5', nblock=1000)
     if not(os.path.exists(os.path.join(ppath, fstem + '_mean.mat'))) :
-        print "Calculating mean for stack %s" % name
+        print("Calculating mean for stack %s" % name)
         avg = ostack.mean()
         ostack.save_mean()
         mean_name = os.path.join(ppath, fstem + '_mean.mat')
@@ -1976,8 +2019,8 @@ def crop_dataset(ppath, name, nblock=1000) :
     cstack = h5py.File(os.path.join(ppath, name_cropped), 'w')
     cset = cstack.create_dataset('images', shape=(nframes, nx, ny), dtype='uint16')
 
-    print "Cropping stack %s)" % name
-    print "New stack will be saved to %s" % name_cropped
+    print("Cropping stack %s)" % name)
+    print("New stack will be saved to %s" % name_cropped)
     niter = int(np.ceil(nframes / (1.0*nblock)))
     for i in range(niter) :
         nup = np.min(((i+1)*nblock, nframes))
@@ -2072,19 +2115,19 @@ def correction_factor(ipath, name, psave=1) :
     fname = os.path.join(ipath, name, 'recording_' + name + '_alignedmean.mat')
     img = so.loadmat(fname)['mean']
 
-    print "Select OFF-Field\nLeft-click to select corners of a polygon;\ndouble click once you are happy."
+    print("Select OFF-Field\nLeft-click to select corners of a polygon;\ndouble click once you are happy.")
     plt.imshow(img, cmap='gray')
     r = roipoly(roicolor='r')
     off_idx = np.nonzero(r.getMask(img)==True) 
     offset = img[off_idx].mean()
     
-    print "Select Blood Vessel"
+    print("Select Blood Vessel")
     plt.imshow(img, cmap='gray')
     r = roipoly(roicolor='r')
     blood_idx = np.nonzero(r.getMask(img)==True) 
     Fbv = img[blood_idx].mean()
     
-    print "Select Blood Vessel Vicinity"
+    print("Select Blood Vessel Vicinity")
     plt.imshow(img, cmap='gray')
     r = roipoly(roicolor='r')
     vic_idx = np.nonzero(r.getMask(img)==True) 
@@ -2094,7 +2137,7 @@ def correction_factor(ipath, name, psave=1) :
     cf = (Fbv-offset)/(Fbv_v-offset)
 
     outname = os.path.join(ipath, name, name + '_cf.mat')
-    so.savemat(outname, {'cf': cf});
+    so.savemat(outname, {'cf': cf})
     
     return cf
 
@@ -2121,7 +2164,7 @@ def sima_motion_correction(path, name, method='pt2d', max_displace=[30,30]) :
     sima_path = os.path.join(path, fstem + '.sima')
     if os.path.exists(sima_path) :
         shutil.rmtree(sima_path)
-    print sima_path
+    print(sima_path)
     
     seq = [Sequence.create('HDF5', ifile, 'txy')]
     # SIMA sequence arranged as follows:
@@ -2134,7 +2177,7 @@ def sima_motion_correction(path, name, method='pt2d', max_displace=[30,30]) :
     
     if method == 'pt2d' :
         mc_approach = sima.motion.PlaneTranslation2D(max_displacement=max_displace)
-        print "starting motion correction ..."
+        print("starting motion correction ...")
 
         # dataset = mc_approach.correct(seq, sima_path)
         #print "exporting data ..."
@@ -2170,7 +2213,6 @@ def sima_to_myformat(path, file, new_file, nblock=1000) :
     fid.close()
     fid_new.close()
         
-    
 
 
 ###############################################################################
@@ -2236,7 +2278,7 @@ def minisc_timing(ipath, name):
     red_frame = 0
     i = 0
     for index in range(1, nframes):
-        print index
+        print(index)
         image1 = stack[index-1,:,:]
         image2 = stack[index,:,:]
 
@@ -2314,89 +2356,161 @@ def export_stack2mat(path, name, istart, iend, id=1):
     so.savemat(os.path.join(path, exp_name), {'stack' : D, 'istart' : istart, 'iend' : iend})    
 
     ostack.close()
-    
 
 
 
-if __name__ == '__main__' :
-
-    ipath = '/media/Transcend/RawImaging'
-    #name = 'VL2_080715n2'
-    name = 'GVLP01_082615n1'
-    
-    rec = 'recording_' + name + '_downsamp.tif'
-    mrec = 'recording_' + name + '_downsamp.mat'
-    arec = 'recording_' + name + '_aligned.mat'
-    ddir = os.path.join(ipath, name)
-    
-    pmotion = 1
-    proi = 0
+def caim_snip(ppath, recording, frame_thr=1.0):
+    """
+    The camera strobe signal is saved in laser_$recording.mat. Each "jump" of the signal
+    corresponds to a frame flip.
 
 
-    ### Steps to do motion correction ###
-    if pmotion == 1:
-        # make this statement more convenient by defining a function called get_nframes:
-        nframes = int(get_infofields(ddir, 'info.txt', ['FRAMES'])[0])
-        # calculate and save mean of 
-        
-        # disk filter
-        #disk_filter(ddir, rec, nframes, psave=1)
-        disk_filter_h5(ddir, mrec, psave=1)
-        # convert to h5 stack
-        #tiff2h5(ddir, rec, nframes)
+    :param frame_thr: float, a "frame" lasting longer than frame_thr [s], is considered as
+                      camera turned off
+    """
+    # to use this function, first remove all the prexisting EEG and EMG spectrogram sp.mat files, remidx text, and EEG2 and EMG2
+    if os.path.isfile(os.path.join(ppath, recording, 'laser_orig_%s.mat' % recording)):
+        laser = so.loadmat(os.path.join(ppath, recording, 'laser_orig_' + recording + '.mat'))['laser'][0]
+    else:
+        laser = so.loadmat(os.path.join(ppath, recording, 'laser_' + recording + '.mat'))['laser'][0]
+    signal_onoff = laser.copy()
 
-        # motion correction
-        S = align_frames(ddir, mrec)
-        # convert aligned stack to tif to check in imagej
-        h52tiff_split(ddir, arec)
+    # OLD
+    # sometimes the camera signal starts with 1s
+    #    if signal_onoff[0] == 1:
+    #        cam_on = np.where(np.diff(signal_onoff)==-1)[0] + 1
+    #        cam_on = cam_on[0]
+    #        signal_onoff[0:cam_on] = 0
+    #        signal_onoff[cam_on] = 1
 
-    if proi == 1:
-        (roi_list, bnd_list) = roi_manual(ddir, rec)
-        save_roilist(ipath, name, roi_list, bnd_list)
+    # sometimes the camera signal doesn't end with 0. In this case,
+    # I define the time point where the camera switches for the last
+    # time from 0 to 1 as the end point of the recording
+    #    cam_off = -1
+    #    if signal_onoff[-1] == 1:
+    #        cam_off = np.where(np.diff(signal_onoff) == 1)[0][-1] + 1
+    #        signal_onoff[cam_off::] = 0
+    #
+    #    start_i, end_i = laser_start_end(signal_onoff, SR=1000)
+    #    start_i = start_i[0]
+    #    real_start_i = start_i
+    #    end_i = end_i[0]
+    #    if cam_off > -1:
+    #        end_i = cam_off
+    #    initial_cut = signal_onoff[start_i:end_i]
+    #    for i in range(len(initial_cut)):
+    #        if initial_cut[i] == 0:
+    #            start_i = i
+    #            break
+    #    real_start_i = real_start_i + start_i
+    #    real_end_i = end_i + 50
 
-        # load "aligned recording" tiff stack
-        stack = TIFFStack(ddir, arec)
-        Bkg, Halo = halo_subt(roi_list, 20, stack.nx, stack.ny)
-        ROI = stack.get_rois(roi_list)
-        bROI = stack.get_rois(Halo)
-        
-        # get correction factor
-        cf = correction_factor(ipath, name)
+    # NEW
+    SR = get_snr(ppath, recording)
+    dt = 1.0 / SR
+    iframe_thr = frame_thr / dt
+    cam_off = np.where(np.diff(signal_onoff) == -1)[0] + 1
+    cam_on = np.where(np.diff(signal_onoff) == 1)[0] + 1
+    cam_jumps = np.sort(np.union1d(cam_on, cam_off))
 
-        B = np.zeros(ROI.shape)
-        for i in range(ROI.shape[1]) :
-            a = ROI[:,i]-cf*bROI[:,i]
-            B[:,i] = (a-a.mean()) / a.mean()
-            #B[:,i] = a / a.mean()
+    d = np.diff(cam_jumps)
+    ilong_frame = np.where(d > iframe_thr)[0]
 
-        
+    real_start_i = cam_jumps[0]
+    if len(ilong_frame) == 1:
+        real_end_i = cam_jumps[ilong_frame[0]]
+    elif len(ilong_frame) == 0:
+        real_end_i = cam_jumps[-1]
+    else:
+        print('Something wrong here? No idea what to do...')
 
-    ### Test manual ROI selection #######
-    #stack = TIFFStack(ppath, 'test_aligned.mat')
-    #roi_list = roi_manual(ppath, name)
-    ### END[test manual ROI slection ####
+    if os.path.isfile(os.path.join(ppath, recording, 'EEG_orig.mat')):
+        eeg = np.squeeze(so.loadmat(os.path.join(ppath, recording, 'EEG_orig.mat'))['EEG'])
+    else:
+        eeg = np.squeeze(so.loadmat(os.path.join(ppath, recording, 'EEG.mat'))['EEG'])
+
+    if os.path.isfile(os.path.join(ppath, recording, 'EMG_orig.mat')):
+        emg = np.squeeze(so.loadmat(os.path.join(ppath, recording, 'EMG_orig.mat'))['EMG'])
+    else:
+        emg = np.squeeze(so.loadmat(os.path.join(ppath, recording, 'EMG.mat'))['EMG'])
+
+    if os.path.isfile(os.path.join(ppath, recording, 'EEG2_orig.mat')):
+        eeg2 = np.squeeze(so.loadmat(os.path.join(ppath, recording, 'EEG2_orig.mat'))['EEG2'])
+    else:
+        eeg2 = np.squeeze(so.loadmat(os.path.join(ppath, recording, 'EEG2.mat'))['EEG2'])
+
+    if os.path.isfile(os.path.join(ppath, recording, 'EMG2_orig.mat')):
+        emg2 = np.squeeze(so.loadmat(os.path.join(ppath, recording, 'EMG2_orig.mat'))['EMG2'])
+    else:
+        emg2 = np.squeeze(so.loadmat(os.path.join(ppath, recording, 'EMG2.mat'))['EMG2'])
+
+    eeg_cut = eeg[real_start_i:real_end_i]
+    emg_cut = emg[real_start_i:real_end_i]
+    eeg2_cut = eeg2[real_start_i:real_end_i]
+    emg2_cut = emg2[real_start_i:real_end_i]
+    laser_cut = signal_onoff[real_start_i:real_end_i]
+
+    so.savemat(os.path.join(ppath, recording, 'EEG.mat'), {'EEG': eeg_cut})
+    so.savemat(os.path.join(ppath, recording, 'EMG.mat'), {'EMG': emg_cut})
+    so.savemat(os.path.join(ppath, recording, 'EEG2.mat'), {'EEG2': eeg2_cut})
+    so.savemat(os.path.join(ppath, recording, 'EMG2.mat'), {'EMG2': emg2_cut})
+    so.savemat(os.path.join(ppath, recording, 'laser_' + recording + '.mat'), {'laser': laser_cut})
+
+    so.savemat(os.path.join(ppath, recording, 'EEG_orig.mat'), {'EEG': eeg})
+    so.savemat(os.path.join(ppath, recording, 'EMG_orig.mat'), {'EMG': emg})
+    so.savemat(os.path.join(ppath, recording, 'EEG2_orig.mat'), {'EEG2': eeg})
+    so.savemat(os.path.join(ppath, recording, 'EMG2_orig.mat'), {'EMG2': emg})
+    so.savemat(os.path.join(ppath, recording, 'laser_orig_' + recording + '.mat'), {'laser': laser})
+
+    calculate_spectrum(ppath, recording)
+
+    if os.path.isfile(os.path.join(ppath, recording, 'remidx_%s.txt' % recording)):
+        os.remove(os.path.join(ppath, recording, 'remidx_%s.txt' % recording))
 
 
-    ### test halo/background selection ######
-    # img = so.loadmat(os.path.join(ppath, ))['mean']
-    # roi_list = []
-    # stack = TIFFStack(ppath, mat_name)
-    # stack.mean()
-    # stack.save_mean()
-    # img = stack.avg
-    # if not(roi_list) :
-    #     roi_list = roi_manual(ppath, mat_name)
-    # Bkg, Halo = halo_subt(roi_list, 10)
-    # A = np.zeros((stack.nx, stack.ny))
-    # for (h, r) in zip(Halo, roi_list) :
-    #     A[h[0], h[1]] = 1
-    #     A[r[0], r[1]] = 2
-    # plt.imshow(A)
-    # plt.show()
+##################################################################################################
+### Basic Utility Functions ######################################################################
+##################################################################################################
+
+def least_squares(x, y, n):
+    A = np.zeros((len(x), n + 1))
+    for i in range(n + 1):
+        A[:, n - i] = np.power(x, i)
+
+    p = LA.lstsq(A, y)[0]
+
+    r2 = -1
+    # #calculate r2 coefficient
+    # S_tot = np.var(y - np.mean(y))
+    # f = np.zeros( (len(x),1) )
+    # for i in range(n+1) :
+    #     f = f + np.power(x, n-i) * p[i]
+
+    # S_res = np.var(y - f)
+    # print S_res, S_tot
+    # r2 = 1 - S_res / S_tot
+
+    return p, r2
 
 
+def downsample_matrix(X, nbin):
+    """
+    y = downsample_matrix(X, nbin)
+    downsample the matrix X by replacing nbin consecutive \
+    rows by their mean \
+    @RETURN: the downsampled matrix
+    """
+    n_down = int(np.floor(X.shape[0] / nbin))
+    X = X[0:n_down * nbin, :]
+    X_down = np.zeros((n_down, X.shape[1]))
 
-    
-    ### END[test halo/background selection ##
+    # 0 1 2 | 3 4 5 | 6 7 8
+    for i in range(nbin):
+        idx = range(i, int(n_down * nbin), int(nbin))
+        X_down += X[idx, :]
+
+    return X_down / nbin
+
+
 
 
