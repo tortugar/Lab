@@ -439,17 +439,17 @@ class MainWindow(QtGui.QMainWindow):
         self.EMG_list = []
         self.eeg_spec_list = []
         self.emg_amp_list = []
-        EEG = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EEG.mat'))['EEG'])
+        EEG = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EEG.mat'))['EEG']).astype(np.float32)
         self.EEG_list.append(EEG)
         if os.path.isfile(os.path.join(self.ppath, self.name, 'EEG2.mat')):
-            EEG2 = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EEG2.mat'))['EEG2'])
+            EEG2 = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EEG2.mat'))['EEG2']).astype(np.float32)
             self.EEG_list.append(EEG2)
         self.EEG = self.EEG_list[0]
 
-        EMG = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EMG.mat'))['EMG'])
+        EMG = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EMG.mat'))['EMG']).astype(np.float32)
         self.EMG_list.append(EMG)
         if os.path.isfile(os.path.join(self.ppath, self.name, 'EMG2.mat')):
-            EMG2 = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EMG2.mat'))['EMG2'])
+            EMG2 = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EMG2.mat'))['EMG2']).astype(np.float32)
             self.EMG_list.append(EMG2)
         self.EMG = self.EMG_list[0]
 
