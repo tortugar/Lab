@@ -15,6 +15,7 @@ from roipoly import roipoly
 import shutil
 import pdb
 import sleepy
+import pandas as pd
 from scipy import linalg as LA
 
 ### DEBUGGER
@@ -211,6 +212,48 @@ def show_rois(ipath, name, idx_list, bnd_list,blk=False) :
     
 
 
+def draw_rois(ROIs, axes, c, show_num=True):
+    """
+    helper function for plot_rois
+    """
+    i=0
+    for (x,y) in ROIs :
+        l = plt.Line2D(y+[y[0]], x+[x[0]], color=c)
+        if show_num:
+            axes.text(np.max(y)-5, np.min(x)+7, str(i), fontsize=10, color=c,bbox=dict(facecolor='w', alpha=0.))
+        axes.add_line(l)
+        i = i+1
+
+
+
+def plot_rois(ipath, name, roi_id, roi_set=[], amap=True, show_num=True):
+    """
+    plot ROIs along with activity map or average image
+    :param ipath, name: imaging false folder and recording name
+    :param roi_id: int, id of roi list 
+    :param roi_set: list, selectino of ROIs within roi list; if empty, all ROIs
+           are plotted
+    :param amap: if True, plot activity map, otherwise show average frame
+    :param show_num: if True, show ROI numbers
+    """
+    if amap:
+        image = so.loadmat(os.path.join(ipath, name, 'recording_' + name + '_actmap.mat'))['mean']
+    else:
+        image = so.loadmat(os.path.join(ipath, name, 'recording_' + name + '_alignedmean.mat'))['mean']
+    plt.figure()
+    axes = plt.subplot(111)
+    axes.imshow(image, cmap='gray', vmin=0, vmax=np.percentile(image, 99.5))
+    
+    (ROI_coords, ROIs) = load_roilist(ipath, name, roi_id)
+    if len(roi_set) > 0:
+        ROIs_sel = [ROIs[s] for s in roi_set]
+    else:
+        ROIs_sel = ROIs
+    
+    draw_rois(ROIs_sel, axes, 'red', show_num=show_num)
+
+
+
 def show_roilist(ipath, name, n, blk=True) :
     """
     show roilist n of imaging name
@@ -264,8 +307,6 @@ def calc_brstates(ipath, name, roi_id, cf=0, bcorr=1) :
     nroi x 3 matrix listing i row i the brain state dependent active of ROI i
     
     """
-
-    
     # sometimes the first frames are black; discard these frames
     FIRSTFRAMES = 100
     
@@ -319,6 +360,7 @@ def calc_brstates(ipath, name, roi_id, cf=0, bcorr=1) :
             S[i,istate-1] = np.mean(F[np.array(fidx),i])
 
     return S
+
 
 
 def calc_catransition(ipath, name, roi_id, statei, statej, pre, post, thr_pre, thr_post, cf=0) :
@@ -415,6 +457,172 @@ def baseline_correction(F, time, perc=20, firstframes=100):
     return basel
 
 
+
+def calculate_dff(ipath, name, roi_id):
+    cf = so.loadmat(os.path.join(ipath, name, '%s_cf.mat'%name), squeeze_me=True)['cf']  
+
+    D = so.loadmat(os.path.join(ipath, name, 'recording_' + name + '_tracesn' + str(roi_id) + '.mat'))
+    ROI  = D['ROI']
+    bROI = D['bROI']
+    img_time = imaging_timing(ipath, name)
+    
+    nframes = ROI.shape[0]
+    DFF = np.zeros((nframes, ROI.shape[1]))
+    for i in range(ROI.shape[1]) :
+        a = ROI[0:nframes,i]-cf*bROI[0:nframes,i]
+        
+        basel = baseline_correction(a, img_time)
+        DFF[:,i] = np.divide(a-basel, basel)
+
+    so.savemat(os.path.join(ipath, name, 'recording_' + name + '_dffn' + str(roi_id) + '.mat'), {'dff':DFF})
+
+
+
+def load_roimapping(map_file):
+    
+    df = pd.read_csv(map_file)
+    rois = list(df['ID'])
+    rois = [int(r) for r in rois]
+#    recordings = df.columns[1:]
+#    roi_mapping = dict()
+#    for r in rois:
+#        if not(re.match('^#\d+', r)):
+#            for rec in recordings: 
+#                s = df[df['ID']==r][rec].iloc[0]
+#                if not(s == 'X'):
+#                    a = re.split('-', s)
+#                    roi = [rec] + [int(a[0]), int(a[1])]
+#                    r = int(r)
+#                    if int(r) in roi_mapping:
+#                        roi_mapping[int(r)].append(roi)
+#                    else:
+#                        roi_mapping[int(r)] = [roi]
+                
+    for r in rois:
+        if re.match('^#\d+', str(r)):
+            idx = df[df['ID']==r].index
+            df = df.drop(idx)
+                
+    roi_mapping = df
+    return roi_mapping
+
+
+
+def brstate_dff(ipath, mapping):
+    """
+    :param ipath: base imaging folder
+    :param mapping: pandas DataFrame as returned by &load_roimapping
+    """
+    
+    import pingouin as pg
+    
+    rois = list(mapping['ID'])
+    
+    roi_stateval = {}
+    for r in rois:
+        roi_stateval[r] = {1:[], 2:[], 3:[]}
+    
+    recordings = mapping.columns[2:]
+    for rec in recordings:
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = mapping[mapping[rec] != 'X']   
+
+        roi_list = int(re.split('-', rec_map.loc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        state_idx = {1:[], 2:[], 3:[]}
+        
+        # load imaging timing
+        img_time = imaging_timing(ipath, rec)
+
+        
+        for state in [1,2,3]:
+            seq = sleepy.get_sequences(np.where(M==state)[0])
+            for s in seq:                
+                # eeg2img_time: EEG time |---> Frame Indices
+                a = eeg2img_time([s[0]*sdt, s[-1]*sdt], img_time)
+                idx = range(a[0],a[1]+1)                
+                state_idx[state] += list(idx)
+
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            a = re.split('-', s)
+            roi_list = int(a[0])
+            roi_num  = int(a[1])
+            dff = DFF[:,roi_num]
+            
+            for state in [1,2,3]:
+                roi_stateval[row['ID']][state].append(dff[state_idx[state]])
+
+    for r in rois:
+        for state in [1,2,3]:
+            roi_stateval[r][state] = np.concatenate(roi_stateval[r][state])
+    
+    
+    columns = ['ID', 'R', 'W', 'N', 'F-anova', 'P-anova', 'P-tukey', 'Type']
+    data = []
+    for r in rois:
+        stateval = roi_stateval[r]
+        val = np.concatenate([stateval[1], stateval[2], stateval[3]])
+        state = ['R']*len(stateval[1]) + ['W']*len(stateval[2]) + ['N']*len(stateval[3])
+        d = {'state':state, 'val':val}
+        df = pd.DataFrame(d)
+
+        res = pg.anova(data=df, dv='val', between='state')
+        
+        res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
+ 
+        def _get_mean(s):
+            return df[df['state']==s]['val'].mean()
+ 
+        rmean = _get_mean('R')
+        wmean = _get_mean('W')
+        nmean = _get_mean('N')
+        
+        roi_type = ''
+        # REM-max
+        if (rmean > wmean) and (rmean > nmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+            
+            if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                roi_type = 'R-max'
+        # W-max
+        elif (wmean > nmean) and (wmean > rmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+
+            if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                roi_type = 'W-max'
+        # N-max 
+        elif (nmean > wmean) and (nmean > rmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+            cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+
+            if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                roi_type = 'N-max'
+                
+        else:
+            roi_type = 'X'
+                        
+
+        tmp = [r, _get_mean('R'), _get_mean('W'), _get_mean('N'), res.F.iloc[0], res['p-unc'].iloc[0], res2['p-tukey'].iloc[0], roi_type]
+        data.append(tmp)
+        
+    df_class = pd.DataFrame(data, columns=columns)
+    df_class = pd.merge(mapping, df_class, on='ID')
+    
+    return df_class
+                        
+            
+       
  
 def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq_max=30,
                   pemg_ampl=True, r_mu = [10, 100], dff_legend=100):
@@ -446,13 +654,9 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq
         img_time = imaging_timing(ipath, name)
         nframes = np.min((ROI.shape[0], img_time.shape[0]))
     else:
-        #fps = 15 #float(get_infoparam(os.path.join(ipath, name), 'info.txt', 'FPS')[0])
-        #nframes = ROI.shape[0]-2 #subtracting the first couple of bad frames
-        #img_time = np.arange(0, nframes)*(1.0/15) #28.204/.14 for 4/5/19 #26.747 for 4/2/19)
-        #print(nframes)
-        img_time = so.loadmat(os.path.join(ipath, name, 'img_time.mat'), squeeze_me=True)['time']
-        
-    
+        #img_time = so.loadmat(os.path.join(ipath, name, 'img_time.mat'), squeeze_me=True)['time']
+        img_time = imaging_timing(ipath, name)
+
     #This now takes the timestamp directly from the file
     #d = np.loadtxt(os.path.join(ipath, name,'timestamp.dat'),
     #                    delimiter='\t',
@@ -627,7 +831,7 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq
     plt.show()
 
     t = img_time[0:nframes] 
-    F = ROI[0:nframes,:] - bROI[0:nframes,:]
+    #F = ROI[0:nframes,:] - bROI[0:nframes,:]
 
     return F, t
 
@@ -978,8 +1182,6 @@ def tiff2h5(ppath, name, nframes, nblock=1000) :
 
     stack.close()
     fmat.close()
-
-
 
         
 
