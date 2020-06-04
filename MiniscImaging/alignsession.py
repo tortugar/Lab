@@ -131,19 +131,22 @@ def transform_coords(nx, ny, x, y) :
     y = nx-y-nx/2.0
     return (x, y)
 
+
+
 def transform_coords_back(nx, ny, x, y):
     x = x+ny/2.0
     y = (-nx+y+nx/2.0)*-1.0
     return (x, y)
+
     
 
-def align_recordings(ipath, name1, name2, theta, a, b, amap='act'):
+def align_recordings(ipath, name1, name2, theta, a, b, amap=True, roi_id1=1, roi_id2=1):
     """
     align imaging sessions ipath/name1 and ipath/name2.
     try all angles specified by theta and
     all translations specified by (a,b)
     """
-    if amap == 'act':
+    if amap:
         im1 = so.loadmat(os.path.join(ipath, name1, 'recording_' + name1 + '_actmap.mat'))['mean']
         im2 = so.loadmat(os.path.join(ipath, name2, 'recording_' + name2 + '_actmap.mat'))['mean']
     else:
@@ -213,21 +216,20 @@ def align_recordings(ipath, name1, name2, theta, a, b, amap='act'):
     plt.plot(X[0], X[1], 'ro')
     plt.plot(Y[0], Y[1], 'bo')
     plt.plot(Yr[0], Yr[1], 'go')
-    plt.show(block=False)
+    plt.show()
 
     
     # draw mean frame of master image; draw rois of master session
     # and transformed ro
-    (ROI_coords, ROIs1) = imaging.load_roilist(ipath, name1, 1)
-    (ROI_coords, ROIs2) = imaging.load_roilist(ipath, name2, 1)
+    (ROI_coords, ROIs1) = imaging.load_roilist(ipath, name1, roi_id1)
+    (ROI_coords, ROIs2) = imaging.load_roilist(ipath, name2, roi_id2)
     ROIs2_trans = rottrans_rois(ROIs2, theta_min, a_min, b_min, im2.shape[0], im2.shape[1])
 
     plt.figure()
     axes = plt.subplot(111)
-    axes.imshow(im1, cmap='gray')
+    axes.imshow(im1, cmap='gray', vmin=0, vmax=np.percentile(im1, 99.5))
     draw_rois(ROIs1, axes, 'red')
     draw_rois(ROIs2_trans, axes, 'green')
-
     plt.show()
 
     return (theta_min, a_min, b_min)
@@ -257,17 +259,18 @@ def roi_overlap(ROIs1, ROIs2, param1, param2, im1_shape, im2_shape, thr_ovlp=0.5
     roi_map = {}
     for r in ROIs1_trans :
         (x0, y0) = (r[0][0], r[1][0])
-        polyg1 = Polygon(zip(r[0], r[1]) + [(x0,y0)])
+        polyg1 = Polygon(list(zip(r[0], r[1])) + [(x0,y0)])
 
         si=0
         for s in ROIs2_trans :
             (x0, y0) = (s[0][0], s[1][0])
-            polyg2 = Polygon(zip(s[0], s[1]) + [(x0,y0)])
+            polyg2 = Polygon(list(zip(s[0], s[1])) + [(x0,y0)])
 
             if polyg1.intersects(polyg2):
                 p = polyg1.intersection(polyg2)
                 if (p.area >= polyg1.area*thr_ovlp) or (p.area >= polyg2.area*thr_ovlp):
-                    if roi_map.has_key(ri):
+                    #if roi_map.has_key(ri):
+                    if ri in roi_map:
                         roi_map[ri].append(si)
                     else :
                         roi_map[ri] = [si]
