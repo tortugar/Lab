@@ -1,4 +1,9 @@
 """
+When you run the script it will open a figure with all the reference maps. 
+As first step, select reference points for alignment by left clicking. 
+For reference point 1, you first click image1, then image2 etc.; 
+and then for reference point 2, image1, image2 etc.  Finally click done on the lower right. 
+
 When used for the first time, the script will write two parameters into the 
 info.txt files: 
     ALIGN: and MASTER:
@@ -19,7 +24,12 @@ To see help run
 The result of the script is a text file MOUSEID_mapping.txt which lists 
 all shared and individual ROIs. For each ROI, is indicates the actual ROI number 
 for each recording sharing this ROI. 
-Important: In the current implementation, only roilist1 can be used for the analysis
+
+ROI list management:
+By default the script used roilist1. However, if specified in the info.txt file,
+the script can use any roilist. To choose another roilist n, add the parameter
+ROI_ID: n
+to the corresponding info.txt file
 """
 
 import alignsession as align
@@ -30,6 +40,9 @@ import numpy as np
 import os
 import scipy.io as so
 import matplotlib.pylab as plt
+import pandas as pd
+import pdb
+
 
 
 ### SUBROUTINES ######################################
@@ -95,15 +108,25 @@ bx = np.arange(-30., 30.)
 thr = 0.5
 amap = True
 
+id_map = dict()
+for rec in recordings:
+    # get ROI_ID
+    roi_id = get_infoparam(os.path.join(ipath, rec, 'info.txt'), 'ROI_ID')
+    if len(roi_id) == 0:
+        id_map[rec] = 1
+    else:
+        id_map[rec] = int(roi_id[0])
+
 # get optimal rotation/translation
 transf = {}
 for rec in recordings :
+
     # test if alignment has been already done previously:
     m = get_infoparam(os.path.join(ipath,rec, 'info.txt'), 'MASTER')
     # if not, then do it:
     if len(m) == 0 :
         if not(rec == master):
-            (theta_min,a_min,b_min) = align.align_recordings(ipath, master, rec, theta, ax, bx)
+            (theta_min,a_min,b_min) = align.align_recordings(ipath, master, rec, theta, ax, bx, amap, id_map[master], id_map[rec])
             try:
                 s = raw_input('Does the overlap look ok? [yes|no]')
             except:
@@ -138,9 +161,9 @@ axes.imshow(master_image, cmap='gray', vmin=0, vmax=np.percentile(master_image, 
 colors = ['b', 'r', 'g', 'p']
 for rec in recordings :
     if master == rec :
-        (ROI_coords, ROIs_trans) = imaging.load_roilist(ipath, rec, 1)
+        (ROI_coords, ROIs_trans) = imaging.load_roilist(ipath, rec, id_map[rec])
     else :
-        (ROI_coords, ROIs) = imaging.load_roilist(ipath, rec, 1)
+        (ROI_coords, ROIs) = imaging.load_roilist(ipath, rec, id_map[rec])
         param = transf[rec]
         ROIs_trans = align.rottrans_rois(ROIs, param[0], param[1], param[2], master_shape[0], master_shape[1])
     align.draw_rois(ROIs_trans, axes, colors.pop(0))
@@ -164,10 +187,13 @@ for i in range(nrec) :
         (ROI_coords, ROIs2) = imaging.load_roilist(ipath, rec2, 1)
 
         mapping = align.roi_overlap(ROIs1, ROIs2, param1, param2, im1_shape, im2_shape, thr_ovlp=thr)
-        mapping = [(rec1 + '-' + str(ii), rec2 + '-' + str(jj)) for (ii,jj) in mapping]
+        #mapping = [(rec1 + '-' + str(ii), rec2 + '-' + str(jj)) for (ii,jj) in mapping]
+        mapping = [(rec1 + '-' + str(id_map[rec1]) + '-' + str(ii), 
+                    rec2 + '-' + str(id_map[rec2]) + '-' + str(jj)) for (ii,jj) in mapping]
 
         for m in mapping :
-            if roi_mapping.has_key(m[0]) :
+            #if roi_mapping.has_key(m[0]) :
+            if m[0] in roi_mapping:
                 roi_mapping[m[0]].append(m[1])
             else :
                 if sum([m[0] in v for v in roi_mapping.values()]) == 0:
@@ -176,33 +202,39 @@ for i in range(nrec) :
 # mouse identifier
 mouse = re.split('_', master)[0]
 mapping_file = os.path.join(ipath, mouse + '_mapping.txt')
-k = roi_mapping.keys()
-k.sort()
+csv_file = os.path.join(ipath, mouse + '_mapping.csv')
+k = list(roi_mapping.keys())
+def _get_roi(s):
+    return int(re.split('-', s)[2])
+k.sort(key=_get_roi)
 unique_id = {}
 i=0
 for roi in k :
-    if not(unique_id.has_key(roi)) :
+    if not(roi in unique_id):
         unique_id[roi] = i
         i=i+1
 
 recording_map = {}
 i=0
-for r in recordings :
+for r in recordings:
     recording_map[r] = i
     i=i+1
 
+data = []
 Lines = []
 Lines.append('#ROI-ID\t\t' + '\t'.join(recordings) + '\n')
 for roi in k :
     roi_id = unique_id[roi]
     sessions = roi_mapping[roi]
-    line = [(re.split('-',s)[0], int(re.split('-',s)[1])) for s in sessions]
+    #line = [(re.split('-',s)[0], int(re.split('-',s)[1])) for s in sessions]
+    line = [(re.split('-',s)[0], 
+             re.split('-',s)[1]+'-'+re.split('-',s)[2]) for s in sessions]
     line_map = {}
     for (p,q) in line :
         line_map[p] = q
 
 
-    line_str = str(roi_id) + '\t\t'
+    line_str = str(roi_id) + '\t\t' + mouse + '\t\t' 
     for r in recordings :
         if r in line_map.keys() :
             line_str = line_str + str(line_map[r]) + '\t\t'
@@ -210,6 +242,8 @@ for roi in k :
             line_str = line_str + 'X\t\t'
 
     Lines.append(line_str + '\n')
+    data.append(line_str.split('\t\t')[0:-1])
+    
 
 fid = open(mapping_file, 'w')    
 [fid.write(l) for l in Lines]
@@ -219,7 +253,10 @@ for l in Lines :
     l = l.rstrip('\n')
     print(l)
 
+# write into pandas frame
+df = pd.DataFrame(columns=['ID', 'mouse']+recordings, data=data)
+df.to_csv(csv_file, index=False)
+
 
 plt.show(block=True)
-
 
