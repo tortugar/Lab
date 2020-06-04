@@ -183,6 +183,8 @@ def show_rois(ipath, name, idx_list, bnd_list,blk=False) :
     name      -     name of recording
     idx_list  -     list of all x, y coordinates within the ROI
     bnd_list  -     list of all boundary pixels
+    
+    use only for imaging_gui.py
     """
     ddir = os.path.join(ipath, name)
     #img = so.loadmat(os.path.join(ddir, 'recording_' + name + '_alignedmean.mat'))['mean']
@@ -482,7 +484,7 @@ def load_roimapping(map_file):
     
     df = pd.read_csv(map_file)
     rois = list(df['ID'])
-    rois = [int(r) for r in rois]
+    #rois = [int(r) for r in rois]
 #    recordings = df.columns[1:]
 #    roi_mapping = dict()
 #    for r in rois:
@@ -508,6 +510,36 @@ def load_roimapping(map_file):
 
 
 
+def merge_roimapping(mappings):
+    map1 = mappings[0]
+    
+    for map2 in mappings[1:]:
+        d={}
+        d['mouse'] = list(map1['mouse']) + list(map2['mouse'])
+        
+        id1 = list(map1['ID'])
+        id2 = list(map2['ID'])
+        id2 = [i+max(id1)+1 for i in id2]
+        d['ID'] = id1 + id2
+                
+        recordings1 = list(map1.columns)
+        recordings1 = [r for r in recordings1 if re.match('^\S+_\d{6}n\d+$', r)]    
+
+        recordings2 = list(map2.columns)
+        recordings2 = [r for r in recordings2 if re.match('^\S+_\d{6}n\d+$', r)]    
+        
+        for r in recordings1:
+            d[r] = list(map1[r]) + ['X']*len(id2)
+            
+        for r in recordings2:
+            d[r] = ['X']*len(id1) + list(map2[r])
+        
+        map1 = pd.DataFrame(d)
+    
+    return map1
+
+
+
 def brstate_dff(ipath, mapping):
     """
     :param ipath: base imaging folder
@@ -522,14 +554,16 @@ def brstate_dff(ipath, mapping):
     for r in rois:
         roi_stateval[r] = {1:[], 2:[], 3:[]}
     
-    recordings = mapping.columns[2:]
+    recordings = list(mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
     for rec in recordings:
         sr = sleepy.get_snr(ipath, rec)
         nbin = int(np.round(sr)*2.5)
         sdt = nbin * (1.0/sr)
         rec_map = mapping[mapping[rec] != 'X']   
 
-        roi_list = int(re.split('-', rec_map.loc[0][rec])[0])
+        #pdb.set_trace()
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
         # load DF/F for recording rec 
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
         if not(os.path.isfile(dff_file)):
@@ -542,7 +576,6 @@ def brstate_dff(ipath, mapping):
         # load imaging timing
         img_time = imaging_timing(ipath, rec)
 
-        
         for state in [1,2,3]:
             seq = sleepy.get_sequences(np.where(M==state)[0])
             for s in seq:                
@@ -586,7 +619,7 @@ def brstate_dff(ipath, mapping):
         wmean = _get_mean('W')
         nmean = _get_mean('N')
         
-        roi_type = ''
+        roi_type = 'X'
         # REM-max
         if (rmean > wmean) and (rmean > nmean):  
             cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
@@ -621,9 +654,275 @@ def brstate_dff(ipath, mapping):
     
     return df_class
                         
+
             
+def time_morph(X, nstates):
+    """
+    upsample vector or matrix X to nstates states
+    :param X, vector or matrix; if matrix, the rows are upsampled.
+    :param nstates, number of elements or rows of returned vector or matrix
+    
+    I want to upsample m by a factor of x such that
+    x*m % nstates == 0, 
+    a simple soluation is to set x = nstates
+    then nstates * m / nstates = m.
+    so upsampling X by a factor of nstates and then downsampling by a factor
+    of m is a simple solution...
+    """
+    m = X.shape[0]
+    A = upsample_mx(X, nstates)
+    # now we have m * nstates rows
+    if X.ndim == 1:
+        Y = downsample_vec(A, int((m*nstates)/nstates))
+    else:
+        Y = downsample_mx(A, int((m*nstates)/nstates))
+    # now we have m rows as requested 
+    return Y
+
+
+def downsample_mx(X, nbin):
+    """
+    y = downsample_vec(x, nbin)
+    downsample the vector x by replacing nbin consecutive 
+    bin by their mean 
+    @RETURN: the downsampled vector 
+    """
+    n_down = int(np.floor(X.shape[0] / nbin))
+    X = X[0:n_down*nbin,:]
+    X_down = np.zeros((n_down,X.shape[1]))
+
+    # 0 1 2 | 3 4 5 | 6 7 8 
+    for i in range(nbin) :
+        idx = range(i, int(n_down*nbin), int(nbin))
+        X_down += X[idx,:]
+
+    return X_down / nbin    
+
+
+
+def downsample_vec(x, nbin):
+    """
+    y = downsample_vec(x, nbin)
+    downsample the vector x by replacing nbin consecutive 
+    bin by their mean 
+    @RETURN: the downsampled vector 
+    """
+    n_down = int(np.floor(len(x) / nbin))
+    x = x[0:n_down*nbin]
+    x_down = np.zeros((n_down,))
+
+    # 0 1 2 | 3 4 5 | 6 7 8 
+    for i in range(nbin) :
+        idx = range(i, int(n_down*nbin), int(nbin))
+        x_down += x[idx]
+
+    return x_down / nbin   
+
+
+
+def upsample_mx(x, nbin):
+    """
+    if x is a vector:
+        upsample the given vector $x by duplicating each element $nbin times
+    if x is a 2d array:
+        upsample each matrix by duplication each row $nbin times        
+    """
+    if nbin == 1:
+        return x
+    
+    nelem = x.shape[0]
+    if x.ndim == 1:        
+        y = np.zeros((nelem*nbin,))
+        for k in range(nbin):
+            y[k::nbin] = x
+    else:
+        y = np.zeros((nelem*nbin,x.shape[1]))
+        for k in range(nbin):
+            y[k::nbin,:] = x
+
+    return y
+
+
        
- 
+def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold, sj_threshold, xdt=1.0):
+
+    rois = list(roi_mapping['ID'])
+    
+    roi_transact_si = dict()
+    roi_transact_sj = dict()
+    
+    roi_length = dict()
+    #trans_spe = dict()
+    #trans_spm = dict()
+    states = {1:'R', 2:'W', 3:'N'}
+    for (si,sj) in transitions:
+        sid = states[si] + states[sj]
+        roi_transact_si[sid] = {r:[] for r in rois}
+        roi_transact_sj[sid] = {r:[] for r in rois}
+
+        roi_length[sid] = {r:[] for r in rois}
+        #trans_spe[sid] = []
+        #trans_spm[sid] = []
+
+    
+    roi_stateval = {}
+    for r in rois:
+        roi_stateval[r] = {1:[], 2:[], 3:[]}
+    
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    
+    for rec in recordings:
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        # load imaging timing
+        img_time = imaging_timing(ipath, rec)
+        idt = np.diff(img_time).mean()
+
+                
+        ipre  = int(np.round(pre/idt))
+        ipost = int(np.round(post/idt))
+
+        print(rec_map)       
+        
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            a = re.split('-', s)
+            roi_list = int(a[0])
+            roi_num  = int(a[1])
+            dff = DFF[:,roi_num]
+            #dff = (dff-dff.mean())/dff.std()
+            #print(row['ID'])
+            
+            for (si,sj) in transitions:
+                sid = states[si] + states[sj]
+                seq = sleepy.get_sequences(np.where(M==si)[0])
+                for s in seq:
+                    ti = s[-1]
+    
+        
+                    # check if next state is sj; only then continue
+                    if ti < len(M)-1 and M[ti+1] == sj:
+                        # go into future
+                        p = ti+1
+                        while p<len(M)-1 and M[p] == sj:
+                            p += 1
+                        p -= 1
+                        sj_idx = list(range(ti+1, p+1))
+                        # so the indices of state si are seq
+                        # the indices of state sj are sj_idx
+        
+                        jstart_dff   = eeg2img_time([(s[-1]+1)*sdt], img_time)[0]
+        
+        
+                        if ipre <= jstart_dff < len(dff)-ipost and len(s)*sdt >= si_threshold[si-1] and len(sj_idx)*sdt >= sj_threshold[sj-1]:
+    
+                            istart_dff = eeg2img_time([(s[-1]+1)*sdt - pre],  img_time)[0]
+                            jend_dff   = eeg2img_time([(s[-1]+1)*sdt + post], img_time)[0]
+                            
+                            act_si = dff[istart_dff:jstart_dff]
+                            act_sj = dff[jstart_dff:jend_dff]
+                            
+                            #act_si = dff[istart_dff:jstart_dff]
+                            #act_sj = dff[jstart_dff:jend_dff]
+                            
+                            #act = np.concatenate((act_si, act_sj))
+                            roi_length[sid][row['ID']].append((len(act_si), len(act_sj)))
+                        
+                            roi_transact_si[sid][row['ID']].append(act_si)
+                            roi_transact_sj[sid][row['ID']].append(act_sj)
+    
+    si_len = []
+    sj_len = []
+    
+    for index, row in roi_mapping.iterrows():
+        for (si,sj) in transitions:
+            sid = states[si] + states[sj]
+            tmp = roi_length[sid][row['ID']]
+            tmp_si = [l[0] for l in tmp]
+            tmp_sj = [l[1] for l in tmp]
+            
+            si_len += tmp_si
+            sj_len += tmp_sj
+            
+    
+    si_min = max(si_len)
+    sj_min = max(sj_len)
+    
+    for index, row in roi_mapping.iterrows():
+        for (si,sj) in transitions:
+            sid = states[si] + states[sj]
+            
+            tmp_si = roi_transact_si[sid][row['ID']]
+            tmp_sj = roi_transact_sj[sid][row['ID']]
+
+            if len(tmp_si) > 0:
+                
+                #tmp_si = np.vstack([t[-si_min:] for t in tmp_si])
+                #roi_transact_si[sid][row['ID']] = tmp_si
+                
+                #tmp_sj = np.vstack([t[0:sj_min] for t in tmp_sj])
+                #roi_transact_sj[sid][row['ID']] = tmp_sj
+                #pdb.set_trace()
+                tmp_si = np.vstack([time_morph(t,int(pre/xdt)) for t in tmp_si])
+                tmp_sj = np.vstack([time_morph(t,int(post/xdt)) for t in tmp_sj])
+                roi_transact_si[sid][row['ID']] = tmp_si
+                roi_transact_sj[sid][row['ID']] = tmp_sj
+                #pdb.set_trace()
+            print('Done with ROI %d' % row['ID'])
+    
+    ti = np.linspace(-60, -xdt, int(pre/xdt))
+    tj = np.linspace(0, 30-xdt, int(post/xdt))
+    xtime = np.concatenate((ti,tj))
+    ntime = tmp_si.shape[1] + tmp_sj.shape[1]
+    
+    roi_transact_mean = dict()
+    mx_transact = dict()
+    for (si,sj) in transitions:
+        sid = states[si] + states[sj]
+        roi_transact_mean[sid] = {r:[] for r in rois}
+        mx_transact[sid] = np.zeros((len(rois), pre+post))
+    
+    j = 0
+    d = {'ID':[], 'mouse':[], 'time':[], 'dff':[], 'trans':[]}
+    for index, row in roi_mapping.iterrows():
+        for (si,sj) in transitions:
+            sid = states[si] + states[sj]
+            tmp_si = roi_transact_si[sid][row['ID']]
+            tmp_sj = roi_transact_sj[sid][row['ID']]
+            roi_transact_mean[sid][row['ID']] = np.hstack([tmp_si, tmp_sj])
+            #pdb.set_trace()
+            mx_transact[sid][j,:] = roi_transact_mean[sid][row['ID']].mean(axis=0)
+
+            d['ID'] += [row['ID']]*ntime
+            d['mouse'] += [row['mouse']]*ntime
+            d['time'] += list(xtime)
+            d['dff'] += list(mx_transact[sid][j,:])
+            d['trans'] += [sid]*ntime
+
+            
+        j+=1
+
+    df = pd.DataFrame(d)            
+
+    return mx_transact, df
+                
+
+
+    
+    
 def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq_max=30,
                   pemg_ampl=True, r_mu = [10, 100], dff_legend=100):
     """
@@ -834,6 +1133,7 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq
     #F = ROI[0:nframes,:] - bROI[0:nframes,:]
 
     return F, t
+
 
     
 def plot_catraces_simple(ipath, name, roi_id, cf=0, bcorr=1, SR=0):
@@ -2449,6 +2749,7 @@ def imaging_timing(ipath, name, SR=1000):
         img_time = so.loadmat(os.path.join(ipath, name, 'img_time.mat'), squeeze_me=True)['time']
 
     return img_time
+
 
 
 def minisc_timing(ipath, name):
