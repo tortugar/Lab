@@ -16,6 +16,7 @@ import shutil
 import pdb
 import sleepy
 import pandas as pd
+import seaborn as sns
 from scipy import linalg as LA
 
 ### DEBUGGER
@@ -481,24 +482,18 @@ def calculate_dff(ipath, name, roi_id):
 
 
 def load_roimapping(map_file):
+    """
+    :param map_file: csv_file with columns ROI 'ID', 'mouse' and all recordings.
+           Each recordings is one column (using standard naming convention mouseid_datani).
+           Each entry of a recording column has the format n-m, where n is the roilist id 
+           and m is the actual ROI (of roilist n). 
+           A given ROI 'ID' can be present in multiple recordings; if it is not
+           part of a given recording the corresponding column entry is 'X'
+    :return df, pd.DataFrame with columns 'ID', 'mouse', 'recording1', ...
+    """
     
     df = pd.read_csv(map_file)
     rois = list(df['ID'])
-    #rois = [int(r) for r in rois]
-#    recordings = df.columns[1:]
-#    roi_mapping = dict()
-#    for r in rois:
-#        if not(re.match('^#\d+', r)):
-#            for rec in recordings: 
-#                s = df[df['ID']==r][rec].iloc[0]
-#                if not(s == 'X'):
-#                    a = re.split('-', s)
-#                    roi = [rec] + [int(a[0]), int(a[1])]
-#                    r = int(r)
-#                    if int(r) in roi_mapping:
-#                        roi_mapping[int(r)].append(roi)
-#                    else:
-#                        roi_mapping[int(r)] = [roi]
                 
     for r in rois:
         if re.match('^#\d+', str(r)):
@@ -540,10 +535,12 @@ def merge_roimapping(mappings):
 
 
 
-def brstate_dff(ipath, mapping):
+def brstate_dff(ipath, mapping, pzscore=False):
     """
     :param ipath: base imaging folder
-    :param mapping: pandas DataFrame as returned by &load_roimapping
+    :param mapping: pandas DataFrame as returned by &load_roimapping.
+           The frame contains a column for the 
+    :param pzscore: if True, z-score DF/F traces
     """
     
     import pingouin as pg
@@ -562,7 +559,6 @@ def brstate_dff(ipath, mapping):
         sdt = nbin * (1.0/sr)
         rec_map = mapping[mapping[rec] != 'X']   
 
-        #pdb.set_trace()
         roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
         # load DF/F for recording rec 
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
@@ -589,7 +585,9 @@ def brstate_dff(ipath, mapping):
             a = re.split('-', s)
             roi_list = int(a[0])
             roi_num  = int(a[1])
-            dff = DFF[:,roi_num]
+            dff = DFF[:,roi_num] * 100
+            if pzscore:
+                dff = (dff-dff.mean()) / dff.std()
             
             for state in [1,2,3]:
                 roi_stateval[row['ID']][state].append(dff[state_idx[state]])
@@ -645,12 +643,30 @@ def brstate_dff(ipath, mapping):
         else:
             roi_type = 'X'
                         
-
-        tmp = [r, _get_mean('R'), _get_mean('W'), _get_mean('N'), res.F.iloc[0], res['p-unc'].iloc[0], res2['p-tukey'].iloc[0], roi_type]
+        tmp = [r, rmean, wmean, nmean, res.F.iloc[0], res['p-unc'].iloc[0], res2['p-tukey'].iloc[0], roi_type]
         data.append(tmp)
         
     df_class = pd.DataFrame(data, columns=columns)
     df_class = pd.merge(mapping, df_class, on='ID')
+    
+    j = 1
+    plt.figure()
+    for typ in ['R-max', 'W-max', 'N-max']:
+        plt.subplot('13%d' % j)
+        df = df_class[df_class['Type']==typ][['R', 'N', 'W']]
+        #df = pd.melt(df, var_name='state', value_name='dff')  
+        
+        sns.barplot(data=df[['R', 'N', 'W']], color='gray')
+        for index, row in df.iterrows():
+            plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color='black')
+
+        sns.despine()
+        if j == 1:
+            if not pzscore:
+                plt.ylabel('DF/F (%)')
+            else:
+                plt.ylabel('DF/F (z-scored)')
+        j += 1
     
     return df_class
                         
@@ -745,7 +761,22 @@ def upsample_mx(x, nbin):
 
        
 def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold, sj_threshold, xdt=1.0):
-
+    """
+    calculate average DF/F activity for ROIs along brain state transitions
+    :param ppath: base folder
+    :param roi_mapping: pandas DataFrame with columns specificing ROI 'ID', recordings ('MouseID_dateni')
+    :param transitions, list of tuples to denote transitions to be considered;
+           1 - REM, 2 - Wake, 3 - NREM; For example to calculate NREM to REM and REM to wake transitions,
+           type [(3,1), (1,2)]
+    :param pre, time before transition in s
+    :param post, time after transition
+    :param si_threshold, list of floats, thresholds how long REM, Wake, NREM should be at least before the transition.
+           So, if there's a REM to Wake transition, but the duration of REM is shorter then si_threshold[0], then this
+           transition if discarded.
+    :param sj_threshold, list of floats, thresholds how long REM, Wake, NREM should be at least after the transition
+    :param xdt, time resolution for DF/F activity 
+    """
+    
     rois = list(roi_mapping['ID'])
     
     roi_transact_si = dict()
@@ -790,12 +821,9 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
         # load imaging timing
         img_time = imaging_timing(ipath, rec)
         idt = np.diff(img_time).mean()
-
                 
         ipre  = int(np.round(pre/idt))
         ipost = int(np.round(post/idt))
-
-        print(rec_map)       
         
         for index, row in rec_map.iterrows():
             s=row[rec]
@@ -812,7 +840,6 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
                 for s in seq:
                     ti = s[-1]
     
-        
                     # check if next state is sj; only then continue
                     if ti < len(M)-1 and M[ti+1] == sj:
                         # go into future
@@ -857,9 +884,8 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
             si_len += tmp_si
             sj_len += tmp_sj
             
-    
-    si_min = max(si_len)
-    sj_min = max(sj_len)
+    #si_min = max(si_len)
+    #sj_min = max(sj_len)
     
     for index, row in roi_mapping.iterrows():
         for (si,sj) in transitions:
@@ -868,8 +894,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
             tmp_si = roi_transact_si[sid][row['ID']]
             tmp_sj = roi_transact_sj[sid][row['ID']]
 
-            if len(tmp_si) > 0:
-                
+            if len(tmp_si) > 0:                
                 #tmp_si = np.vstack([t[-si_min:] for t in tmp_si])
                 #roi_transact_si[sid][row['ID']] = tmp_si
                 
@@ -880,7 +905,6 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
                 tmp_sj = np.vstack([time_morph(t,int(post/xdt)) for t in tmp_sj])
                 roi_transact_si[sid][row['ID']] = tmp_si
                 roi_transact_sj[sid][row['ID']] = tmp_sj
-                #pdb.set_trace()
             print('Done with ROI %d' % row['ID'])
     
     ti = np.linspace(-60, -xdt, int(pre/xdt))
@@ -893,7 +917,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
     for (si,sj) in transitions:
         sid = states[si] + states[sj]
         roi_transact_mean[sid] = {r:[] for r in rois}
-        mx_transact[sid] = np.zeros((len(rois), pre+post))
+        mx_transact[sid] = np.zeros((len(rois), ntime))
     
     j = 0
     d = {'ID':[], 'mouse':[], 'time':[], 'dff':[], 'trans':[]}
@@ -911,8 +935,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
             d['time'] += list(xtime)
             d['dff'] += list(mx_transact[sid][j,:])
             d['trans'] += [sid]*ntime
-
-            
+       
         j+=1
 
     df = pd.DataFrame(d)            
@@ -920,8 +943,6 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
     return mx_transact, df
                 
 
-
-    
     
 def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq_max=30,
                   pemg_ampl=True, r_mu = [10, 100], dff_legend=100):
