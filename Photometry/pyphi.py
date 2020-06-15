@@ -1364,7 +1364,13 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     :param pzscore, if True, z-score DF/F values
     :param sf, float, smoothing factor
     :param base_int, float, duration of baseline interval (first $base_int seconds), for statistics to test,
-           when the activity becomes significantly different from baseline.
+           when the activity becomes significantly different from baseline. 
+           Uses relative (paired) t-test. 
+           All subsequent bins after basline, have the same width. 
+           NOTE: To know which time points are significantly different from baseline,
+           apply Bonferroni correction: If n time steps are compared with baseline,
+           then divide the significance criterion (alphs = 0.05) by n
+
     :ma_polish boolean, if True, treat microarousals are NREM
 
     :return: trans_act:  dict: transitions --> np.array(mouse id x timepoint),
@@ -1372,7 +1378,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
              trans_spm:  dict: transitions --> average EMG amplitude
              df:         pd.DataFrame: index - time intervals, columns - transitions,
                          reports all the p-values for comparison of baseline interval (first $base_int seconds) vs.
-                         each consecutive interval of equal duration
+                         each consecutive interval of equal duration. 
     """
     if type(recordings) != list:
         recordings = [recordings]
@@ -1520,7 +1526,8 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     nx = 1.0/ntrans
     dx = 0.2 * nx
     f = freq[ifreq]
-    t = np.arange(-ipre * dt + dt, ipost * dt + dt / 2, dt)
+    t = np.arange(-ipre*dt+dt, ipost*dt + dt/2, dt)
+    tinit = -ipre*dt+dt
     i = 0
     plt.ion()
     if len(transitions) > 2:
@@ -1604,7 +1611,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     ibin = int(np.round(base_int / dt))
     nbin = int(np.floor((pre+post)/base_int))
     trans_stats = {}
-    df = pd.DataFrame(index = np.arange(0, nbin)*base_int-pre)
+    df = pd.DataFrame(index = np.arange(0, nbin)*base_int-tinit)
     for tr in trans_act:
         trans = trans_act[tr]
         base = trans[:,0:ibin].mean(axis=1)
@@ -1883,7 +1890,8 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
 
 
 def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=20,
-                  pzscore=False, fmax=30, ma_thr=0, single_mode=False, sf=0, vm= [], cb_ticks=[], ylim=[], fig_file=''):
+                  pzscore=False, fmax=30, ma_thr=0, single_mode=False, sf=0, 
+                  vm=[], cb_ticks=[], ylim=[], fig_file=''):
     """
     plot average activity across time-normalized sleep cycle;
     a single sleep cycle starts and ends with a REM period
@@ -2006,7 +2014,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
     if len(vm) > 0:
         cb_ticks = vm
     ax = plt.axes([0.15, 0.5, 0.75, 0.3])
-    im = ax.pcolorfast(list(range(ntime)), freq[ifreq], SPmx.mean(axis=0), cmap='jet')
+    im = ax.pcolorfast(list(range(ntime)), freq[ifreq], SPmx.mean(axis=0), cmap='jet', vmin=vm[0], vmax=vm[1])
     ax.set_xticks([nstates_rem, nstates_rem + nstates_itrem])
     plt.ylabel('Freq (Hz)')
     ax.set_xticklabels([])
