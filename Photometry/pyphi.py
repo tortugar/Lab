@@ -2704,18 +2704,18 @@ def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0,
         plt.figure()
         f = freq[ifreq]
 
-        dfk = sleepy.nparray2df(k, f, t, 'coeff', 'freq', 'time')  
-        dfk = df_trig.pivot("freq", "time", "coeff") 
-        ax=sns.heatmap(dfk, cbar=False, cmap="jet") 
-        ax.invert_yaxis()        
-        plt.ylabel('Freq (Hz)')
-        plt.xlabel('Time (s)')
-
-        #plt.pcolormesh(t, f, k, cmap='bwr')
+        #dfk = sleepy.nparray2df(k, f, t, 'coeff', 'freq', 'time')  
+        #dfk = dfk.pivot("freq", "time", "coeff") 
+        #ax=sns.heatmap(dfk, cbar=False, cmap="jet") 
+        #ax.invert_yaxis()        
+        #plt.ylabel('Freq (Hz)')
         #plt.xlabel('Time (s)')
-        #plt.ylabel('Freq. (Hz)')
-        #plt.colorbar()
-        #plt.show()
+
+        plt.pcolormesh(t, f, k, cmap='bwr')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Freq. (Hz)')
+        plt.colorbar()
+        plt.show()
 
     return k, t, freq[ifreq]
 
