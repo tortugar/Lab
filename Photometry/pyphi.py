@@ -1334,44 +1334,44 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
 
 
 def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold, sj_threshold,
-                         backup='', mu=[10, 100], fmax=30, ma_thr=20, ylim=[], xticks=[], cb_ticks=[], vm=[],
+                         backup='', mu=[10, 100], fmax=30, ma_thr=0, ylim=[], xticks=[], cb_ticks=[], vm=[],
                          tstart=0, tend=-1, pzscore=False, sf=0, base_int = 10, fig_file=''):
     """
     calculate average DFF activity along brain state transitions
     :param ppath: base folder
     :param recordings: list of recordings
-    :param transitions, list of tuples to denote transitions to be considered;
+    :param transitions: list of tuples to denote transitions to be considered;
            1 - REM, 2 - Wake, 3 - NREM; For example to calculate NREM to REM and REM to wake transitions,
            type [(3,1), (1,2)]
-    :param pre, time before transition in s
-    :param post, time after transition
-    :param si_threshold, list of floats, thresholds how long REM, Wake, NREM should be at least before the transition.
+    :param pre: time before transition in s
+    :param post: time after transition
+    :param si_threshold: list of floats, thresholds how long REM, Wake, NREM should be at least before the transition.
            So, if there's a REM to Wake transition, but the duration of REM is shorter then si_threshold[0], then this
            transition if discarded.
-    :param sj_threshold, list of floats, thresholds how long REM, Wake, NREM should be at least after the transition
-    :param backup string, potential backup path
-    :param mu, tuple, specifying the lower and upper limit of frequencies for EMG amplitude calculation
-    :param fmax, maximum frequency shown for EEG spectrogram
-    :param ma_thr, threshold in seconds for microarousals; i.e. wake periods < ma_thr are considered as microarousals
+    :param sj_threshold: list of floats, thresholds how long REM, Wake, NREM should be at least after the transition
+    :param backup: string, potential backup path
+    :param mu: tuple, specifying the lower and upper limit of frequencies for EMG amplitude calculation
+    :param fmax: maximum frequency shown for EEG spectrogram
+    :param ma_thr: threshold in seconds for microarousals; i.e. wake periods < ma_thr are considered as microarousals
            and instead treated as NREM (if ma_polish == True)
-    :param tstart, only consider transitions happenening after $tstart seconds
-    :param tend, only consider transitions up to $tend seconds
-    :param ylim, list, specifying y-limits for y axis of DF/F plots, for example ylim=[0, 10] will limit the yrange
+    :param tstart: only consider transitions happenening after $tstart seconds
+    :param tend: only consider transitions up to $tend seconds
+    :param ylim: list, specifying y-limits for y axis of DF/F plots, for example ylim=[0, 10] will limit the yrange
            from 0 to 10
-    :param xticks, list, xticks for DF/F plots
-    :param cb_ticks, ticks for colorbar
-    :param vm, saturation of EEG spectrogram
-    :param pzscore, if True, z-score DF/F values
-    :param sf, float, smoothing factor
-    :param base_int, float, duration of baseline interval (first $base_int seconds), for statistics to test,
+    :param xticks: list, xticks for DF/F plots
+    :param cb_ticks: ticks for colorbar
+    :param vm: saturation of EEG spectrogram
+    :param pzscore: if True, z-score DF/F values
+    :param sf: float, smoothing factor
+    :param base_int: float, duration of baseline interval (first $base_int seconds), for statistics to test,
            when the activity becomes significantly different from baseline. 
            Uses relative (paired) t-test. 
            All subsequent bins after basline, have the same width. 
            NOTE: To know which time points are significantly different from baseline,
            apply Bonferroni correction: If n time steps are compared with baseline,
-           then divide the significance criterion (alphs = 0.05) by n
+           then divide the significance criterion (alphs = 0.05) by n.
 
-    :ma_polish boolean, if True, treat microarousals are NREM
+    :pparam ma_polish: boolean, if True, treat microarousals are NREM
 
     :return: trans_act:  dict: transitions --> np.array(mouse id x timepoint),
              trans_spe:  dict: transitions --> average spectrogram
