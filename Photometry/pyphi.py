@@ -1610,8 +1610,8 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     # Statistics: When does activity becomes significantly different from baseline?
     ibin = int(np.round(base_int / dt))
     nbin = int(np.floor((pre+post)/base_int))
-    trans_stats = {}
     df = pd.DataFrame(index = np.arange(0, nbin)*base_int-tinit)
+    data = []
     for tr in trans_act:
         trans = trans_act[tr]
         base = trans[:,0:ibin].mean(axis=1)
@@ -1619,8 +1619,12 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         for i in range(1,nbin):
             p = stats.ttest_rel(base, trans[:,i*ibin:(i+1)*ibin].mean(axis=1))
             stats_vec[i] = p.pvalue
-        trans_stats[tr] = stats_vec
-        df[tr] = trans_stats[tr]
+            sig = 'no'
+            if p.pvalue < 0.05 / (nbin-1):
+                sig = 'yes'
+            tpoint = i*(ibin*dt)+tinit
+            data.append([tpoint + ibin*dt/2, p.pvalue, sig, tr])
+    df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
 
     print(df)
 
