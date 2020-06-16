@@ -689,6 +689,23 @@ def save_threshold(ppath, name, med_factor=4.0, grp_name=''):
 def detect_spikes_corr(ppath, name, grp_name='', med_factor=4.0, spike_window=15, plaser=True, pspk=False, rmthres=False, igroup=0):
     """
     detect potential spikes, i.e. waveforms crossing a threshold
+    
+    The function extracts the following features for group i (saved in the *.fet.i file):
+    For each spike (detected on one of the channels), the function cuts out the corresponding waveform
+    on each of the channels. For each channel these waveforms are stored in matrices (one row - one waveform).
+    The function then performes PCA on each of these matrices and saves the first 
+    three PCA components for each channel.
+    As a fourth parameter the function calculates the average waveform triggered by laser pulses
+    and correlates this laser waveform with each spike (on each channel).
+    Consequently, each channels comes with 4 parameters. 
+    The second last parameter is the maximum height of the spike on either channel. 
+    (If the height is larger on channel 1 then the rest, only the height for channel 1 is saved)
+    The final parameter is the time point of each spike.
+    Assuming group i has n channels, and there was a potential spike at timepoint tj, then that's the ordering of the features saved in *.fet.i. 
+    
+    PCA1-ch1 PCA1-ch1 PCA1-ch1 Laser_waveform_correlation-ch1 ... PCA1-chn PCA2-chn PCA3-chn Laser_waveform_correlation-chn Height tj
+    
+    
     @Parameters:
         ppath, name     recording
     @Optional:
@@ -3257,9 +3274,9 @@ def time_morph(X, nstates):
     A = upsample_mx(X, nstates)
     # now we have m * nstates rows
     if X.ndim == 1:
-        Y = downsample_vec(A, (m*nstates)/nstates)
+        Y = downsample_vec(A, int((m*nstates)/nstates))
     else:
-        Y = downsample_mx(A, (m*nstates)/nstates)
+        Y = downsample_mx(A, int((m*nstates)/nstates))
     # now we have m rows as requested 
     return Y
 
