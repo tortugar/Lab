@@ -365,7 +365,7 @@ def calc_brstates(ipath, name, roi_id, cf=0, bcorr=1) :
     return S
 
 
-
+### DEPRICATED ################################################################
 def calc_catransition(ipath, name, roi_id, statei, statej, pre, post, thr_pre, thr_post, cf=0) :
     """
     collect all transitions (of all ROIs) from $statei to $statej
@@ -462,7 +462,12 @@ def baseline_correction(F, time, perc=20, firstframes=100):
 
 
 def calculate_dff(ipath, name, roi_id):
-    cf = so.loadmat(os.path.join(ipath, name, '%s_cf.mat'%name), squeeze_me=True)['cf']  
+    
+    # load correction factor
+    if os.path.isfile(os.path.join(ipath, name, '%s_cf.mat'%name)):
+        cf = so.loadmat(os.path.join(ipath, name, '%s_cf.mat'%name), squeeze_me=True)['cf']  
+    else:
+        cf = 0.9
 
     D = so.loadmat(os.path.join(ipath, name, 'recording_' + name + '_tracesn' + str(roi_id) + '.mat'))
     ROI  = D['ROI']
@@ -535,12 +540,22 @@ def merge_roimapping(mappings):
 
 
 
-def brstate_dff(ipath, mapping, pzscore=False):
+def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True):
     """
+    calculate average ROI DF/F activity during each brain state and then 
+    perform statistics for ROIs to classify them into REM-max, Wake-max, or NREM-max.
+    For each ROI anova is performed, followed by Tukey-test
+    
     :param ipath: base imaging folder
     :param mapping: pandas DataFrame as returned by &load_roimapping.
            The frame contains a column for the 
     :param pzscore: if True, z-score DF/F traces
+    :param class_mode: class_mode == 'basic': classify ROIs into 
+                       REM-max, Wake-max and NREM-max ROIs
+                       class_mode == 'rem': further separate REM-max ROIs 
+                       into REM > Wake > NREM (R>W>N) and REM > NREM > Wake (R>N>W) ROIs
+    :param single_mice: boolean, if True use separate colors for single mice in 
+                        summary plots
     """
     
     import pingouin as pg
@@ -563,6 +578,7 @@ def brstate_dff(ipath, mapping, pzscore=False):
         # load DF/F for recording rec 
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
         if not(os.path.isfile(dff_file)):
+            pdb.set_trace()
             calculate_dff(ipath, rec, roi_list)
         DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
         # brainstate
@@ -585,6 +601,8 @@ def brstate_dff(ipath, mapping, pzscore=False):
             a = re.split('-', s)
             roi_list = int(a[0])
             roi_num  = int(a[1])
+            print(row)
+            print(DFF.shape)
             dff = DFF[:,roi_num] * 100
             if pzscore:
                 dff = (dff-dff.mean()) / dff.std()
@@ -617,50 +635,114 @@ def brstate_dff(ipath, mapping, pzscore=False):
         wmean = _get_mean('W')
         nmean = _get_mean('N')
         
-        roi_type = 'X'
-        # REM-max
-        if (rmean > wmean) and (rmean > nmean):  
-            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
-            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+        if class_mode == 'basic':
             
-            if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
-                roi_type = 'R-max'
-        # W-max
-        elif (wmean > nmean) and (wmean > rmean):  
-            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
-            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
-
-            if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
-                roi_type = 'W-max'
-        # N-max 
-        elif (nmean > wmean) and (nmean > rmean):  
-            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
-            cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
-
-            if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
-                roi_type = 'N-max'
-                
-        else:
             roi_type = 'X'
-                        
-        tmp = [r, rmean, wmean, nmean, res.F.iloc[0], res['p-unc'].iloc[0], res2['p-tukey'].iloc[0], roi_type]
-        data.append(tmp)
+            # REM-max
+            if (rmean > wmean) and (rmean > nmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                
+                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                    roi_type = 'R-max'
+            # W-max
+            elif (wmean > nmean) and (wmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+    
+                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                    roi_type = 'W-max'
+            # N-max 
+            elif (nmean > wmean) and (nmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+    
+                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                    roi_type = 'N-max'
+                    
+            else:
+                roi_type = 'X'
+                            
+            tmp = [r, rmean, wmean, nmean, res.F.iloc[0], res['p-unc'].iloc[0], res2['p-tukey'].iloc[0], roi_type]
+            data.append(tmp)
+            
         
+        else:
+            # R>W>N
+            if (rmean > wmean) and (rmean > nmean) and (wmean  > nmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                
+                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                    roi_type = 'R>W>N'
+            # R>N>W
+            elif (rmean > wmean) and (rmean > nmean) and (nmean  > wmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                
+                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                    roi_type = 'R>N>W'
+            # W-max
+            elif (wmean > nmean) and (wmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+    
+                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                    roi_type = 'W-max'
+            # N-max 
+            elif (nmean > wmean) and (nmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+    
+                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                    roi_type = 'N-max'
+                    
+            else:
+                roi_type = 'X'
+                            
+            tmp = [r, rmean, wmean, nmean, res.F.iloc[0], res['p-unc'].iloc[0], res2['p-tukey'].iloc[0], roi_type]
+            data.append(tmp)
+
+
     df_class = pd.DataFrame(data, columns=columns)
     df_class = pd.merge(mapping, df_class, on='ID')
+
+    mice = [m for m in df_class['mouse'].unique()]
+    j = 0
+    mdict = {}
+    for m in mice:
+        mdict[m] = j
+        j+=1
+    clrs = sns.color_palette("husl", len(mice))
+
+    plt.ion()
+    plt.figure()
+    types = df_class['Type'].unique()
+    types = [i for i in types if not (i=='X')]
+    types.sort()
     
     j = 1
-    plt.figure()
-    for typ in ['R-max', 'W-max', 'N-max']:
-        plt.subplot('13%d' % j)
-        df = df_class[df_class['Type']==typ][['R', 'N', 'W']]
+    for typ in types:
+        mouse_shown = {m:0 for m in mice}
+        plt.subplot('1%d%d' % (len(types), j))
+        df = df_class[df_class['Type']==typ][['mouse', 'R', 'N', 'W']]
         #df = pd.melt(df, var_name='state', value_name='dff')  
         
         sns.barplot(data=df[['R', 'N', 'W']], color='gray')
         for index, row in df.iterrows():
-            plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color='black')
+            if single_mice:
+                m=row['mouse']                
+                if mouse_shown[m] > 0:
+                    plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color=clrs[mdict[m]])
+                else:
+                    plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color=clrs[mdict[m]], label=m)
+                    mouse_shown[m] += 1   
+            else:
+                plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color='black')
 
         sns.despine()
+        plt.title(typ)
+        plt.legend()
         if j == 1:
             if not pzscore:
                 plt.ylabel('DF/F (%)')
@@ -808,6 +890,8 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
         nbin = int(np.round(sr)*2.5)
         sdt = nbin * (1.0/sr)
         rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if len(roi_mapping[rec] == 'X') == len(roi_mapping):
+            continue
 
         roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
         # load DF/F for recording rec 
@@ -2362,9 +2446,9 @@ def get_corr_ranges(nx, ny, sx, sy) :
 
 
 
-def align_frames(ppath, name, nframes=-1, nblock=1000, pdisk=1, psave=1, pwrite=1, pcorr_time=True) :
+def align_frames(ppath, name, nframes=-1, nblock=1000, pdisk=1, psave=1, pwrite=1, pcorr_time=True):
     """
-    Shift = align_frames(ppath, name, nblock=1000) : \
+    Shift = align_frames(ppath, name, nblock=1000): 
     motion correlction by phase correlation
     This function assumes that the following files exist:
     o name-stem_diskmean.mat  | name-stem_mean.mat
@@ -2477,9 +2561,9 @@ def align_frames(ppath, name, nframes=-1, nblock=1000, pdisk=1, psave=1, pwrite=
 
 
 
-def align_stencil(ppath, name, pdisk=1, psquare=1, psave=1) :
+def align_stencil(ppath, name, pdisk=1, psquare=1, psave=1):
     """
-    (idx_list, Template) = align_stencil(ppath, name, pdisk=1, psquare=1, psave=1) \
+    (idx_list, Template) = align_stencil(ppath, name, pdisk=1, psquare=1, psave=1) 
     manually cut out a high contrast piece from the imaging stack used
     for motion correction.
 
@@ -2625,7 +2709,6 @@ def halo_subt(roi_list, rng, nx, ny, zonez=2) :
         Halo.append( (X_bkg, Y_bkg) )
 
     return (Bkg, Halo)
-
 
 
 
