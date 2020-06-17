@@ -1406,6 +1406,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     trans_spm = dict()
     for (si,sj) in transitions:
         sid = states[si] + states[sj]
+        # dict: transition type -> mouse -> DFF transitions
         trans_act[sid] = []
         trans_spe[sid] = []
         trans_spm[sid] = []
@@ -1421,8 +1422,16 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             nbin = int(np.round(sr)*2.5)
             dt = (1.0/sr)*nbin
             ipre  = int(np.round(pre/dt))
-            ipost = int(np.round(post/dt))
-
+            ipost = int(np.round(post/dt)) + 1
+            # Why the +1?
+            # Say dt=10 and pre and post = 30
+            # then ipre and ipost = 3... at first thought
+            # the preceding period starts with
+            # -30 -20 -10 
+            # by definitino I say that the post period starts with 0, so:
+            # 0 10 20 30... but this are four states!
+            # so because of the 0, ipost = 3+1
+            
             # load DF/F
             ddir = os.path.join(paths[rec], rec)
             dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
@@ -1471,6 +1480,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
 
             seq = sleepy.get_sequences(np.where(M==si)[0])
             for s in seq:
+                # the last time point in state si; so ti+1 is the first time point in state sj
                 ti = s[-1]
 
                 # check if next state is sj; only then continue
@@ -1514,7 +1524,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             trans_spm[tr][mouse] = np.array(trans_spm[tr][mouse]).mean(axis=0)
             trans_spe[tr][mouse] = np.array(trans_spe[tr][mouse]).mean(axis=0)
 
-    # let's get rid of mouse identify by replacing dict with np.arrays
+    # let's get rid of mouse identity by replacing dict with np.arrays
     for tr in trans_act:
         trans_act[tr] = np.array(list(trans_act[tr].values()))
         trans_spm[tr] = np.array(list(trans_spm[tr].values()))
@@ -1526,8 +1536,10 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     nx = 1.0/ntrans
     dx = 0.2 * nx
     f = freq[ifreq]
-    t = np.arange(-ipre*dt+dt, ipost*dt + dt/2, dt)
-    tinit = -ipre*dt+dt
+    #t = np.arange(-ipre*dt+dt, ipost*dt + dt/2, dt)
+    t = np.arange(-ipre*dt, ipost*dt-dt + dt/2, dt)
+    
+    tinit = -ipre*dt
     i = 0
     plt.ion()
     if len(transitions) > 2:
@@ -1610,20 +1622,20 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     # Statistics: When does activity becomes significantly different from baseline?
     ibin = int(np.round(base_int / dt))
     nbin = int(np.floor((pre+post)/base_int))
-    df = pd.DataFrame(index = np.arange(0, nbin)*base_int-tinit)
     data = []
     for tr in trans_act:
         trans = trans_act[tr]
         base = trans[:,0:ibin].mean(axis=1)
-        stats_vec = np.ones((nbin,))
         for i in range(1,nbin):
             p = stats.ttest_rel(base, trans[:,i*ibin:(i+1)*ibin].mean(axis=1))
-            stats_vec[i] = p.pvalue
             sig = 'no'
-            if p.pvalue < 0.05 / (nbin-1):
+            if p.pvalue < (0.05 / (nbin-1)):
                 sig = 'yes'
-            tpoint = i*(ibin*dt)+tinit
-            data.append([tpoint + ibin*dt/2, p.pvalue, sig, tr])
+            tpoint = i*(ibin*dt)+tinit + ibin*dt/2
+            tpoint = float('%.2f'%tpoint)
+            
+            pdb.set_trace()
+            data.append([tpoint, p.pvalue, sig, tr])
     df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
 
     print(df)
