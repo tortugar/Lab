@@ -1634,7 +1634,6 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             tpoint = i*(ibin*dt)+tinit + ibin*dt/2
             tpoint = float('%.2f'%tpoint)
             
-            pdb.set_trace()
             data.append([tpoint, p.pvalue, sig, tr])
     df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
 
