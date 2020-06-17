@@ -1335,7 +1335,7 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
 
 def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold, sj_threshold,
                          backup='', mu=[10, 100], fmax=30, ma_thr=0, ylim=[], xticks=[], cb_ticks=[], vm=[],
-                         tstart=0, tend=-1, pzscore=False, sf=0, base_int = 10, fig_file=''):
+                         tstart=0, tend=-1, pzscore=False, sf=0, base_int = 10, mouse_stats=True, fig_file=''):
     """
     calculate average DFF activity along brain state transitions
     :param ppath: base folder
@@ -1370,8 +1370,8 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
            NOTE: To know which time points are significantly different from baseline,
            apply Bonferroni correction: If n time steps are compared with baseline,
            then divide the significance criterion (alphs = 0.05) by n.
-
-    :pparam ma_polish: boolean, if True, treat microarousals are NREM
+    :param mouse_stats: if True, calculate statistics across single mice, otherwise
+           perform statistics across single trials
 
     :return: trans_act:  dict: transitions --> np.array(mouse id x timepoint),
              trans_spe:  dict: transitions --> average spectrogram
@@ -1404,12 +1404,16 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     trans_act = dict()
     trans_spe = dict()
     trans_spm = dict()
+    trans_act_trials = dict()
     for (si,sj) in transitions:
         sid = states[si] + states[sj]
         # dict: transition type -> mouse -> DFF transitions
         trans_act[sid] = []
         trans_spe[sid] = []
         trans_spm[sid] = []
+        
+        trans_act_trials[sid] = []
+        
 
     for (si,sj) in transitions:
         sid = states[si] + states[sj]
@@ -1516,8 +1520,15 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         trans_spe[sid] = spe_mouse
         trans_spm[sid] = spm_mouse
 
-    for (si, sj) in transitions:
-        tr = states[si] + states[sj]
+    # generate matrices for each transition type holding all single trials in each row
+    for tr in trans_act_trials:
+        for mouse in trans_act[tr]:
+            trans_act_trials[tr] += trans_act[tr][mouse] 
+    
+    for tr in trans_act_trials:
+        trans_act_trials[tr] = np.vstack( trans_act_trials[tr] )
+
+    for tr in trans_act: 
         for mouse in trans_act[tr]:
             # average for each transition tr and mouse over trials
             trans_act[tr][mouse] = np.array(trans_act[tr][mouse]).mean(axis=0)
@@ -1620,11 +1631,15 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         sleepy.save_figure(fig_file)
 
     # Statistics: When does activity becomes significantly different from baseline?
+
     ibin = int(np.round(base_int / dt))
     nbin = int(np.floor((pre+post)/base_int))
     data = []
     for tr in trans_act:
-        trans = trans_act[tr]
+        if mouse_stats:
+            trans = trans_act[tr]
+        else:
+            trans = trans_act_trials[tr]
         base = trans[:,0:ibin].mean(axis=1)
         for i in range(1,nbin):
             p = stats.ttest_rel(base, trans[:,i*ibin:(i+1)*ibin].mean(axis=1))
@@ -1636,6 +1651,9 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             
             data.append([tpoint, p.pvalue, sig, tr])
     df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
+
+    
+
 
     print(df)
 
