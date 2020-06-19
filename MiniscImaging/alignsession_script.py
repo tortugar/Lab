@@ -117,6 +117,9 @@ for rec in recordings:
     else:
         id_map[rec] = int(roi_id[0])
 
+pdb.set_trace()
+
+
 # get optimal rotation/translation
 transf = {}
 for rec in recordings :
@@ -183,8 +186,8 @@ for i in range(nrec) :
         param1 = transf[rec1]
         param2 = transf[rec2]
 
-        (ROI_coords, ROIs1) = imaging.load_roilist(ipath, rec1, 1)
-        (ROI_coords, ROIs2) = imaging.load_roilist(ipath, rec2, 1)
+        (ROI_coords, ROIs1) = imaging.load_roilist(ipath, rec1, id_map[rec1])
+        (ROI_coords, ROIs2) = imaging.load_roilist(ipath, rec2, id_map[rec2])
 
         mapping = align.roi_overlap(ROIs1, ROIs2, param1, param2, im1_shape, im2_shape, thr_ovlp=thr)
         #mapping = [(rec1 + '-' + str(ii), rec2 + '-' + str(jj)) for (ii,jj) in mapping]
