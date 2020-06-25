@@ -4149,6 +4149,120 @@ def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters
 
 
 
+def laser_triggered_train_emg(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters=1, istate=-1):
+    """
+    EXPERIMENTAL
+    plot each laser stimulation trial in a raster plot, plot laser triggered firing rate and
+    emg power (= variance)
+    :param ppath:
+    :param name:
+    :param grp: group
+    :param un: unit
+    :param pre: time before laser onset [s]
+    :param post: time after laser onset [s]
+    :param nbin: downsample firing rate by a factor of $nbin
+    :param offs: int, the first shown laser trial
+    :param iters: int, show every $iters laser trial
+    :param istate: int, only plot laser trials, where the onset falls on brain state $istate
+                   istate=-1 - consider all states, 
+                   istate=1 - consider only REM trials
+                   istate=2 - consider only Wake trials 
+                   istate=3 - consider only NREM trials
+    :return: n/a
+    """
+    import matplotlib.patches as patches
+
+    # load brain state
+    M = sleepy.load_stateidx(ppath, name)[0]
+    
+    # load EMG
+    EMG = so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG']
+
+    sr = get_snr(ppath, name)
+    dt = 1.0 / sr
+    pre = int(np.round(pre/dt))
+    post = int(np.round(post/dt))
+    laser = sleepy.load_laser(ppath, name)
+    idxs, idxe = sleepy.laser_start_end(laser)
+    
+    # only collect laser trials starting during brain state istate
+    tmps = []
+    tmpe = []
+    if istate > -1:
+        nbin_state = int(np.round(sr) * 2.5)
+        for (i,j) in zip(idxs, idxe):
+            if M[int(i/nbin_state)] == istate:
+                tmps.append(i)
+                tmpe.append(j)                
+        idxs = np.array(tmps)
+        idxe = np.array(tmpe)
+
+    laser_dur = np.mean(idxe[offs::iters] - idxs[offs::iters] + 1)*dt
+    print ('laser duration: ', laser_dur)
+    train = unpack_unit(ppath, name, grp, un)[1]
+    len_train = train.shape[0]
+    raster = []
+    fr_pre = []
+    fr_lsr = []
+    fr_post = []
+    emg = []
+    for (i,j) in zip(idxs[offs::iters], idxe[offs::iters]):
+        if (i - pre >= 0) and (i + post < len_train):
+            raster.append(train[i - pre:i + post + 1])
+            fr_pre.append(train[i-pre:i].mean())
+            fr_lsr.append(train[i:j+1].mean())
+            fr_post.append(train[j+1:j+post+1].mean())
+            emg.append(EMG[i - pre:i + post + 1])
+
+    fr_pre = np.array(fr_pre)
+    fr_lsr = np.array(fr_lsr)
+    fr_post = np.array(fr_post)
+
+    # time x trials
+    raster = np.array(raster).T
+    raster = downsample_mx(raster, nbin).T
+    
+    emg = np.array(emg).T
+    emg = downsample_mx(emg, nbin).T
+    emg_pow = np.mean(np.power(emg, 2), axis=0)
+    
+    dt = nbin*1.0/sr
+    t = np.arange(0, raster.shape[1]) * dt - pre*(1.0/sr)
+
+    plt.ion()
+    plt.figure()
+    ax = plt.axes([0.15, 0.4, 0.8, 0.25])
+    ax.plot(t, raster.mean(axis=0), color='black')
+    max_fr = np.max(raster.mean(axis=0))
+    ylim_fr = max_fr + 0.1*max_fr
+    plt.ylim([0, ylim_fr])
+    ax.add_patch(
+    patches.Rectangle((0, 0), laser_dur, ylim_fr, facecolor=[0.6, 0.6, 1], edgecolor=[0.6, 0.6, 1]))
+    plt.xlim((t[0], t[-1]))
+    plt.xlabel('Time (s)')
+    plt.ylabel('FR (spikes/s)')
+    sleepy.box_off(ax)
+
+    ax = plt.axes([0.15, 0.7, 0.8, 0.2])
+    R = raster.copy()
+    R[np.where(raster>0)] = 1
+    cmap = plt.cm.jet
+    my_map = cmap.from_list('ha', [[1, 1, 1], [0, 0, 0]], 2)
+    ax.pcolorfast(t, range(R.shape[0]), R, cmap=my_map)
+    plt.xticks([])
+    ax.spines["bottom"].set_visible(False)
+    plt.ylabel('Trial No.')
+    sleepy.box_off(ax)
+
+    ax = plt.axes([0.15, 0.05, 0.8, 0.2])
+    plt.xlim((t[0], t[-1]))
+
+    plt.plot(t, emg_pow, color='black')
+    plt.ylabel('EMG power')
+    sleepy.box_off(ax)
+
+
+
 def autocorrelogram(ppath, name, grp, un, win, fig_file=''):
     """
     calculate and plot auto-correlogram of the given unit.
