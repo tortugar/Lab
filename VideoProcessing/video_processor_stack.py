@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Sun Mar  4 16:48:55 2018
@@ -17,7 +17,7 @@ import scipy.io as so
 import pyqtgraph.dockarea as dock
 import os.path
 import h5py
-import pdb
+
 import re
 import cv2
 import sleepy
