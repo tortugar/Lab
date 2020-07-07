@@ -842,21 +842,25 @@ def upsample_mx(x, nbin):
 
 
        
-def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold, sj_threshold, xdt=1.0):
+def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold, sj_threshold, xdt=1.0, pzscore=False):
     """
     calculate average DF/F activity for ROIs along brain state transitions
-    :param ppath: base folder
+    :param ipath: base folder
     :param roi_mapping: pandas DataFrame with columns specificing ROI 'ID', recordings ('MouseID_dateni')
-    :param transitions, list of tuples to denote transitions to be considered;
+    :param transitions: list of tuples to denote transitions to be considered;
            1 - REM, 2 - Wake, 3 - NREM; For example to calculate NREM to REM and REM to wake transitions,
            type [(3,1), (1,2)]
-    :param pre, time before transition in s
-    :param post, time after transition
-    :param si_threshold, list of floats, thresholds how long REM, Wake, NREM should be at least before the transition.
+    :param pre: time before transition in s
+    :param post: time after transition
+    :param si_threshold: list of floats, thresholds how long REM, Wake, NREM should be at least before the transition.
            So, if there's a REM to Wake transition, but the duration of REM is shorter then si_threshold[0], then this
            transition if discarded.
-    :param sj_threshold, list of floats, thresholds how long REM, Wake, NREM should be at least after the transition
-    :param xdt, time resolution for DF/F activity 
+    :param sj_threshold: list of floats, thresholds how long REM, Wake, NREM should be at least after the transition
+    :param xdt: time resolution for DF/F activity
+    :param pzscore: bool, if True zscore DF/F signals
+
+    Example call:
+    mx, df = imaging.brstate_transitions(ppath, df_class[df_class['Type']=='N-max'], [[3,1], [1,2]], 60, 30, [60, 60, 60], [30, 30, 30])
     """
     
     rois = list(roi_mapping['ID'])
@@ -877,7 +881,6 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
         #trans_spe[sid] = []
         #trans_spm[sid] = []
 
-    
     roi_stateval = {}
     for r in rois:
         roi_stateval[r] = {1:[], 2:[], 3:[]}
@@ -891,6 +894,8 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
         sdt = nbin * (1.0/sr)
         rec_map = roi_mapping[roi_mapping[rec] != 'X']   
         if len(roi_mapping[rec] == 'X') == len(roi_mapping):
+            continue
+        if len(roi_mapping[rec]) == 0:
             continue
 
         roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
@@ -912,12 +917,11 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
         for index, row in rec_map.iterrows():
             s=row[rec]
             a = re.split('-', s)
-            roi_list = int(a[0])
             roi_num  = int(a[1])
             dff = DFF[:,roi_num]
-            #dff = (dff-dff.mean())/dff.std()
-            #print(row['ID'])
-            
+            if pzscore:
+                dff = (dff-dff.mean())/dff.std()
+
             for (si,sj) in transitions:
                 sid = states[si] + states[sj]
                 seq = sleepy.get_sequences(np.where(M==si)[0])
@@ -1628,12 +1632,12 @@ def h52tiff_split(ppath, name):
     dset = stack_fid['images']
     (nframes, nx, ny) = dset.shape
 
-    tiff_name = os.path.join(ppath, fbase + '.tif')
+    tiff_name = os.path.join(ppath, fbase + '-001.tif')
     if os.path.isfile(tiff_name) == 1 :
         os.remove(tiff_name)
     tiff = TIFF.open(tiff_name, mode='w')
 
-    fcount = 1
+    fcount = 2
     for i in range(nframes) :
         tiff.write_image(dset[i,:,:])
         if os.path.getsize(tiff_name) > FLIMIT :
@@ -1649,6 +1653,126 @@ def h52tiff_split(ppath, name):
 
     tiff.close()
     stack_fid.close()
+
+
+
+def split_hdf5(ppath, name, nblock=10000, dtype='uint8'):
+    """
+    split hdf5 stack to into several hdf5 stacks.
+    The new files are called "re.split('\.', name)[0]" + i + .hdf5,
+    with i = -001, -002, ... .
+
+    :param ppath: folder containing hdf5 imaging stack
+    :param name: hdf5 imaging stack
+    :param nblock: number of frames per hdf5 file
+    :param dtype: data type of hdf5 stacks
+
+    """
+    fbase = re.split('\.', name)[0]
+    
+    fid_stack = h5py.File(os.path.join(ppath, name), 'r')
+    dset = fid_stack['images']
+    (nframes, nx, ny) = dset.shape
+
+    # open first hdf5 file
+    split_name = os.path.join(ppath, fbase + '-001.hdf5')
+    if os.path.isfile(split_name) == 1 :
+        os.remove(split_name)
+    fid_split = h5py.File(split_name, 'w')
+    
+    if nblock>nframes:
+        nsize=nframes
+    else:
+        nsize=nblock
+    dset_split = fid_split.create_dataset('images', shape=(nsize, nx, ny), dtype=dtype)
+
+    j=0
+    offset=0
+    fcount = 1
+    D = np.zeros((nblock, nx, ny), dtype=dtype)
+    for i in range(nframes):
+        D[j,:,:] = (dset[i,:,:])
+        j+=1
+
+        if j==nblock:
+            print('writing stack %d'%fcount)
+            dset_split[0:j,:,:] = D[0:j,:,:]
+            offset += j
+            fid_split.close()
+
+            # open next data set block
+            j=0
+            fcount += 1
+            s = "%03d" % fcount
+            split_name = os.path.join(ppath, fbase + '-' + s + '.hdf5')
+            if os.path.isfile(split_name):
+                os.remove(split_name)
+            fid_split = h5py.File(split_name, 'w')
+
+            if nblock > nframes-offset:
+                nsize = nframes-offset
+            else:
+                nsize = nblock
+            dset_split = fid_split.create_dataset('images', shape=(nsize, nx, ny), dtype=dtype)
+
+    dset_split[offset:offset + j] = D[0:j, :, :]
+
+    fid_stack.close()
+    fid_split.close()
+
+    return fcount
+
+
+
+def combine_hdf5(path, name, nframes=0, dtype='uint8', new_name=''):
+    """
+    Combine several image stack saved as hdf5 into a single hdf5 file
+    The function assumes that the hdf5 stack are names fstem-001.hdf5, fstem-002.hdf5 etc.
+    The new stack is called fstem.hdf5
+
+    :param path: folder with imaging session
+    :param name: name of the first hdf5 file, e.g. M1_010120n1_downsampcorr-001.tif
+    :param nframes: if 0, readout the frame number from info.txt file (parameter FRAMES:)
+
+    :return:
+    """
+    # get file stem
+    stem = re.split('-\d\d\d', name)[0]
+    # get all files in $path
+    files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
+    files = [f for f in files if re.match(stem + '\-\d\d\d\.hdf5', f)]
+    files.sort()
+
+    if len(new_name) == 0:
+        new_name = os.path.join(path, stem + '-test.hdf5')
+
+    if os.path.isfile(new_name):
+        os.remove(new_name)
+
+    print("new stack will be called %s" % new_name)
+    fid = h5py.File(os.path.join(path, name), 'r')
+    dset = fid['images']
+    (n, nx, ny) = dset.shape
+    fid.close()
+
+    if nframes == 0:
+        nframes = int(get_infofields(path, 'info.txt', ['FRAMES'])[0])
+
+    fid = h5py.File(new_name, 'w')
+    dset = fid.create_dataset('images', shape=(nframes, nx, ny), dtype=dtype)
+
+    offset=0
+    for f in files:
+        fid_split = h5py.File(os.path.join(path, f), 'r')
+        print("processing stack %s"%f)
+        dset_split = fid_split['images']
+        nframes_split = dset_split.shape[0]
+
+        dset[offset:offset+nframes_split,:,:] = dset_split[0:nframes_split,:,:]
+        offset += nframes_split
+        fid_split.close()
+
+    fid.close()
 
 
 
@@ -1803,8 +1927,6 @@ def h52tiff_split(ppath, name):
 #     return Numbers
 
 
-
-
     
 def combine_tiffs(path, name, ndown) :
     """
@@ -1856,6 +1978,7 @@ def combine_tiffs(path, name, ndown) :
     return nframes
 
 
+
 def combine_tiffs2h5(path, name, nframes, ndown, nblock=100) :
     """
     combine all tiff files in folder $path to an hdf5 file;
@@ -1870,7 +1993,6 @@ def combine_tiffs2h5(path, name, nframes, ndown, nblock=100) :
 
     NOTE: the output file will be saved in $path/recording_V2_100215n1_downsamp.mat
     """
-    
     # get file stem
     stem = re.split('\.', name)[0]
     # get all files in $path
@@ -1925,8 +2047,7 @@ def combine_tiffs2h5(path, name, nframes, ndown, nblock=100) :
         # 6/24/16
         # make sure to not forget the last frame of the current tiff stack
         dset[offset:offset+j,:,:] = D[0:j,:,:]
-            
-            
+
         # important:
         stack.close()
 
@@ -1956,7 +2077,7 @@ def avi2h5(rawfolder, ppath, name, ndown=1):
         a = re.findall('Cam(\d+)\.avi$', f)
         num[int(a[0])] = f
         
-    keys = num.keys()
+    keys = list(num.keys())
     keys.sort()
     files_new = []
     for k in keys:
@@ -2022,8 +2143,10 @@ def avi2h5(rawfolder, ppath, name, ndown=1):
     A = A / (1.0 * nframes)
     so.savemat(os.path.join(ppath, name, 'recording_' + name + '_mean.mat'), {'mean': A})
 
-    # copy file timestamp.dat to $ppath/$name
-    shutil.copyfile(os.path.join(ppath, name, 'timestamp.dat'), os.path.join(ppath, name))
+    # copy file timestamp.dat and settings_and_notes.txt from rawdata to $ppath/$name
+    shutil.copyfile(os.path.join(rawdata, name, 'timestamp.dat'), os.path.join(ppath, name))
+    shutil.copyfile(os.path.join(rawdata, name, 'settings_and_notes.dat'), os.path.join(ppath, name))
+
 
 
 def downsample_hdf5(path, name, ndown, nblock=1000, psave_mean=1) :
@@ -2304,21 +2427,28 @@ def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1, nw=2):
     return A
 
 
-def activity_map(ppath, name, nw=2):
-    """A = disk_filter(ppath, name, pfilt=1, nblock=1000)
-    $ppath/$name refers to a H5DF stack.
-    performs disk filtering on a h5df stack
 
-    NOTE: output file will be named ppath/recording_V2_100215n1_disk.mat
-    Naming: name refers to the mat stack that is to be filtered
-    the name of the output file includes everything up to the last '_'
-    after the last '_' 'disk.mat' is appended to the new file name
+def activity_map(ppath, name, nw=2):
+    """
+    calculate activity map of hdf5 image stack. 
+    
+    :param ppath: base folder containing all hdf5 and mat files. 
+    :param name: name of the hdf5 movie stack.
+                 ppath/name refers to a H5DF stack.
+    
+    Naming: the name of the output file includes everything up to the last '_'
+    after the last '_' 'actmap.mat' is appended to save the 2D matrix
+    representing the activity map.
+    
+    Note: The function expects that the file *_alignedmean.mat exists. 
+    The file is generated by the function align_frames()
+    
     """
 
     a = re.split('_', name)[0:-1]
     fstem = '_'.join(a)
     actmap_fname = fstem + '_actmap.mat'
-    mean_fname   = fstem + '_mean.mat'
+    mean_fname   = fstem + '_alignedmean.mat'
 
     # load stack
     fid = h5py.File(os.path.join(ppath, name), 'r')
@@ -2326,7 +2456,6 @@ def activity_map(ppath, name, nw=2):
     (nframes, nx, ny) = stack.shape
 
     # load meanframe
-    pdb.set_trace()
     mean_frame = so.loadmat(os.path.join(ppath, mean_fname))['mean']
     mean_flu = np.mean(mean_frame)
     filt = 1.0*np.ones((nw, nw)) / (nw*nw)
@@ -2344,7 +2473,6 @@ def activity_map(ppath, name, nw=2):
     so.savemat(os.path.join(ppath, actmap_fname), {'mean' : A})
     # make sure to close all files
     fid.close()
-
 
 
 
@@ -2470,8 +2598,6 @@ def align_frames(ppath, name, nframes=-1, nblock=1000, pdisk=1, psave=1, pwrite=
     @RETURN:
     Shift    -    2D vector specifying correction in x and y direction
     """
-    #plt.ion()
-    
     fstem = '_'.join(re.split('_', name)[0:-1])
     if pdisk == 1 :
         (idx, ref) = align_stencil(ppath, name, pdisk=1)
@@ -3013,7 +3139,7 @@ def caim_snip(ppath, recording, frame_thr=1.0):
     #    real_end_i = end_i + 50
 
     # NEW
-    SR = get_snr(ppath, recording)
+    SR = sleepy.get_snr(ppath, recording)
     dt = 1.0 / SR
     iframe_thr = frame_thr / dt
     cam_off = np.where(np.diff(signal_onoff) == -1)[0] + 1
@@ -3023,11 +3149,29 @@ def caim_snip(ppath, recording, frame_thr=1.0):
     d = np.diff(cam_jumps)
     ilong_frame = np.where(d > iframe_thr)[0]
 
+    plt.ion()
+    plt.figure()
+    plt.plot(signal_onoff[cam_jumps[0]:cam_jumps[-1]])
+    plt.plot(cam_jumps[ilong_frame]-cam_jumps[0], np.ones((len(ilong_frame),)), 'r.')
+    plt.show()
+    pdb.set_trace()
+
+
     real_start_i = cam_jumps[0]
     if len(ilong_frame) == 1:
-        real_end_i = cam_jumps[ilong_frame[0]]
+        # there's a long frame right at the beginning
+        if cam_jumps[ilong_frame[0]] == cam_on[0]:
+            real_start_i = cam_jumps[ilong_frame[0]]
+        # otherwhise, we assume the long frame is right at the end
+        else:
+            real_end_i = cam_jumps[ilong_frame[0]]
     elif len(ilong_frame) == 0:
         real_end_i = cam_jumps[-1]
+    # there are two long frames, we assume that happened at the beginning
+    # and at the end:
+    elif len(ilong_frame) == 2:
+        real_start_i = cam_jumps[ilong_frame[0]]
+        real_end_i   = cam_jumps[ilong_frame[1]]
     else:
         print('Something wrong here? No idea what to do...')
 
@@ -3069,7 +3213,7 @@ def caim_snip(ppath, recording, frame_thr=1.0):
     so.savemat(os.path.join(ppath, recording, 'EMG2_orig.mat'), {'EMG2': emg})
     so.savemat(os.path.join(ppath, recording, 'laser_orig_' + recording + '.mat'), {'laser': laser})
 
-    calculate_spectrum(ppath, recording)
+    sleepy.calculate_spectrum(ppath, recording)
 
     if os.path.isfile(os.path.join(ppath, recording, 'remidx_%s.txt' % recording)):
         os.remove(os.path.join(ppath, recording, 'remidx_%s.txt' % recording))
