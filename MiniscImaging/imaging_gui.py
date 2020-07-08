@@ -49,7 +49,7 @@ class ImageViewer(wx.Frame) :
         self.pdisk = False
         self.curr_roi_x = []
         self.curr_roi_y = []
-        self.roi_id = 0
+        self.roi_id = 1
         self.roi_name = ''
         self.cmap = np.zeros((1,3))
         # shape: [(xcoords, ycoords),...]
@@ -82,11 +82,11 @@ class ImageViewer(wx.Frame) :
         # read image stack
         if os.path.isfile(os.path.join(self.ipath, self.name, 'recording_' + self.name + '_aligned.hdf5')):
             fid = h5py.File(os.path.join(self.ipath, self.name, 'recording_' + self.name + '_aligned.hdf5'))
-            print "loaded motion corrected file (*_aligned.hdf5)"
+            print("loaded motion corrected file (*_aligned.hdf5)")
         else:
-            fid = h5py.File(os.path.join(self.ipath, self.name, 'recording_' + self.name + '_downsampcorr.hdf5'))
-            self.file_type = '_downsampcorr.hdf5'
-        
+            fid = h5py.File(os.path.join(self.ipath, self.name, 'recording_' + self.name + '_downsampcorr-001.hdf5'))
+            self.file_type = '_downsampcorr-001.hdf5'
+
         self.stack = fid['images']
         self.nframes = self.stack.shape[0]
 
@@ -526,9 +526,10 @@ class ImageViewer(wx.Frame) :
                 l.append(int(a.group(1)))
             
         n = 1
-        if l: n = max(l) + 1
+        if l:
+            n = max(l) + 1
 
-        print "creating new roilist with id %d" % n
+        print("creating new roilist with id %d" % n)
         self.roi_id = n
 
             
@@ -584,7 +585,7 @@ class ImageViewer(wx.Frame) :
         stack = img.TIFFStack(ddir, arec)
         
         # get the surround of each roi for background subtraction
-        Bkg, Halo = img.halo_subt(self.ROI_coords, 20, stack.nx, stack.ny, zonez=5)
+        Bkg, Halo = img.halo_subt(self.ROI_coords, 10, stack.nx, stack.ny, zonez=5)
         # extract ROIs
         print "starting to extract ROIs for roi list %d" % (self.roi_id)
         ROI = stack.get_rois(self.ROI_coords)
@@ -595,13 +596,14 @@ class ImageViewer(wx.Frame) :
         # Finally save Ca traces for later analysis
         img.save_catraces(self.ipath, self.name, self.roi_id, ROI, bROI)
 
+
     # plot calcium traces along with color coded brainstates
     def plot_rois(self, corr):
         """
         plot rois by calling function in imaging.py
         """
         if os.path.isfile(os.path.join(self.ipath, self.name, 'remidx_%s.txt'%self.name)):
-            img.plot_catraces(self.ipath, self.name, self.roi_id, cf=corr, pltSpec=True)
+            img.plot_catraces(self.ipath, self.name, self.roi_id, cf=corr, pspec=True)
         else:
             img.plot_catraces_simple(self.ipath, self.name, self.roi_id, cf=corr, SR=10)
 
@@ -617,7 +619,7 @@ class ImageViewer(wx.Frame) :
         #wildcard = "*roilist*"
         #dialog = wx.FileDialog(None, "Choose a ROI list", os.path.join(self.ipath, self.name), "", wildcard, wx.OPEN)
         #09/08/17: no idea why wildcard is not working anymore??
-        dialog = wx.FileDialog(None, "Choose a ROI list", os.path.join(self.ipath, self.name), "", ".*", wx.OPEN)
+        dialog = wx.FileDialog(None, "Choose a ROI list", os.path.join(self.ipath, self.name), "", ".*", wx.FD_OPEN)
         if dialog.ShowModal() == wx.ID_OK:
             self.roi_name = dialog.GetFilename()
             fname_base = 'recording_' + self.name + '_roilistn'
@@ -630,7 +632,7 @@ class ImageViewer(wx.Frame) :
             #cmap = cmap(range(0, 256))[:,0:3]
             #self.cmap = downsample_matrix(cmap, int(np.floor(256/nroi)))
             self.set_cmap()
-            print "Selected roi list %d" % (self.roi_id)
+            print "selected roi list %d" % (self.roi_id)
 
 
     def set_cmap(self) :
