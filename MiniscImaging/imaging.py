@@ -578,7 +578,6 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         # load DF/F for recording rec 
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
         if not(os.path.isfile(dff_file)):
-            pdb.set_trace()
             calculate_dff(ipath, rec, roi_list)
         DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
         # brainstate
@@ -1540,7 +1539,8 @@ def get_infoparam(ppath, name, field) :
             values.append(a.group(1))
             
     return values
-    
+
+
 
 def add_infoparam(ifile, field, vals):
     """
@@ -2059,8 +2059,10 @@ def combine_tiffs2h5(path, name, nframes, ndown, nblock=100) :
 
 def avi2h5(rawfolder, ppath, name, ndown=1):
     """
-    transform avi movies in folder $rawfolder
-    to a hdf5 stack saved in $ppath/$name/recording_$name_downsamp.hdf5
+    transform avi movies as recorded by miniscope in folder $rawfolder
+    to an hdf5 stack saved in $ppath/$name/recording_$name_downsamp.hdf5
+
+    :param rawfolder: folder containing *.avi files
     :param ndown: spatially downsample each frame by factor $ndown
     
     """
@@ -2361,7 +2363,9 @@ def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1, nw=2):
     $ppath/$name refers to a H5DF stack.
     performs disk filtering on a h5df stack
 
-    NOTE: output file will be named ppath/recording_V2_100215n1_disk.mat
+    NOTE: The output file will be named ppath/recording_V2_100215n1_disk.hdf5;
+    The resulting file (float64) is much larger than the original stack (uint8),
+    but it's safe to delete the _disk.hdf5 file at any time, as it can be regenerated.
     Naming: name refers to the mat stack that is to be filtered
     the name of the output file includes everything up to the last '_'
     after the last '_' 'disk.mat' is appended to the new file name
@@ -2396,10 +2400,10 @@ def disk_filter_h5(ppath, name, pfilt=1, nblock=1000, psave=1, nw=2):
     k = 0  #absolute counter for all frames in the tiff stack
     if pfilt == 1 :
         j = 0   #relative counter for each block
-        #for image in stack.iter_images() :
         for index in range(0, nframes) :
             image = stack[index,:,:]
             if nw > 1:
+                # would float32 also work?
                 image = scipy.signal.fftconvolve(image.astype('float64'), filt, mode='same')
             tmp = image - scipy.signal.fftconvolve(image.astype('float64'), disk, mode='same')
             D[j,:,:] = tmp
@@ -2598,6 +2602,7 @@ def align_frames(ppath, name, nframes=-1, nblock=1000, pdisk=1, psave=1, pwrite=
     @RETURN:
     Shift    -    2D vector specifying correction in x and y direction
     """
+    plt.ioff()
     fstem = '_'.join(re.split('_', name)[0:-1])
     if pdisk == 1 :
         (idx, ref) = align_stencil(ppath, name, pdisk=1)
@@ -2693,10 +2698,13 @@ def align_stencil(ppath, name, pdisk=1, psquare=1, psave=1):
     manually cut out a high contrast piece from the imaging stack used
     for motion correction.
 
+    NOT YET WORKING UNDER PY37
+
     @RETURN:
     idx_list    -      coordinates specifying the upper left and lower right corner (x1, x2, y1, y2)
                        of a square
     """
+    plt.ioff()
     fstem = '_'.join(re.split('_', name)[0:-1])
     if pdisk == 1 :
         img = so.loadmat(os.path.join(ppath, fstem + '_diskmean.mat'))['mean']
@@ -2704,6 +2712,7 @@ def align_stencil(ppath, name, pdisk=1, psquare=1, psave=1):
         img = so.loadmat(os.path.join(ppath, fstem + '_mean.mat'))['mean']
     new_name = os.path.join(ppath, fstem + '_stencil.mat')
 
+    plt.figure()
     plt.imshow(img, cmap='gray')
     r = roipoly(roicolor='r')
     idx_list = np.nonzero(r.getMask(img)==True)
@@ -3154,8 +3163,6 @@ def caim_snip(ppath, recording, frame_thr=1.0):
     plt.plot(signal_onoff[cam_jumps[0]:cam_jumps[-1]])
     plt.plot(cam_jumps[ilong_frame]-cam_jumps[0], np.ones((len(ilong_frame),)), 'r.')
     plt.show()
-    pdb.set_trace()
-
 
     real_start_i = cam_jumps[0]
     if len(ilong_frame) == 1:
