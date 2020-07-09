@@ -892,9 +892,8 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
         nbin = int(np.round(sr)*2.5)
         sdt = nbin * (1.0/sr)
         rec_map = roi_mapping[roi_mapping[rec] != 'X']   
-        if len(roi_mapping[rec] == 'X') == len(roi_mapping):
-            continue
-        if len(roi_mapping[rec]) == 0:
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
             continue
 
         roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
@@ -912,7 +911,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
                 
         ipre  = int(np.round(pre/idt))
         ipost = int(np.round(post/idt))
-        
+
         for index, row in rec_map.iterrows():
             s=row[rec]
             a = re.split('-', s)
@@ -939,8 +938,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
                         # the indices of state sj are sj_idx
         
                         jstart_dff   = eeg2img_time([(s[-1]+1)*sdt], img_time)[0]
-        
-        
+
                         if ipre <= jstart_dff < len(dff)-ipost and len(s)*sdt >= si_threshold[si-1] and len(sj_idx)*sdt >= sj_threshold[sj-1]:
     
                             istart_dff = eeg2img_time([(s[-1]+1)*sdt - pre],  img_time)[0]
@@ -973,7 +971,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
             
     #si_min = max(si_len)
     #sj_min = max(sj_len)
-    
+    ntime = 0
     for index, row in roi_mapping.iterrows():
         for (si,sj) in transitions:
             sid = states[si] + states[sj]
@@ -992,12 +990,16 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
                 tmp_sj = np.vstack([time_morph(t,int(post/xdt)) for t in tmp_sj])
                 roi_transact_si[sid][row['ID']] = tmp_si
                 roi_transact_sj[sid][row['ID']] = tmp_sj
+                ntime = tmp_si.shape[1] + tmp_sj.shape[1]
+            else:
+                print(row['ID'])
+
             print('Done with ROI %d' % row['ID'])
-    
-    ti = np.linspace(-60, -xdt, int(pre/xdt))
-    tj = np.linspace(0, 30-xdt, int(post/xdt))
+
+    ti = np.linspace(-pre, -xdt, int(pre/xdt))
+    tj = np.linspace(0, post-xdt, int(post/xdt))
     xtime = np.concatenate((ti,tj))
-    ntime = tmp_si.shape[1] + tmp_sj.shape[1]
+    #ntime = tmp_si.shape[1] + tmp_sj.shape[1]
     
     roi_transact_mean = dict()
     mx_transact = dict()
@@ -1014,7 +1016,6 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
             tmp_si = roi_transact_si[sid][row['ID']]
             tmp_sj = roi_transact_sj[sid][row['ID']]
             roi_transact_mean[sid][row['ID']] = np.hstack([tmp_si, tmp_sj])
-            #pdb.set_trace()
             mx_transact[sid][j,:] = roi_transact_mean[sid][row['ID']].mean(axis=0)
 
             d['ID'] += [row['ID']]*ntime
