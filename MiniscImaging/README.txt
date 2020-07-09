@@ -1,8 +1,10 @@
 NOTE: the imaging code is still in py27
 
-(1) to convert intan format to our format:
+(1) Convert intan format to our format:
 
 python data_processing_cl.py 
+
+The script generates a recording folder containing the EEG, EMG, info.txt file. The file laser_rec-name.mat contains the strobe signal from the camera.
 
 
 (2) using normal sleep_annotation_qt.py, you can inspect now the sleep recording:
