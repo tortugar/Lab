@@ -2091,7 +2091,6 @@ def avi2h5(rawfolder, ppath, name, ndown=1):
     nframes = 0
     frames_per_video = {}
     get_dim = True
-    ret = True
     for f in files:
         cap = cv2.VideoCapture(os.path.join(rawfolder, f))        
         ret = True
@@ -2123,8 +2122,8 @@ def avi2h5(rawfolder, ppath, name, ndown=1):
     
     offset = 0
     for f in files:
-        cap = cv2.VideoCapture(os.path.join(rawfolder, f))        
-        ret = True
+        #cap = cv2.VideoCapture(os.path.join(rawfolder, f))
+        #ret = True
         print("converting video %s" % f)
 
         D = np.zeros((frames_per_video[f], nx_down, ny_down))
@@ -2147,8 +2146,8 @@ def avi2h5(rawfolder, ppath, name, ndown=1):
     so.savemat(os.path.join(ppath, name, 'recording_' + name + '_mean.mat'), {'mean': A})
 
     # copy file timestamp.dat and settings_and_notes.txt from rawdata to $ppath/$name
-    shutil.copyfile(os.path.join(rawdata, name, 'timestamp.dat'), os.path.join(ppath, name))
-    shutil.copyfile(os.path.join(rawdata, name, 'settings_and_notes.dat'), os.path.join(ppath, name))
+    shutil.copyfile(os.path.join(rawfolder, 'timestamp.dat'), os.path.join(ppath, name))
+    shutil.copyfile(os.path.join(rawfolder, 'settings_and_notes.dat'), os.path.join(ppath, name))
 
 
 
