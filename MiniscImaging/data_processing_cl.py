@@ -28,18 +28,25 @@ Added intan conversion factor into script
 @author: FW
 
 """
+
+# python 3 import for tkinter
+import tkinter as Tk
+import tkinter.filedialog as tkf
+
 import sys
 import re
 import os.path
 import numpy as np
 import scipy.io as so
-import tkFileDialog as tkf
-import Tkinter as Tk
+
+# python 2 import for tkinter
+#import tkFileDialog as tkf
+#import Tkinter as Tk
+
 from shutil import copy2
-import pdb
-# to do: copy video file, process video file, time.dat
-# Channel allocation
-# introduce colleague field and port number
+# import necessary for python 3:
+from functools import reduce
+
 
 
 def get_infoparam(ppath, name):
@@ -53,7 +60,10 @@ def get_infoparam(ppath, name):
     
     The function return the value for the given string field
     """
-    fid = open(os.path.join(ppath, name), 'rU')    
+    # python 2:
+    #fid = open(os.path.join(ppath, name), 'rU')
+    # python 3:
+    fid = open(os.path.join(ppath, name), newline=None)
     lines = fid.readlines()
     params = {}
     in_note = False
@@ -226,7 +236,7 @@ def parse_challoc(ch_alloc):
 ### START OF SCRIPT ###################################################################
 #######################################################################################
 # Parameters to set at each computer:
-PPATH = '/Volumes/Transcend/Miniscope'
+PPATH = '/Volumes/Samsung T5/Rawdata'
 ndig = 16
 # To convert to electrode voltage in microvolts, multiply by 0.195
 FACTOR = 0.195
@@ -240,7 +250,7 @@ param_file = get_param_file(intan_dir)
 
 params = get_infoparam(intan_dir, param_file)
 mice = params['mouse_ID']
-print "We have here the following mice: %s" % (' '.join(mice))
+print("We have here the following mice: %s" % (' '.join(mice)))
 # 3/24/2020 inserted the following 5 lines:
 if 'conversion' in params:
     FACTOR = float(params['conversion'][0])
@@ -252,12 +262,12 @@ else:
 ntotal_channels = sum([len(a) for a in params['ch_alloc']])
 print('In total, %d channels were used' % ntotal_channels)
 # get time stamp of recording
-if params.has_key('date'):
+if 'date' in params:
     date = params['date'][0]  
     dtag = re.sub('/', '', date)
 else:
     dtag = file_time(os.path.join(intan_dir, 'amplifier.dat'))
-print "Using %s as date tag" % dtag
+print("Using %s as date tag" % dtag)
 
 # load all data
 print("Reading data file...")
@@ -280,7 +290,7 @@ for i in range(0, 2**ndig):
 for j in range(data_din.shape[0]):
     if int(((j+1) % (3600*SR))) == 0:
         ihour += 1
-        print "Done with %d out of %d hours" % (ihour, nhour)
+        print("Done with %d out of %d hours" % (ihour, nhour))
     if data_din[j] < 0:
         Din[j,:ndig] = dinmap[0]
     else:
@@ -298,7 +308,7 @@ ch_offset = 0 # channel offset;
 first_cl = 3
 first_dep = 11
 for mouse in mice:
-    print "Processing Mouse %s" % mouse
+    print("Processing Mouse %s" % mouse)
     ch_alloc = parse_challoc(params['ch_alloc'][imouse])
     nchannels = len(ch_alloc)
     fbase_name = mouse + '_' + dtag + 'n' 
@@ -306,7 +316,7 @@ for mouse in mice:
     recording_list.append(name)
     
     if not(os.path.isdir(os.path.join(PPATH,name))):
-        print "Creating directory %s\n" % name
+        print("Creating directory %s\n" % name)
         os.mkdir(os.path.join(PPATH,name))        
     
     neeg = 1
@@ -333,7 +343,7 @@ for mouse in mice:
         
         # Save EEG EMG
         if len(dfile) > 0:
-            print "Saving %s of mouse %s" % (dfile, mouse)
+            print("Saving %s of mouse %s" % (dfile, mouse))
             so.savemat(os.path.join(PPATH, name, dfile + '.mat'), {dfile: data_amp[ch_offset::ntotal_channels]})
         ch_offset += 1 # channel offset
     
@@ -357,7 +367,7 @@ for mouse in mice:
             first_cl += 1
 
 
-    so.savemat(os.path.join(PPATH, name, 'pull_' + name + '.mat'), {'pull':Din[:,first_dep]})
+    #so.savemat(os.path.join(PPATH, name, 'pull_' + name + '.mat'), {'pull':Din[:,first_dep]})
     first_dep += 1
     
     # save Video signal
@@ -377,7 +387,7 @@ for mouse in mice:
     for l in comments:
         fid.write(l + os.linesep)
     # write all other info tags
-    for k in params.keys():
+    for k in params:
         v = params[k]
         if k == 'note':
             continue
