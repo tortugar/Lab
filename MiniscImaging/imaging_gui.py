@@ -1,5 +1,7 @@
-import sys
-sys.path.append('/Users/tortugar/Google Drive/Berkeley/Data/Programming/CommonModules')
+#!/usr/bin/env python2
+# -*- coding: utf-8 -*-
+#import sys
+#sys.path.append('/Users/tortugar/Google Drive/Berkeley/Data/Programming/CommonModules')
 import matplotlib
 matplotlib.use('WXAgg')
 import scipy.io as so
@@ -171,9 +173,11 @@ class ImageViewer(wx.Frame) :
                 return np.argmin(np.abs(it-st))
 
             nf = np.min((self.nframes, img_time.shape[0]))
-            last_state = closest_time((img_time[nf-1], self.stime))
-            #HERE just some hack 10/6/17
-            last_state = self.M.shape[1]
+            try:
+                last_state = closest_time(img_time[nf-1], self.stime)
+            except:
+                #HERE just some hack 10/6/17
+                last_state = self.M.shape[1]
             self.sr = 1.0 / np.mean(np.diff(img_time))
 
         # axes for EEG spectrogram
@@ -192,7 +196,7 @@ class ImageViewer(wx.Frame) :
 
 
         # show brain state
-        if True:#self.sp_exists:
+        if self.sp_exists:
             self.axes2 = self.fig.add_axes([0.05, 0.08, 0.9, 0.04])
             cmap = plt.cm.jet
             my_map = cmap.from_list('ha', [[0,1,1],[1,0,1], [0.8, 0.8, 0.8]], 3)
@@ -488,7 +492,6 @@ class ImageViewer(wx.Frame) :
                     i = i+1
                 
 
-
     def on_roi_check(self, event):
         print("checked roi")
         if self.roi_check.IsChecked() :
@@ -638,7 +641,7 @@ class ImageViewer(wx.Frame) :
             #cmap = cmap(range(0, 256))[:,0:3]
             #self.cmap = downsample_matrix(cmap, int(np.floor(256/nroi)))
             self.set_cmap()
-            print "selected roi list %d" % (self.roi_id)
+            print("selected roi list %d" % self.roi_id)
 
 
     def set_cmap(self) :
