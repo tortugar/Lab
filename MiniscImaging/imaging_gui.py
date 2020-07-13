@@ -63,7 +63,7 @@ class ImageViewer(wx.Frame) :
         # recording contains spectrogram
         self.sp_exists = True
         #self.pcorr_stack = True
-
+        self.file_type = '_aligned.hdf5'
         self.create_menu()
 
         
@@ -77,15 +77,14 @@ class ImageViewer(wx.Frame) :
             self.stime = P['t'][0]
             self.sdt = self.stime[1]-self.stime[0]
             self.sp_exists = True
-            self.file_type = '_aligned.hdf5'
-        
+
         # read image stack
         if os.path.isfile(os.path.join(self.ipath, self.name, 'recording_' + self.name + '_aligned.hdf5')):
             fid = h5py.File(os.path.join(self.ipath, self.name, 'recording_' + self.name + '_aligned.hdf5'))
             print("loaded motion corrected file (*_aligned.hdf5)")
         else:
-            fid = h5py.File(os.path.join(self.ipath, self.name, 'recording_' + self.name + '_downsampcorr-001.hdf5'))
-            self.file_type = '_downsampcorr-001.hdf5'
+            self.file_type = '_downsampcorr.hdf5'
+            fid = h5py.File(os.path.join(self.ipath, self.name, 'recording_' + self.name + self.file_type))
 
         self.stack = fid['images']
         self.nframes = self.stack.shape[0]
@@ -165,7 +164,12 @@ class ImageViewer(wx.Frame) :
 
         if self.sp_exists:
             img_time = img.imaging_timing(self.ipath, self.name)
-            closest_time = lambda(it, st) : np.argmin(np.abs(it-st))    
+            # python 2:
+            #closest_time = lambda(it, st) : np.argmin(np.abs(it-st))
+            # python 3:
+            def closest_time(it, st):
+                return np.argmin(np.abs(it-st))
+
             nf = np.min((self.nframes, img_time.shape[0]))
             last_state = closest_time((img_time[nf-1], self.stime))
             #HERE just some hack 10/6/17
@@ -486,8 +490,8 @@ class ImageViewer(wx.Frame) :
 
 
     def on_roi_check(self, event):
-        print "checked roi"
-        if self.roi_check.IsChecked() :
+        print("checked roi"
+              )if self.roi_check.IsChecked() :
             self.proi_mode = True
             self.draw_figure()
         else :
@@ -502,7 +506,7 @@ class ImageViewer(wx.Frame) :
             self.pdisk = True
             self.draw_figure()
         else :
-            print "disk unchecked"
+            print("disk unchecked")
             self.pdisk = False
             self.draw_figure()
 
@@ -512,8 +516,10 @@ class ImageViewer(wx.Frame) :
         self.load_rois()
         self.draw_figure()
 
+
     def on_button_save(self, event):
         self.save_rois()
+
 
     def on_button_new(self, event):
         ddir = os.path.join(self.ipath, self.name)
@@ -587,12 +593,12 @@ class ImageViewer(wx.Frame) :
         # get the surround of each roi for background subtraction
         Bkg, Halo = img.halo_subt(self.ROI_coords, 10, stack.nx, stack.ny, zonez=5)
         # extract ROIs
-        print "starting to extract ROIs for roi list %d" % (self.roi_id)
+        print("starting to extract ROIs for roi list %d" % (self.roi_id))
         ROI = stack.get_rois(self.ROI_coords)
-        print "got ROIs"
-        print "starting to extract background..."
+        print("got ROIs")
+        print("starting to extract background...")
         bROI = stack.get_rois(Halo)
-        print "got surround of ROIs"
+        print("got surround of ROIs")
         # Finally save Ca traces for later analysis
         img.save_catraces(self.ipath, self.name, self.roi_id, ROI, bROI)
 
@@ -612,7 +618,7 @@ class ImageViewer(wx.Frame) :
         #transform gui ROI format to save format
         self.set_roicoords()
         img.save_roilist(self.ipath, self.name, self.ROI_coords, self.ROIs, roi_id=self.roi_id)
-        print "Saved roi list %d" % (self.roi_id)
+        print("Saved roi list %d" % (self.roi_id))
 
         
     def load_rois(self):
