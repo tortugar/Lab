@@ -490,8 +490,8 @@ class ImageViewer(wx.Frame) :
 
 
     def on_roi_check(self, event):
-        print("checked roi"
-              )if self.roi_check.IsChecked() :
+        print("checked roi")
+        if self.roi_check.IsChecked() :
             self.proi_mode = True
             self.draw_figure()
         else :
