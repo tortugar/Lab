@@ -1,7 +1,5 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#import sys
-#sys.path.append('/Users/tortugar/Google Drive/Berkeley/Data/Programming/CommonModules')
 import matplotlib
 matplotlib.use('WXAgg')
 import scipy.io as so
@@ -68,7 +66,6 @@ class ImageViewer(wx.Frame) :
         self.file_type = '_aligned.hdf5'
         self.create_menu()
 
-        
 
     def setup_imaging(self) :
         # load spectrum
@@ -331,7 +328,6 @@ class ImageViewer(wx.Frame) :
         img.axes.get_yaxis().set_visible(False)
         self.axes.axis('tight')
 
-        
         # show current time point
         self.axes3.clear()
         self.axes3.plot(self.icursor, 0, 'r^')
@@ -340,7 +336,6 @@ class ImageViewer(wx.Frame) :
         labels = np.arange(0, (self.nframes/(self.sr*60.0)), 10)
         self.axes3.set_xticklabels(labels, fontsize=9)
         self.axes3.set_xlabel('Time (min)', fontsize=9)
-
 
         # draw ROIs
         if self.proi_mode == True :
@@ -368,7 +363,6 @@ class ImageViewer(wx.Frame) :
         self.axes.add_line(l)
         
 
-    
     ### CALLBACKS
     def on_slider_width(self, event):
         self.icursor = self.slider_width.GetValue()
@@ -572,7 +566,7 @@ class ImageViewer(wx.Frame) :
         """
         plot ROIs; dialog asking for correction factor
         """
-        dlg = wx.TextEntryDialog(self, "Set correction factor", defaultValue='0.5')
+        dlg = wx.TextEntryDialog(self, "Set correction factor", value='0.9')
         dlg.ShowModal()
         corr = float(dlg.GetValue())
         dlg.Destroy()
@@ -625,10 +619,10 @@ class ImageViewer(wx.Frame) :
 
         
     def load_rois(self):
-        #wildcard = "*roilist*"
+        wildcard = "*.mat"
         #dialog = wx.FileDialog(None, "Choose a ROI list", os.path.join(self.ipath, self.name), "", wildcard, wx.OPEN)
         #09/08/17: no idea why wildcard is not working anymore??
-        dialog = wx.FileDialog(None, "Choose a ROI list", os.path.join(self.ipath, self.name), "", ".*", wx.FD_OPEN)
+        dialog = wx.FileDialog(None, "Choose a ROI list", os.path.join(self.ipath, self.name), "", wildcard=wildcard, style=wx.FD_OPEN)
         if dialog.ShowModal() == wx.ID_OK:
             self.roi_name = dialog.GetFilename()
             fname_base = 'recording_' + self.name + '_roilistn'
@@ -687,8 +681,6 @@ class ImageViewer(wx.Frame) :
 if __name__ == '__main__':
     # adjust to your system:
     ipath = '/Volumes/BB8/Penn/Data/RawImaging'
-    ipath = '/Volumes/Transcend/Miniscope/'
-    ipath = '/Volumes/Seagate Expansion Drive/Justin DataBackup/Processed/ASD_Imaging/WTGad/JB9/'
 
     ##################################3
     import sys
