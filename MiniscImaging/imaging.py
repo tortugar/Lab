@@ -18,6 +18,7 @@ import sleepy
 import pandas as pd
 import seaborn as sns
 from scipy import linalg as LA
+import scipy.stats as stats
 
 ### DEBUGGER
 #import pdb
@@ -702,7 +703,6 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
             tmp = [r, rmean, wmean, nmean, res.F.iloc[0], res['p-unc'].iloc[0], res2['p-tukey'].iloc[0], roi_type]
             data.append(tmp)
 
-
     df_class = pd.DataFrame(data, columns=columns)
     df_class = pd.merge(mapping, df_class, on='ID')
 
@@ -721,6 +721,8 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
     types.sort()
     
     j = 1
+    plt.ion()
+    plt.figure()
     for typ in types:
         mouse_shown = {m:0 for m in mice}
         plt.subplot('1%d%d' % (len(types), j))
@@ -1031,7 +1033,58 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
     return mx_transact, df
                 
 
-    
+
+def brstate_transition_stats(df, timevec, trans_type):
+    """
+    Test at which time point a brain state transition becomes significant.
+    The functions works together with brstate_transition_stats
+    :param df: pandas DataFrame as returned (2nd argument) from brstate_transitions().
+           The data frame contains columns 'ID' (ROI id number), 'mouse', 'time', 'dff' and 'trans'
+           (the transition type, encoded through 2 character strings, e.g. 'NR').
+    :param timevec: np.array or list, defining time intervals for which ttest is performed to test
+           which time intervals are different from the baseline interval.
+           timevec[0] to timevec[1] defines the baseline interval.
+    :param trans_type:
+    :return: pandas DataFrame, with coluns 'time', 'p' (p-value), and 'sig' (1 - significant, 0 - non-significant
+
+    Example call:
+    # get brainstate transitions as DataFrame:
+    mx, df = imaging.brstate_transitions(path, df_class[df_class['Type']=='R-max'], [[3,1], [1,2]], 60, 20, [60, 60, 60], [20, 20, 20])
+    # use DataFrame as input for brstate_transition_stats:
+    imaging.brstate_transition_stats(df, np.arange(-60, 21, 10), 'NR')
+
+    -60 to -50s will serve as baseline interval.
+    The average DF/F activity during each sucessive interval (-50 to -40, -40 to -30, etc.).
+    The interval -50 to -40 will be referenced as -45s in the time column of the returned DataFrame
+    """
+
+    tmp = df[(df.time >= timevec[0]) & (df.time < timevec[1])]
+    bsl = tmp[tmp.trans == trans_type].groupby(['ID']).mean()['dff']
+
+    tref = []
+    pval = []
+    sig = []
+    alpha = 0.05 / (len(timevec)-2)
+    for (i,j) in zip(timevec[1:-1], timevec[2:]):
+        tmp = df[(df.time >= i) & (df.time < j)]
+        val = tmp[tmp.trans == trans_type].groupby(['ID']).mean()['dff']
+
+        p = stats.ttest_rel(bsl, val)[1]
+        if p < alpha:
+            sig.append(1)
+        else:
+            sig.append(0)
+        pval.append(p)
+        tref.append(i + (j-i)/2)
+        print(tref)
+
+    df_stats = pd.DataFrame({'time':tref, 'p':pval, 'sig':sig})
+    print(df_stats)
+
+    return df_stats
+
+
+
 def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq_max=30,
                   pemg_ampl=True, r_mu = [10, 100], dff_legend=100):
     """
@@ -2715,6 +2768,9 @@ def align_stencil(ppath, name, pdisk=1, psquare=1, psave=1):
     plt.figure()
     plt.imshow(img, cmap='gray')
     r = roipoly(roicolor='r')
+    # necessary to make it work in python 3:
+    plt.show(block=True)
+
     idx_list = np.nonzero(r.getMask(img)==True)
 
     if psquare == 1 :
@@ -2733,6 +2789,7 @@ def align_stencil(ppath, name, pdisk=1, psquare=1, psave=1):
         so.savemat(os.path.join(ppath, new_name), {'mean' : A, 'idx' : idx_list})
 
     return (idx_list, A)
+
 
 
 def crop_dataset(ppath, name, nblock=1000):
