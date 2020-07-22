@@ -14,8 +14,8 @@ import os.path
 import sev
 import re
 import scipy.io as so
-import Tkinter as Tk
-import tkFileDialog as tkf
+import tkinter as Tk
+import tkinter.filedialog as tkf
 import vypro
 from io import open
 
@@ -177,7 +177,7 @@ params['time'] = [time]
 # load info.txt
 params2 = get_infoparam(tank_dir, 'info.txt')
 params['note'] = params2['note']
-new_keys = params2.keys()
+new_keys = list(params2.keys())
 new_keys.remove('note')
 for k in new_keys:
     if not(k in params.keys()):
