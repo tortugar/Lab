@@ -3330,7 +3330,7 @@ def caim_snip(ppath, recording, frame_thr=1.0):
     if len(ilong_frame) == 1:
         # there's a long frame right at the beginning
         if cam_jumps[ilong_frame[0]] == cam_on[0]:
-            real_start_i = cam_jumps[ilong_frame[0]]
+            real_start_i = cam_jumps[ilong_frame[0]+1]
         # otherwhise, we assume the long frame is right at the end
         else:
             real_end_i = cam_jumps[ilong_frame[0]]
@@ -3339,7 +3339,7 @@ def caim_snip(ppath, recording, frame_thr=1.0):
     # there are two long frames, we assume that happened at the beginning
     # and at the end:
     elif len(ilong_frame) == 2:
-        real_start_i = cam_jumps[ilong_frame[0]]
+        real_start_i = cam_jumps[ilong_frame[0]+1]
         real_end_i   = cam_jumps[ilong_frame[1]]
     else:
         print('Something wrong here? No idea what to do...')
