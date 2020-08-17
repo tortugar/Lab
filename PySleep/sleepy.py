@@ -422,8 +422,7 @@ def eeg_conversion(ppath, rec, conv_factor=0.195):
         calculate_spectrum(ppath, rec)
 
 
-
-
+### DEPRICATED ############################################
 def video_pulse_detection(ppath, rec, SR=1000, iv = 0.01):
     """
     return index of each video frame onset
@@ -594,7 +593,7 @@ def power_spectrum(data, length, dt):
         Note that
             np.var(data) ~ np.sum(power density) * (frequencies[1]-frequencies[0])
     """
-    f, pxx = scipy.signal.welch(data, fs=1/dt, window='hanning', nperseg=int(length), noverlap=int(length/2))
+    f, pxx = scipy.signal.welch(data, fs=1.0/dt, window='hanning', nperseg=int(length), noverlap=int(length/2))
     return pxx, f
 
 
@@ -2015,10 +2014,10 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     #th_delta = smooth_data(th_delta, 2);
 
     seq = {}
-    seq['high_theta'] = threshold_crossing(th_delta, np.nanmean(th_delta[use_idx])+th_delta_std*np.nanstd(th_delta[use_idx]), \
-       duration[0,1], duration[0,1], 1)
-    seq['high_emg'] = threshold_crossing(p_mu, np.nanmean(p_mu[use_idx])+mu_std*np.nanstd(p_mu[use_idx]), \
-       duration[1,0], duration[1,1], 1)
+    seq['high_theta'] = threshold_crossing(th_delta, np.nanmean(th_delta[use_idx])+th_delta_std*np.nanstd(th_delta[use_idx]),
+                                           duration[0,1], duration[0,1], 1)
+    seq['high_emg'] = threshold_crossing(p_mu, np.nanmean(p_mu[use_idx])+mu_std*np.nanstd(p_mu[use_idx]),
+                                         duration[1,0], duration[1,1], 1)
     seq['high_delta'] = threshold_crossing(p_delta, np.nanmean(p_delta[use_idx]), duration[2,0], duration[2,1], 1)
     seq['high_sigma'] = threshold_crossing(p_sigma, np.nanmean(p_sigma[use_idx]), duration[3,0], duration[3,1], 1)
     seq['high_gamma'] = threshold_crossing(p_gamma, np.nanmean(p_gamma[use_idx]), duration[4,0], duration[4,1], 1)
@@ -2038,15 +2037,13 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     idx['low_emg']    = np.setdiff1d(np.arange(0,N), np.array(idx['high_emg']))
     idx['low_delta'] = np.setdiff1d(np.arange(0,N), np.array(idx['high_delta']))
     idx['low_theta'] = np.setdiff1d(np.arange(0,N), np.array(idx['high_theta']))
-        
-        
+
     #REM Sleep: thdel up, emg down, delta down    
     a = np.intersect1d(idx['high_theta'], idx['low_delta'])
     # non high_emg phases
     b = np.setdiff1d(a, idx['high_emg'])
     rem = get_sequences(b, duration[0,1])
     rem_idx = reduce(lambda x,y: np.concatenate((x,y)), rem)
-
 
     # SWS Sleep
     # delta high, no theta, no emg
@@ -2081,13 +2078,13 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     wake_nomotion_idx = np.setdiff1d(wake_idx, idx['low_theta'])
 
     # Are there overlapping sequences?
-    a = np.intersect1d(np.intersect1d(rem_idx, wake_idx), sws_idx);
+    a = np.intersect1d(np.intersect1d(rem_idx, wake_idx), sws_idx)
 
     # Are there undefined sequences?
-    undef_idx = np.setdiff1d(np.setdiff1d(np.setdiff1d(np.arange(0,N), rem_idx), wake_idx), sws_idx);
+    undef_idx = np.setdiff1d(np.setdiff1d(np.setdiff1d(np.arange(0,N), rem_idx), wake_idx), sws_idx)
     
     # Wake wins over SWS
-    sws_idx = np.setdiff1d(sws_idx, wake_idx);
+    sws_idx = np.setdiff1d(sws_idx, wake_idx)
 
     # Special rules
     # if there's a REM sequence directly following a short wake sequence (PRE_WAKE_REM),
@@ -2108,7 +2105,6 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
                     new_wake = rem_seq
                     wake_idx = np.union1d(wake_idx, new_wake)
                     rem_idx = np.setdiff1d(rem_idx, new_wake)
-
 
     # two different representations for the results:
     S = {}
@@ -2573,7 +2569,6 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     filt = np.ones((nfilt,nfilt))
     filt = np.divide(filt, filt.sum())
     EEGLsr = scipy.signal.convolve2d(EEGLsr, filt, boundary='symm', mode='same')
-    #EMGLsr = scipy.signal.convolve2d(EMGLsr, filt, boundary='symm', mode='same')
 
     if pnorm == 2:    
         for i in range(EEGLsr.shape[0]):
@@ -2663,7 +2658,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     
 
 
-def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnorm=1, pplot=True, tstart=0, tend=-1,
+def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnorm=1, pplot=1, tstart=0, tend=-1,
                             vm=[], cb_ticks=[0], mu=[10, 100], trig_state=0, harmcs=0, fig_file=''):
     """
     calculate average spectrogram for all recordings listed in @recordings; for averaging take
@@ -3078,12 +3073,12 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
 
 
 
-def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0,
-                               nboots=10000, alpha=0.05, backup='',
-                               start_time=0, ma_thr=20, fig_file=''):
+def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0, nboots=10000, alpha=0.05, backup='',
+                               start_time=0, ma_thr=20, bootstrap_mode=0, fig_file=''):
     """
     Align brain state with laser stimulation and calculate two-sided 1-$alpha confidence intervals using
-    bootstrap
+    bootstrapping.
+
     :param ppath: base folder
     :param recordings: list of recordings
     :param pre: time before laser
@@ -3095,6 +3090,18 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0,
     :param backup: optional backup folder where recordings are stored
     :param start_time: start time of recordding used for analysis
     :param ma_thr: sleep periods < ma_thr are thrown away
+
+    :param bootstrap_mode: default=0
+           bootstrap_mode == 0: Take inter-mouse variance and inter-trial variance (of each mouse) into account.
+           That is, bootstrapping re-models the variance expected when re-doing the same
+           experimental design (same mouse number and total trial number).
+           To account for potentially different number of trials per mouse, resample the data
+           during each iteration the following way: Assume that there are n laser trials from m mice;
+           randomly select (with replacment) ntrial mice; then select from each mouse randomly one trial.
+
+           bootstrap_mode == 1: Only take inter-trial variance (of each mouse) into account. That is,
+           bootstrapping models the variance expected when redoing the experiment with exactly the same mice.
+
     :param fig_file, if file name is specified, the figure will be saved
     :return: P   - p-values for NREM, REM, Wake
              Mod - by how much the percentage of NREM, REM, Wake is increased compared to baseline
@@ -3154,39 +3161,61 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0,
 
     # I assume here that every recording has same dt
     t = np.linspace(-ipre*dt, ipost*dt, ipre+ipost+1)
-    #BS = np.zeros((nmice, len(t), 3))
     Trials = dict()
     for mouse in BrainstateDict:
         Trials[mouse] = np.zeros((BrainstateDict[mouse].shape[0], len(t), 3))
 
+    # total number of trials:
+    ntrials = 0
     for mouse in BrainstateDict:
         M = np.array(BrainstateDict[mouse])
         for state in range(1, 4):
             C = np.zeros(M.shape)
             C[np.where(M == state)] = 100.
             Trials[mouse][:,:,state-1] = C
+        ntrials += Trials[mouse].shape[0]
 
     Prob = np.zeros((nboots, len(t), 3))
-    #ntrials = sum([s.shape[0] for s in BrainstateDict.values()])
-    #bBS = dict()
-    #for s in [1,2,3]:
-    #    bBS[s] = np.zeros((ntrials, len(t)))
-    for b in range(nboots):
-        # average brain state percentage for each mouse during iteration b
-        mouse_mean_state = np.zeros((nmice, len(t), 3))
-        offset = 0
-        i = 0
-        for mouse in mice:
-            mmouse = Trials[mouse].shape[0]
-            iselect = rand.randint(0, mmouse, (mmouse,))
-            for s in [1,2,3]:
-                #bBS[s][offset:offset+mmouse,:] = Trials[mouse][iselect,:,s-1]
-                mouse_mean_state[i,:,s-1] = Trials[mouse][iselect,:,s-1].mean(axis=0)
-            i += 1
-            offset += mmouse
+    if bootstrap_mode == 1:
+        for b in range(nboots):
+            # average brain state percentage for each mouse during iteration b
+            mouse_mean_state = np.zeros((nmice, len(t), 3))
+            i = 0
+            for mouse in mice:
+                mmouse = Trials[mouse].shape[0]
+                iselect = rand.randint(0, mmouse, (mmouse,))
+                for s in [1,2,3]:
+                    #bBS[s][offset:offset+mmouse,:] = Trials[mouse][iselect,:,s-1]
+                    mouse_mean_state[i,:,s-1] = Trials[mouse][iselect,:,s-1].mean(axis=0)
+                i += 1
 
-        for s in [1,2,3]:
-            Prob[b,:,s-1] = mouse_mean_state[:,:,s-1].mean(axis=0)
+            for s in [1,2,3]:
+                Prob[b,:,s-1] = mouse_mean_state[:,:,s-1].mean(axis=0)
+    else:
+        mx_iter = np.zeros((ntrials, len(t), 3))
+        for b in range(nboots):
+            # for each iteration select randomly select ntrials mice
+            irand_mice = rand.randint(0, nmice, ntrials)
+
+            # average brain state percentage for each mouse during iteration b
+            # mouse_mean_state = np.zeros((nmice, len(t), 3))
+            i = 0
+            # there are ntrials mice
+            for j in irand_mice:
+                mouse = mice[irand_mice[j]]
+                # we have nmouse trials per mouse
+                mmouse = Trials[mouse].shape[0]
+                # select one random trial from the current mouse
+                iselect = rand.randint(0, mmouse)
+                for s in [1, 2, 3]:
+                    mx_iter[i,:,s-1] = Trials[mouse][iselect,:,s-1]
+                i += 1
+
+            # mx_iter is the resampled data set for bootstrap iteration b
+            # now we calculate the statistics we're interesting in, which is the mean
+            for s in [1, 2, 3]:
+                Prob[b,:,s-1] = mx_iter[:,:,s-1].mean(axis=0)
+
 
     # simple average for each brainstate across mice (w/o) bootstrapping
     Prob_mean = np.zeros((nmice, len(t), 3))
@@ -3200,7 +3229,6 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0,
     Prob = np.sort(Prob, axis=0)
     Bounds = np.zeros((2, len(t), 3))
     a = int((nboots * alpha) / 2.0)
-    #pdb.set_trace()
     for s in [1,2,3]:
         Bounds[0,:,s-1] = Prob[a,:,s-1]
         Bounds[1,:,s-1] = Prob[-a,:, s-1]
@@ -3267,6 +3295,202 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0,
         plt.savefig(fig_file, bbox_inches="tight")
 
     return P, Mod
+
+
+
+def laser_brainstate_bootstrap2(ppath, recordings, pre, post,
+                               nboots=10000, alpha=0.05, backup='',
+                               start_time=0, ma_thr=20, fig_file=''):
+    """
+    Align brain state with laser stimulation and calculate two-sided 1-$alpha confidence intervals using
+    bootstrapping.
+    The bootstrapping method accounts for both inter-trial and inter-subject variability.
+    That is, re-running the same experimental design with the same number of subjects and
+    the same number of trials per subject, what is the expected variability?
+
+    :param ppath: base folder
+    :param recordings: list of recordings
+    :param pre: time before laser
+    :param post: time after laser onset
+    :param nboots: int, how many times the whole data set is resampled for boot-strapping
+    :param alpha: plot shows 1-$alpha confidence interval
+    :param backup: optional backup folder where recordings are stored
+    :param start_time: start time of recordding used for analysis
+    :param ma_thr: sleep periods < ma_thr are thrown away
+    :param fig_file, if file name is specified, the figure will be saved
+    :return: P   - p-values for NREM, REM, Wake
+             Mod - by how much the percentage of NREM, REM, Wake is increased compared to baseline
+    """
+
+    rec_paths = dict()
+    for rec in recordings:
+        if os.path.isdir(os.path.join(ppath, rec)):
+            rec_paths[rec] = ppath
+        else:
+            rec_paths[rec] = backup
+
+    # dict: mouse_id --> laser trials, R W N sequence
+    BrainstateDict = {}
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        BrainstateDict[idf] = []
+    mice = list(BrainstateDict.keys())
+    nmice = len(BrainstateDict)
+
+    for rec in recordings:
+        ppath = rec_paths[rec]
+        SR = get_snr(ppath, rec)
+        NBIN = np.round(2.5 * SR)
+        dt = NBIN * 1 / SR
+        istart_time = int(np.round(start_time / dt))
+
+        M = load_stateidx(ppath, rec)[0]
+
+        seq = get_sequences(np.where(M == 2)[0])
+        for s in seq:
+            if len(s) * dt <= ma_thr:
+                M[s] = 3
+
+        (idxs, idxe) = laser_start_end(load_laser(ppath, rec))
+        idf = re.split('_', rec)[0]
+
+        SR = get_snr(ppath, rec)
+        NBIN = np.round(2.5 * SR)
+        ipre = int(np.round(pre / dt))
+        ipost = int(np.round(post / dt))
+
+        idxs = [int(i / NBIN) for i in idxs]
+        idxe = [int(i / NBIN) for i in idxe]
+        laser_dur = np.mean((np.array(idxe) - np.array(idxs))) * dt
+
+        for (i, j) in zip(idxs, idxe):
+            if i >= ipre and j + ipost <= len(M) - 1 and i > istart_time:
+                bs = M[i - ipre:i + ipost + 1]
+                BrainstateDict[idf].append(bs)
+
+    for mouse in mice:
+        BrainstateDict[mouse] = np.array(BrainstateDict[mouse])
+
+    # I assume here that every recording has same dt
+    t = np.linspace(-ipre*dt, ipost*dt, ipre+ipost+1)
+    Trials = dict()
+    for mouse in BrainstateDict:
+        Trials[mouse] = np.zeros((BrainstateDict[mouse].shape[0], len(t), 3))
+
+    # total number of trials:
+    ntrials = 0
+    for mouse in BrainstateDict:
+        M = np.array(BrainstateDict[mouse])
+        for state in range(1, 4):
+            C = np.zeros(M.shape)
+            C[np.where(M == state)] = 100.
+            Trials[mouse][:,:,state-1] = C
+        ntrials += Trials[mouse].shape[0]
+
+    # Randomly resample the single trial matrix, in a way that each
+    # mouse has the same weight (irrespective of number of trials contributed by each mouse)
+    Prob = np.zeros((nboots, len(t), 3))
+    mx_iter = np.zeros((ntrials, len(t), 3))
+
+    for b in range(nboots):
+        # for each iteration select randomly select ntrials mice
+        irand_mice = rand.randint(0, nmice, ntrials)
+
+        # average brain state percentage for each mouse during iteration b
+        #mouse_mean_state = np.zeros((nmice, len(t), 3))
+        offset = 0
+        i = 0
+        # there are ntrials mice
+        for j in irand_mice:
+            mouse = mice[irand_mice[j]]
+            # we have nmouse trials per mouse
+            mmouse = Trials[mouse].shape[0]
+            # select one random trial from the current mouse
+            iselect = rand.randint(0, mmouse)
+            for s in [1,2,3]:
+                #bBS[s][offset:offset+mmouse,:] = Trials[mouse][iselect,:,s-1]
+                #mouse_mean_state[i,:,s-1] = Trials[mouse][iselect,:,s-1].mean(axis=0)
+                mx_iter[i,:,s-1] = Trials[mouse][iselect,:,s-1]
+            i += 1
+            offset += mmouse
+
+        # mx_iter is the resampled data set for bootstrap iteration b
+        # now we calculate the statistics we're interesting in, which is the mean
+        for s in [1,2,3]:
+            Prob[b,:,s-1] = mx_iter[:,:,s-1].mean(axis=0)
+
+    # simple average for each brainstate across mice (w/o) bootstrapping
+    Prob_mean = np.zeros((nmice, len(t), 3))
+    for s in [1,2,3]:
+        i = 0
+        for mouse in mice:
+            Prob_mean[i,:,s-1] = Trials[mouse][:,:,s-1].mean(axis=0)
+            i += 1
+
+    usProb = Prob.copy()
+    Prob = np.sort(Prob, axis=0)
+    Bounds = np.zeros((2, len(t), 3))
+    a = int((nboots * alpha) / 2.0)
+    #pdb.set_trace()
+    for s in [1,2,3]:
+        Bounds[0,:,s-1] = Prob[a,:,s-1]
+        Bounds[1,:,s-1] = Prob[-a,:, s-1]
+
+
+    # plot figure
+    colors = np.array([[0, 1, 1], [0.5, 0, 1], [0.6, 0.6, 0.6]])
+    br_states = {1:'REM', 2:'Wake', 3:'NREM'}
+    #colors = np.array([[55,255,255], [153,255,153],[153,153,153]])/255.
+    it = np.where((t>=-pre) & (t<=post))[0]
+    plt.ion()
+    plt.figure()
+    ax = plt.axes([0.15, 0.15, 0.6, 0.7])
+    for s in [3,2,1]:
+        ax.fill_between(t[it], Bounds[0,it,s-1], Bounds[1,it,s-1], color=colors[s-1,:], alpha=0.8, zorder=3, edgecolor=None)
+        ax.plot(t[it], Prob_mean[:, it, s-1].mean(axis=0), color=colors[s-1,:], label=br_states[s])
+    ax.add_patch(patches.Rectangle((0, 0), laser_dur, 100, facecolor=[0.6, 0.6, 1], edgecolor=[0.6, 0.6, 1]))
+    plt.xlim([-pre, post])
+    plt.ylim([0,100])
+    plt.xlabel('Time (s)')
+    plt.ylabel('Brain state (%)')
+    plt.legend(bbox_to_anchor = (1.0, 0.7, 1., .102), loc = 3, mode = 'expand', ncol = 1, frameon = False)
+    box_off(ax)
+    plt.draw()
+
+    # statistics
+    ibase = np.where((t>=-laser_dur) & (t<0))[0]
+    ilsr  = np.where((t>=0) & (t<laser_dur))[0]
+    P   = np.zeros((3,))
+    Mod = np.zeros((3,))
+    for istate in [1,2,3]:
+        basel = usProb[:,ibase,istate-1].mean(axis=1)
+        laser = usProb[:,ilsr, istate-1].mean(axis=1)
+        d = laser - basel
+        if np.mean(d) >= 0:
+            # now we want all values be larger than 0
+            p = len(np.where(d>0)[0]) / (1.0*nboots)
+            sig = 1 - p
+            if sig == 0:
+                sig = 1.0/nboots
+            Mod[istate-1] = (np.mean(laser) / np.mean(basel) - 1) * 100
+        else:
+            p = len(np.where(d<0)[0]) / (1.0*nboots)
+            sig = 1 - p
+            if sig == 0:
+                sig = 1.0/nboots
+            Mod[istate-1] = -(1 - np.mean(laser) / np.mean(basel)) * 100
+        P[istate-1] = sig
+
+    labels = {1:'REM', 2:'Wake', 3:'NREM'}
+    for s in [1,2,3]:
+        print('%s is changed by %f perc.; P = %f, bootstrap' % (labels[s], Mod[s-1], P[s-1]))
+    print("n = %d mice" % len(mice))
+
+    if len(fig_file) > 0:
+        plt.savefig(fig_file, bbox_inches="tight")
+
+    return P, Mod
+
 
 
 def _despine_axes(ax):
@@ -3346,7 +3570,7 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     t_emg = np.arange(0, iend_emg-istart_emg)*ddt
 
     P = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
-    SPEEG = P['SP']#/1000000.0
+    SPEEG = P['SP']
     # calculate median for choosing right saturation for heatmap
     med = np.median(SPEEG.max(axis=0))
     if len(vm) == 0:
@@ -4996,8 +5220,9 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
 
 
 
-def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, mu=[10,100], ci='sd', 
-                          pmode=1, pnorm = False, pplot=True, harmcs=0, pemg2=False, exclusive_mode=False, csv_files=[]):
+def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, 
+                          mu=[10,100], ci='sd', pmode=1, pnorm = False, pplot=True, 
+                          harmcs=0, pemg2=False, exclusive_mode=False, csv_files=[]):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -5009,8 +5234,8 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     :param fmax: maximum frequency shown on x-axis
     :param ci: 'sd' | int between 0 and 100 specificing confidence interval
     :param pmode: mode: 
-                  pmode == 1, compare state during laser with baseline outside laser interval
                   pmode == 0, just plot power spectrum for state istate and don't care about laser
+                  pmode == 1, compare state during laser with baseline outside laser interval
     :param pnorm: if True, normalize spectrogram by dividing each frequency band by its average power
     :param pplot: if True, plot figure
     :param harmcs: if > 0, remove all harmonics of base frequency $harm, from the frequencies used
@@ -5225,29 +5450,48 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
 
 ### TRANSITION ANALYSIS #########################################################
 def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
-                        backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1, fig_file='', fontsize=12):
+                        backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1, bootstrap_mode=0,
+                        fig_file='', fontsize=12):
     """
-    transition analysis
+    Transition analysis
+
+    Example call:
+    sleepy.transition_analysis(ppath, rec_list, 120, 120, 20, 60, bootstrap_mode=0)
+
     :param ppath: base recording folder
-    :param rec_file: file, list of recordings
+    :param rec_file: file OR list of recordings
     :param pre: time before laser onset [s]
     :param laser_tend: duration of laser stimulation
     :param tdown: time bin for brainstate (>= 2.5 s)
     :param large_bin: >= tdown; average large_bin/tdown consecutive transition probabilities
     :param backup: possible backup base folder, e.g. on an external hard drive
     :param stats_mode: int; The transition probability during the baseline period is
-            either by averaging over individual transition probabilities
-            during laser and baseline period (stats_mode == 1);
-            or by calculating a markov matrix on its own (at large_bin resolution)
-            for laser and baseline period (state_mode == 0)
+           either by averaging over individual transition probabilities
+           during laser and baseline period (stats_mode == 1);
+           or by calculating a markov matrix on its own (at large_bin resolution)
+           for laser and baseline period (state_mode == 0)
     :param after_laser: float, exclude $after_laser seconds after laser offset for
-            baseline calculation
+           baseline calculation
     :param tstart only consider laser trials starting after tstart seconds
     :param tend   only consider laser trials starting before tend seconds
+    :param bootstrap_mode: default=0
+           bootstrap_mode == 0: Take inter-mouse variance and inter-trial variance (of each mouse) into account.
+           That is, bootstrapping re-models the variance expected when re-doing the same
+           experimental design (same mouse number and total trial number).
+           To account for potentially different number of trials per mouse, resample the data
+           during each iteration the following way: Assume that there are n laser trials from m mice;
+           randomly select (with replacment) ntrial mice; then select from each mouse randomly one trial.
+
+           bootstrap_mode == 1: Only take inter-trial variance (of each mouse) into account; That is,
+           bootstrapping models the variance expected when redoing the experiment
+           with exactly the same mice.
+
+    :param fig_file, if file name specified, save figure
+    :param fontsize, if specified, set fontsize to given value
+
     :return: dict, transitions id --> 3 x 3 x time bins np.array
     """
     nboot = 1000
-    mouse_trials = 50
 
     if type(rec_file) == str:
         E = load_recordings(ppath, rec_file)[1]
@@ -5285,6 +5529,10 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
 
     # dict mouse_id --> number of trials
     num_trials = {k:len(MouseMx[k]) for k in MouseMx}
+    # number of all trials
+    ntrials = sum(list(num_trials.values()))
+    # number of mice
+    nmice = len(mouse_ids)
 
     # Markov Computation & Bootstrap 
     # time axis:
@@ -5327,15 +5575,30 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
             Base[id] = np.zeros((nboot,))
             Laser[id] = np.zeros((nboot,))
 
-    MXsel = np.zeros((mouse_trials*len(mouse_ids), ntdown))
+    # that's the matrix used for computation in each bootstrap iteration
+    if bootstrap_mode == 1:
+        # each mouse contributes the same number of trials
+        mouse_trials = int(np.mean(list(num_trials.values())))
+        MXsel = np.zeros((mouse_trials*len(mouse_ids), ntdown))
+    else:
+        MXsel = np.zeros((ntrials, ntdown))
     for b in range(nboot):
-        i = 0
-        for idf in mouse_ids:
-            num = num_trials[idf]
-            itrials = rand.randint(0, num, (mouse_trials,))
-            sel = MouseMx[idf][itrials,:]
-            MXsel[i*mouse_trials:(i+1)*mouse_trials,:] = sel
-            i += 1
+        if bootstrap_mode == 1:
+            i = 0
+            for idf in mouse_ids:
+                num = num_trials[idf]
+                itrials = rand.randint(0, num, (mouse_trials,))
+                sel = MouseMx[idf][itrials,:]
+                MXsel[i*mouse_trials:(i+1)*mouse_trials,:] = sel
+                i += 1
+        else:
+            irand_mice = rand.randint(0, nmice, ntrials)
+            i=0
+            for j in irand_mice:
+                idf = mouse_ids[j]
+                itrial = rand.randint(0, num_trials[idf])
+                MXsel[i,:] = MouseMx[idf][itrial,:]
+                i+=1
 
         # calculate average laser and baseline transition probability to have two values to compare
         # for statistics
@@ -5344,7 +5607,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
             lsr      = complete_transition_matrix(MXsel, ilsr_fine)
 
         # caluclate actual transition probilities
-        if not large_bin/tdown == 1:
+        if not int(large_bin/tdown) == 1:
             MXb = build_markov_matrix_blocks(MXsel, tdown, large_bin)
         else:
             MXb = build_markov_matrix_seq(MXsel)
@@ -5513,6 +5776,181 @@ def build_markov_matrix_blocks(MX, tdown, large_bin):
 
 
 
+def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, bootstrap_mode=0,
+                               after_laser=0, backup=''):
+
+    nboot = 1000
+    alpha = 0.05
+
+    if type(rec_file) == str:
+        E = load_recordings(ppath, rec_file)[1]
+    else:
+        E = rec_file
+    post = pre + laser_tend
+
+    # set path for each recording: either ppath or backup
+    rec_paths = {}
+    mouse_ids = {}
+    for m in E:
+        idf = re.split('_', m)[0]
+        if len(backup) == 0:
+            rec_paths[m] = ppath
+        else:
+            if os.path.isdir(os.path.join(ppath, m)):
+                rec_paths[m] = ppath
+            else:
+                rec_paths[m] = backup
+        if not idf in mouse_ids:
+            mouse_ids[idf] = 1
+    mouse_ids = list(mouse_ids.keys())
+
+    # Dict:  Mouse_id --> all trials of this mouse
+    MouseMx = {idf:[] for idf in mouse_ids}
+
+    for m in E:
+        trials = _whole_mx(rec_paths[m], m, pre, post, tdown, tstart=0, tend=-1)
+        idf = re.split('_', m)[0]
+        MouseMx[idf] += trials
+    ntdown = len(trials[0])
+
+    for idf in mouse_ids:
+        MouseMx[idf] = np.array(MouseMx[idf])
+
+    # dict mouse_id --> number of trials
+    num_trials = {k:len(MouseMx[k]) for k in MouseMx}
+    # number of all trials
+    ntrials = sum(list(num_trials.values()))
+    # number of mice
+    nmice = len(mouse_ids)
+
+    # states
+    cum_base  = dict()
+    cum_laser = dict()
+    bounds_bsl = dict()
+    bounds_lsr = dict()
+    states = {1:'R', 2:'W', 3:'N'}
+    for si in range(1,4):
+        for sj in range(1,4):
+            id = states[si] + states[sj]
+            cum_base[id] = np.zeros((nboot,len(dur)))
+            cum_laser[id] = np.zeros((nboot,len(dur)))
+            bounds_bsl[id] = np.zeros((2, len(dur)))
+            bounds_lsr[id] = np.zeros((2,len(dur)))
+
+
+    # that's the matrix used for computation in each bootstrap iteration
+    if bootstrap_mode == 1:
+        # each mouse contributes the same number of trials
+        mouse_trials = int(np.mean(list(num_trials.values())))
+        MXsel = np.zeros((mouse_trials*len(mouse_ids), ntdown))
+    else:
+        MXsel = np.zeros((ntrials, ntdown))
+
+    for b in range(nboot):
+        if bootstrap_mode == 1:
+            i = 0
+            for idf in mouse_ids:
+                num = num_trials[idf]
+                itrials = rand.randint(0, num, (mouse_trials,))
+                sel = MouseMx[idf][itrials,:]
+                MXsel[i*mouse_trials:(i+1)*mouse_trials,:] = sel
+                i += 1
+        else:
+            irand_mice = rand.randint(0, nmice, ntrials)
+            i=0
+            for j in irand_mice:
+                idf = mouse_ids[j]
+                itrial = rand.randint(0, num_trials[idf])
+                MXsel[i,:] = MouseMx[idf][itrial,:]
+                i+=1
+
+        base_boot  = np.zeros((3,3, len(dur)))
+        lsr_boot   = np.zeros((3,3, len(dur)))
+        post = pre+laser_tend
+        for d in dur:
+            base_boot[:,:,i] = quantify_transition(MXsel, pre, post, tdown, False, d, after_laser)
+            lsr_boot[:,:,i]  = quantify_transition(MXsel, pre, post, tdown, True, d,  after_laser)
+
+
+        for si in states:
+            for sj in states:
+                id = states[si] + states[sj]
+                cum_base[id][b,:]  = base_boot[si-1, sj-1,:]
+                cum_laser[id][b,:] = base_boot[si-1, sj-1,:]
+
+    # bounds_bsl[id][0,:] is the lower bounds
+    for si in states:
+        for sj in states:
+            id = states[si] + states[sj]
+            bounds_bsl[id][0,:] = np.sort(cum_base[id], axis=0)[int(nboot*(alpha / 2)),:]
+            bounds_bsl[id][0,:] = np.sort(cum_base[id], axis=0)[-int(nboot * (alpha / 2)), :]
+
+    pdb.set_trace()
+
+
+
+def quantify_transition(MX, pre, post, tdown, plaser, win, after_laser=0):
+    ipre = int(np.round(pre / tdown))
+    ipost = int(np.round(post / tdown))
+    iafter_laser = int(np.round(after_laser / tdown))
+    nwin = int(np.round(win / tdown))
+    nrows = MX.shape[0]
+
+    pmx = np.zeros((3, 3))
+    c = np.zeros((1, 3))
+
+    if plaser:
+        for i in range(nrows):
+            seq = MX[i,ipre:ipost]
+
+            for j in range(0, len(seq)-nwin):
+                p = seq[j:j+nwin]
+                si = p[0]
+                c[si-1] += 1
+                res = np.where(p != si)[0]
+                if len(res) == 0:
+                    pmx[si-1, si-1] += 1
+                else:
+                    sj = res[0]
+                    pmx[si-1, sj-1] += 1
+
+    # no laser
+    else:
+
+        for i in range(nrows):
+            seq = MX[i,0:ipre]
+            for j in range(0, len(seq)-nwin):
+                p = seq[j:j+nwin]
+                si = p[0]
+                c[si-1] += 1
+                res = np.where(p != si)[0]
+                if len(res) == 0:
+                    pmx[si-1, si-1] += 1
+                else:
+                    sj = res[0]
+                    pmx[si-1, sj-1] += 1
+
+        for i in range(nrows):
+            seq = MX[i,ipost+iafter_laser:]
+
+            for j in range(0, len(seq)-nwin):
+                p = seq[j:j+nwin]
+                si = p[0]
+                c[si-1] += 1
+                res = np.where(p != si)[0]
+                if len(res) == 0:
+                    pmx[si-1, si-1] += 1
+                else:
+                    sj = res[0]
+                    pmx[si-1, sj-1] += 1
+
+    for i in range(0, 3):
+        pmx[i,:] = pmx[i,:] / c[i]
+
+    return pmx
+
+
+
 def build_markov_matrix_seq(MX):
     nseq = MX.shape[1]
     nrows = MX.shape[0]
@@ -5558,6 +5996,11 @@ def complete_transition_matrix(MX, idx):
 
 def _whole_mx(ppath, name, pre, post, tdown, ptie_break=1, tstart=0, tend=-1):
     """
+    get all laser trials (brain state sequences) discretized in $tdown second bins
+
+    :param tdown: time bin for downsampled brain state annotation; ideally a multiple of the time bin
+                  for the originial annotation as saved in remidx_*.txt (typically 2.5s)
+
     @Return:
         List of all laser stimulation trials of recording ppath/name
     """
@@ -5586,7 +6029,7 @@ def _whole_mx(ppath, name, pre, post, tdown, ptie_break=1, tstart=0, tend=-1):
     (idxs, idxe) = laser_start_end(load_laser(ppath, name))
     idxs = [s for s in idxs if s >= istart*(NBIN/ds) and s<= iend*(NBIN/ds)]
     idxs = [int(i/NBIN) for i in idxs]
-    #idxe = [int(i/NBIN) for i in idxe]
+
     trials = []
     for s in idxs:
         # i.e. element ii+1 is the first overlapping with laser
@@ -5594,6 +6037,7 @@ def _whole_mx(ppath, name, pre, post, tdown, ptie_break=1, tstart=0, tend=-1):
             trials.append(M[s-ipre:s+ipost])
 
     return trials
+
 
     
 def downsample_states(M, nbin, ptie_break=True):
@@ -5619,6 +6063,11 @@ def downsample_states(M, nbin, ptie_break=True):
             Mds[i] = ii+1
     
     return Mds
+
+
+
+
+
 ### END Transition Analysis ####################################
 
 
