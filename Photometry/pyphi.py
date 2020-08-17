@@ -224,7 +224,8 @@ def calculate_dff(ppath, name, nskip=5, wcut=2, wcut405=0, perc=0, shift_only=Fa
 
 
 
-def plot_rawtraces(ppath, name, tskip=10, wcut=2.0, ndown=100, vm=3, tstart=0, tend=-1, ylim=[], fig_file='', color_scheme=1):
+def plot_rawtraces(ppath, name, tskip=10, wcut=2.0, ndown=100, vm=3, tstart=0, tend=-1,
+                   pzscore=False, ylim=[], fig_file='', color_scheme=1):
     """
     plot brain state, EEG spectrogram, EMG amplitude, photometry raw traces and DF/F.
     DF/F signal is re-calculated using the given parameters (does not use DFF.mat)
@@ -354,7 +355,12 @@ def plot_rawtraces(ppath, name, tskip=10, wcut=2.0, ndown=100, vm=3, tstart=0, t
     # plot DF/F
     print('here')
     axes5 = plt.axes([0.1, 0.10, 0.8, 0.2], sharex=axes4)
-    axes5.plot(traw, dff*100, color='k')
+    if pzscore:
+        dff = (dff-dff.mean()) / dff.std()
+    else:
+        dff *= 100
+
+    axes5.plot(traw, dff, color='k')
     sleepy.box_off(axes5)
     plt.xlim([traw[0], traw[-1]])
     plt.xlabel('Time (s)')
@@ -1379,6 +1385,8 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
              df:         pd.DataFrame: index - time intervals, columns - transitions,
                          reports all the p-values for comparison of baseline interval (first $base_int seconds) vs.
                          each consecutive interval of equal duration. 
+                         
+    Todo: return further dataframe holding all single trials along with mouse identity
     """
     if type(recordings) != list:
         recordings = [recordings]
@@ -1575,7 +1583,10 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         plt.xlabel('Time (s)')
         plt.xlim([t[0], t[-1]])
         if i==0:
-            plt.ylabel('$\Delta$F/F (%)')
+            if pzscore:
+                plt.ylabel('$\Delta$F/F (z-scored)')
+            else:
+                plt.ylabel('$\Delta$F/F (%)')
         if len(ylim) == 2:
             plt.ylim(ylim)
         if len(xticks) == 2:
@@ -1651,10 +1662,6 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             
             data.append([tpoint, p.pvalue, sig, tr])
     df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
-
-    
-
-
     print(df)
 
     return trans_act, trans_spe, trans_spm, df
