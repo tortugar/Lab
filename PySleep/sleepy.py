@@ -5465,7 +5465,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
     :param tdown: time bin for brainstate (>= 2.5 s)
     :param large_bin: >= tdown; average large_bin/tdown consecutive transition probabilities
     :param backup: possible backup base folder, e.g. on an external hard drive
-    :param stats_mode: int; The transition probability during the baseline period is
+    :param stats_mode: int; The transition probability during the baseline period is calculated
            either by averaging over individual transition probabilities
            during laser and baseline period (stats_mode == 1);
            or by calculating a markov matrix on its own (at large_bin resolution)
@@ -5777,10 +5777,30 @@ def build_markov_matrix_blocks(MX, tdown, large_bin):
 
 
 def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, bootstrap_mode=0,
-                               after_laser=0, backup=''):
+                               after_laser=0, backup='', nboot=1000):
+    """
+    Cumulative transition probabilities.
+    How likely is is that a specific brain state transitions happens within a given time interval?
 
-    nboot = 1000
+    Example call:
+    sleepy.transition_markov_strength(ppath, recs, 140, 120, 20, np.arange(0, 121, 20))
+    Note: I've set here pre to 140 not 120, just to avoid some edge effects that may result in nans.
+
+    :param ppath: base folder with sleep recordings
+    :param rec_file: file OR list of recordings
+    :param pre: time before laser onset [s]
+    :param laser_tend: duration of laser stimulation
+    :param tdown: downsample brainstate sequence to $tdown time bins
+    :param dur: list/vector with cumulative (=increasing) time intervals for each the cum. probabilities are computed
+    :param bootstrap_mode: 
+    :param after_laser: float, exlude the $after_laser seconds after laser offset for baseline calculation
+    :param backup: if a recording is not located in $ppath, the function looks for it in folder $backup
+    :param nboot: number of bootstrap iterations; >1000 recommended; but for a quick check just set to ~100
+    :return:
+    """
+
     alpha = 0.05
+    fontsize = 12
 
     if type(rec_file) == str:
         E = load_recordings(ppath, rec_file)[1]
@@ -5837,16 +5857,16 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
             bounds_bsl[id] = np.zeros((2, len(dur)))
             bounds_lsr[id] = np.zeros((2,len(dur)))
 
-
     # that's the matrix used for computation in each bootstrap iteration
     if bootstrap_mode == 1:
         # each mouse contributes the same number of trials
         mouse_trials = int(np.mean(list(num_trials.values())))
-        MXsel = np.zeros((mouse_trials*len(mouse_ids), ntdown))
+        MXsel = np.zeros((mouse_trials*len(mouse_ids), ntdown), dtye='int')
     else:
-        MXsel = np.zeros((ntrials, ntdown))
+        MXsel = np.zeros((ntrials, ntdown), dtype='int')
 
     for b in range(nboot):
+        print(b)
         if bootstrap_mode == 1:
             i = 0
             for idf in mouse_ids:
@@ -5866,52 +5886,90 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
 
         base_boot  = np.zeros((3,3, len(dur)))
         lsr_boot   = np.zeros((3,3, len(dur)))
-        post = pre+laser_tend
+        k=0
         for d in dur:
-            base_boot[:,:,i] = quantify_transition(MXsel, pre, post, tdown, False, d, after_laser)
-            lsr_boot[:,:,i]  = quantify_transition(MXsel, pre, post, tdown, True, d,  after_laser)
-
+            base_boot[:,:,k] = quantify_transition(MXsel.astype('int'), pre, laser_tend, tdown, False, d, after_laser)
+            lsr_boot[:,:,k]  = quantify_transition(MXsel.astype('int'), pre, laser_tend, tdown, True, d,  after_laser)
+            k+=1
 
         for si in states:
             for sj in states:
                 id = states[si] + states[sj]
                 cum_base[id][b,:]  = base_boot[si-1, sj-1,:]
-                cum_laser[id][b,:] = base_boot[si-1, sj-1,:]
+                cum_laser[id][b,:] = lsr_boot[si-1, sj-1,:]
 
     # bounds_bsl[id][0,:] is the lower bounds
     for si in states:
         for sj in states:
             id = states[si] + states[sj]
             bounds_bsl[id][0,:] = np.sort(cum_base[id], axis=0)[int(nboot*(alpha / 2)),:]
-            bounds_bsl[id][0,:] = np.sort(cum_base[id], axis=0)[-int(nboot * (alpha / 2)), :]
+            bounds_bsl[id][1,:] = np.sort(cum_base[id], axis=0)[-int(nboot * (alpha / 2)), :]
 
-    pdb.set_trace()
+            bounds_lsr[id][0,:] = np.sort(cum_laser[id], axis=0)[int(nboot*(alpha / 2)),:]
+            bounds_lsr[id][1,:] = np.sort(cum_laser[id], axis=0)[-int(nboot * (alpha / 2)), :]
+
+    plt.ion()
+    plt.figure(figsize=(8,6))
+    for si in states:
+        for sj in states:
+            id = states[si] + states[sj]
+            pi = (si - 1) * 3 + sj
+            ax = plt.subplot(int('33'+str(pi)))
+            plt.plot(dur, np.nanmean(cum_laser[id], axis=0), color='blue')
+            plt.plot(dur, np.nanmean(cum_base[id],  axis=0), color='gray')
+            plt.fill_between(dur, bounds_bsl[id][0,:], bounds_bsl[id][1,:], alpha=0.4, zorder=3, color='gray')
+            plt.fill_between(dur, bounds_lsr[id][0,:], bounds_lsr[id][1,:], alpha=0.4, zorder=3, color='blue')
+
+            plt.ylim([0, 1])
+            plt.xlim([dur[0], dur[-1]])
+            box_off(ax)
+
+            # set title
+            if si == 1 and sj == 1:
+                plt.ylabel('REM')
+                plt.title('REM', fontsize=fontsize)
+            if si == 1 and sj == 2:
+                plt.title('Wake', fontsize=fontsize)
+            if si == 1 and sj == 3:
+                plt.title('NREM', fontsize=fontsize)
+            if si == 2 and sj == 1:
+                plt.ylabel('Wake')
+            if si == 3 and sj == 1:
+                plt.ylabel('NREM')
+
+            if si != 3:
+                ax.set_xticklabels([])
+            if sj != 1:
+                ax.set_yticklabels([])
+
+            if si==3:
+                plt.xlabel('Time (s)')
 
 
 
-def quantify_transition(MX, pre, post, tdown, plaser, win, after_laser=0):
+def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, after_laser=0):
     ipre = int(np.round(pre / tdown))
-    ipost = int(np.round(post / tdown))
+    ipost = int(np.round((pre+laser_tend) / tdown))+1
     iafter_laser = int(np.round(after_laser / tdown))
     nwin = int(np.round(win / tdown))
     nrows = MX.shape[0]
 
     pmx = np.zeros((3, 3))
-    c = np.zeros((1, 3))
+    c = np.zeros((3,))
 
     if plaser:
         for i in range(nrows):
             seq = MX[i,ipre:ipost]
 
             for j in range(0, len(seq)-nwin):
-                p = seq[j:j+nwin]
+                p = seq[j:j+nwin+1]
                 si = p[0]
                 c[si-1] += 1
                 res = np.where(p != si)[0]
                 if len(res) == 0:
                     pmx[si-1, si-1] += 1
                 else:
-                    sj = res[0]
+                    sj = p[res[0]]
                     pmx[si-1, sj-1] += 1
 
     # no laser
@@ -5920,28 +5978,29 @@ def quantify_transition(MX, pre, post, tdown, plaser, win, after_laser=0):
         for i in range(nrows):
             seq = MX[i,0:ipre]
             for j in range(0, len(seq)-nwin):
-                p = seq[j:j+nwin]
+                p = seq[j:j+nwin+1]
+                #pdb.set_trace()
                 si = p[0]
                 c[si-1] += 1
                 res = np.where(p != si)[0]
                 if len(res) == 0:
                     pmx[si-1, si-1] += 1
                 else:
-                    sj = res[0]
+                    sj = p[res[0]]
                     pmx[si-1, sj-1] += 1
 
         for i in range(nrows):
             seq = MX[i,ipost+iafter_laser:]
 
             for j in range(0, len(seq)-nwin):
-                p = seq[j:j+nwin]
+                p = seq[j:j+nwin+1]
                 si = p[0]
                 c[si-1] += 1
                 res = np.where(p != si)[0]
                 if len(res) == 0:
                     pmx[si-1, si-1] += 1
                 else:
-                    sj = res[0]
+                    sj = p[res[0]]
                     pmx[si-1, sj-1] += 1
 
     for i in range(0, 3):
