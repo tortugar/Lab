@@ -4600,7 +4600,7 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
             perc = []
             for s in [1,2,3]:
                 if stats == 'perc':
-                    perc.append( len(np.where(M_cut==s)[0]) / (1.0*len(M_cut)) )
+                    perc.append( 100 * len(np.where(M_cut==s)[0]) / (1.0*len(M_cut)) )
                 elif stats == 'freq':
                     tmp = len(get_sequences(np.where(M_cut==s)[0])) * (3600. / (len(M_cut)*dt))
                     perc.append(tmp)
@@ -4615,7 +4615,6 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
         for i in range(3):
             # for each time bin we have a list of 3 elements for each state.
             # take from each of these triplets the i-th state, forming a column vector
-            #pdb.set_trace()
             perc_vec[:,i] = np.array([v[i] for v in perc_time])
         TimeCourse[rec] = perc_vec
 
