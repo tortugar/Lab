@@ -2630,7 +2630,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
         if pnorm >0:
             cbar.set_label('Rel. Power')
         else:
-            cbar.set_label('Power uV^2s')
+            cbar.set_label('Power (uV^2s)')
 
         ax = plt.axes([0.62, 0.1, 0.35, 0.35])
         mf = np.where((f>=mu[0]) & (f <= mu[1]))[0]
@@ -2659,7 +2659,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
 
 
 def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnorm=1, pplot=1, tstart=0, tend=-1,
-                            vm=[], cb_ticks=[0], mu=[10, 100], trig_state=0, harmcs=0, fig_file=''):
+                            vm=[], cb_ticks=[], mu=[10, 100], trig_state=0, harmcs=0, fig_file=''):
     """
     calculate average spectrogram for all recordings listed in @recordings; for averaging take
     mouse identity into account
@@ -2820,7 +2820,10 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
 
         # colorbar for EEG spectrogram
         cb = plt.colorbar(im, ax=axes_cbar, pad=0.0, aspect=10.0, orientation='vertical')
-        cb.set_label('Rel. Power')
+        if pnorm > 0:
+            cb.set_label('Rel. Power')
+        else:
+            cb.set_label('Power (uV^2s)')
         cb.ax.xaxis.set_ticks_position("bottom")
         cb.ax.xaxis.set_label_position('top')
         if len(cb_ticks) > 0:
@@ -5948,9 +5951,9 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
 
 
 def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, after_laser=0):
+
     ipre = int(np.round(pre / tdown))
     ipost = int(np.round((pre+laser_tend) / tdown))+1
-    iafter_laser = int(np.round(after_laser / tdown))
     nwin = int(np.round(win / tdown))
     nrows = MX.shape[0]
 
@@ -5962,6 +5965,7 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, after_laser=0):
             seq = MX[i,ipre:ipost]
 
             for j in range(0, len(seq)-nwin):
+            #for j in [0]:
                 p = seq[j:j+nwin+1]
                 si = p[0]
                 c[si-1] += 1
@@ -5978,6 +5982,7 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, after_laser=0):
         for i in range(nrows):
             seq = MX[i,0:ipre]
             for j in range(0, len(seq)-nwin):
+            #for j in [0]:
                 p = seq[j:j+nwin+1]
                 #pdb.set_trace()
                 si = p[0]
@@ -5989,19 +5994,19 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, after_laser=0):
                     sj = p[res[0]]
                     pmx[si-1, sj-1] += 1
 
-        for i in range(nrows):
-            seq = MX[i,ipost+iafter_laser:]
+        #for i in range(nrows):
+        #    seq = MX[i,ipost+iafter_laser:]
 
-            for j in range(0, len(seq)-nwin):
-                p = seq[j:j+nwin+1]
-                si = p[0]
-                c[si-1] += 1
-                res = np.where(p != si)[0]
-                if len(res) == 0:
-                    pmx[si-1, si-1] += 1
-                else:
-                    sj = p[res[0]]
-                    pmx[si-1, sj-1] += 1
+        #    for j in range(0, len(seq)-nwin):
+        #        p = seq[j:j+nwin+1]
+        #        si = p[0]
+        #        c[si-1] += 1
+        #        res = np.where(p != si)[0]
+        #        if len(res) == 0:
+        #            pmx[si-1, si-1] += 1
+        #        else:
+        #            sj = p[res[0]]
+        #            pmx[si-1, sj-1] += 1
 
     for i in range(0, 3):
         pmx[i,:] = pmx[i,:] / c[i]
