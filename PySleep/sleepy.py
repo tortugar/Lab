@@ -56,6 +56,7 @@ import numpy.random as rand
 import seaborn as sns
 import pandas as pd
 from functools import reduce
+import random
 import pdb
 
 
@@ -4618,8 +4619,6 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
             perc_vec[:,i] = np.array([v[i] for v in perc_time])
         TimeCourse[rec] = perc_vec
 
-
-
     # define data frame containing all data
     #bins = ['t' + str(i) for i in range(n)]
     cols = ['mouse', 'dose', 'state', 'time', stats]
@@ -5452,7 +5451,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
 
 ### TRANSITION ANALYSIS #########################################################
 def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
-                        backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1, bootstrap_mode=0,
+                        backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1, bootstrap_mode=0, paired_stats=True,
                         fig_file='', fontsize=12):
     """
     Transition analysis
@@ -5487,6 +5486,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
            bootstrap_mode == 1: Only take inter-trial variance (of each mouse) into account; That is,
            bootstrapping models the variance expected when redoing the experiment
            with exactly the same mice.
+    :param paired_stats, boolean; if True, perform paired test between baseline and laser interval.
 
     :param fig_file, if file name specified, save figure
     :param fontsize, if specified, set fontsize to given value
@@ -5699,7 +5699,11 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
             # probabilities outside laser stimulation
             basel = Base[id]
 
-            d = laser - basel
+            if not paired_stats:
+                d = laser - basel
+            else:
+                irand = random.sample(range(laser.shape[0]), laser.shape[0])
+                d = laser[irand] - basel
             p = len(np.where(d >= 0)[0]) / (1.0*len(d))
             Mod[si-1, sj-1] = np.nanmean(laser) / np.nanmean(basel)
             s = '='
@@ -5779,14 +5783,19 @@ def build_markov_matrix_blocks(MX, tdown, large_bin):
 
 
 def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, bootstrap_mode=0,
-                               after_laser=0, backup='', nboot=1000):
+                               backup='', pstationary=False, paired_stats=True, nboot=1000, ma_thr=0):
     """
-    Cumulative transition probabilities.
+    Cumulative transition probabilities:
     How likely is is that a specific brain state transitions happens within a given time interval?
+    The function compares the cumulative probabilities during baseline (including time points
+    from -$pre till laser onset) with those during the laser stimulation interval (of duratin $laser_tend)
+    The brainstate is downsampled to time bins of duration $tdown.
+
+    See also function &quantify_transition()
 
     Example call:
-    sleepy.transition_markov_strength(ppath, recs, 140, 120, 20, np.arange(0, 121, 20))
-    Note: I've set here pre to 140 not 120, just to avoid some edge effects that may result in nans.
+    sleepy.transition_markov_strength(ppath, recs, 120, 120, 20, np.arange(0, 121, 20))
+
 
     :param ppath: base folder with sleep recordings
     :param rec_file: file OR list of recordings
@@ -5795,8 +5804,11 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
     :param tdown: downsample brainstate sequence to $tdown time bins
     :param dur: list/vector with cumulative (=increasing) time intervals for each the cum. probabilities are computed
     :param bootstrap_mode: 
-    :param after_laser: float, exlude the $after_laser seconds after laser offset for baseline calculation
     :param backup: if a recording is not located in $ppath, the function looks for it in folder $backup
+    :param pstationary: if True, we assume that the laser induced changes in transition probabilities
+            are stationary; i.e. they are constant acorss the laser stimulation interval.
+    :param paired_stats: if True, treat baseline interval and following laser interval as paired statistics.
+        If False, treat baseline and laser interval as independent.
     :param nboot: number of bootstrap iterations; >1000 recommended; but for a quick check just set to ~100
     :return:
     """
@@ -5830,7 +5842,7 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
     MouseMx = {idf:[] for idf in mouse_ids}
 
     for m in E:
-        trials = _whole_mx(rec_paths[m], m, pre, post, tdown, tstart=0, tend=-1)
+        trials = _whole_mx(rec_paths[m], m, pre, post, tdown, tstart=0, tend=-1, ma_thr=ma_thr)
         idf = re.split('_', m)[0]
         MouseMx[idf] += trials
     ntdown = len(trials[0])
@@ -5863,12 +5875,13 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
     if bootstrap_mode == 1:
         # each mouse contributes the same number of trials
         mouse_trials = int(np.mean(list(num_trials.values())))
-        MXsel = np.zeros((mouse_trials*len(mouse_ids), ntdown), dtye='int')
+        MXsel = np.zeros((mouse_trials*len(mouse_ids), ntdown), dtype='int')
     else:
         MXsel = np.zeros((ntrials, ntdown), dtype='int')
 
     for b in range(nboot):
-        print(b)
+        if (b % 100) == 0:
+            print('done with iteration %d' % b)
         if bootstrap_mode == 1:
             i = 0
             for idf in mouse_ids:
@@ -5890,8 +5903,8 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
         lsr_boot   = np.zeros((3,3, len(dur)))
         k=0
         for d in dur:
-            base_boot[:,:,k] = quantify_transition(MXsel.astype('int'), pre, laser_tend, tdown, False, d, after_laser)
-            lsr_boot[:,:,k]  = quantify_transition(MXsel.astype('int'), pre, laser_tend, tdown, True, d,  after_laser)
+            base_boot[:,:,k] = quantify_transition(MXsel.astype('int'), pre, laser_tend, tdown, False, d, pstationary=pstationary)
+            lsr_boot[:,:,k]  = quantify_transition(MXsel.astype('int'), pre, laser_tend, tdown, True, d, pstationary=pstationary)
             k+=1
 
         for si in states:
@@ -5947,10 +5960,73 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
             if si==3:
                 plt.xlabel('Time (s)')
 
+    # stats
+    P = {}
+    Mod = {}
+    data = []
+    S = {}
+    irand = random.sample(range(nboot), nboot)
+    for si in states:
+        for sj in states:
+            id = states[si] + states[sj]
+            # old version
+            #d = cum_base[id].mean(axis=1) - cum_laser[id].mean(axis=1)
+            #d = d.mean(axis=1)
+
+            # here, we test whether the probability to observe transition id during a time interval of duration
+            # $laster_tend was significantly changed by laser.
+            a = cum_base[id][:,-1]
+            b = cum_laser[id][:,-1]
+
+            if not paired_stats:
+                d = a[irand] - b
+            else:
+                d = a-b
+
+            if np.mean(d) >= 0:
+                # now we want all values be larger than 0
+                p = len(np.where(d>0)[0]) / (1.0*nboot)
+                sig = 1 - p
+                if sig == 0:
+                    sig = 1.0/nboot
+            else:
+                p = len(np.where(d<0)[0]) / (1.0*nboot)
+                sig = 1 - p
+                if sig == 0:
+                    sig = 1.0/nboot
+            P[id] = sig
+
+            if sig < alpha/2.0:
+                S[id] = 'yes'
+            else:
+                S[id] = 'no'
+
+            Mod[id] = np.nanmean(b) / np.nanmean(a)
+            print('Transition %s was changed by a factor of %f' % (id, Mod[id]))
+
+            data.append([id, P[id], Mod[id], S[id]])
+
+    df = pd.DataFrame(data=data, columns=['trans', 'p-value', 'change', 'sig'])
+
+    return df
 
 
-def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, after_laser=0):
 
+def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, pstationary=False):
+    """
+    Calculate probability to observe a transition for a given pair of brain states
+    with time interval $win. P( X -> Y <= $win )
+
+    :param MX: Matrix with all laser stimulation trials
+    :param pre: Duration of baseline interval preceding laser onset
+    :param laser_tend: duration of laser stimulation interval
+    :param tdown: duration of downsampled brain state bins
+    :param plaser: if True, compute cum. probabilities for laser interval;
+        otherwise for baseline
+    :param win:
+    :param pstationary:
+    :return:
+    """
     ipre = int(np.round(pre / tdown))
     ipost = int(np.round((pre+laser_tend) / tdown))+1
     nwin = int(np.round(win / tdown))
@@ -5959,12 +6035,14 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, after_laser=0):
     pmx = np.zeros((3, 3))
     c = np.zeros((3,))
 
+    idx = [0]
     if plaser:
         for i in range(nrows):
             seq = MX[i,ipre:ipost]
+            if pstationary:
+                idx = range(0, len(seq) - nwin)
 
-            for j in range(0, len(seq)-nwin):
-            #for j in [0]:
+            for j in idx:
                 p = seq[j:j+nwin+1]
                 si = p[0]
                 c[si-1] += 1
@@ -5977,13 +6055,13 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, after_laser=0):
 
     # no laser
     else:
-
         for i in range(nrows):
             seq = MX[i,0:ipre]
-            for j in range(0, len(seq)-nwin):
-            #for j in [0]:
+            if pstationary:
+                idx = range(0, len(seq) - nwin)
+
+            for j in idx:
                 p = seq[j:j+nwin+1]
-                #pdb.set_trace()
                 si = p[0]
                 c[si-1] += 1
                 res = np.where(p != si)[0]
@@ -5994,7 +6072,7 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, after_laser=0):
                     pmx[si-1, sj-1] += 1
 
         #for i in range(nrows):
-        #    seq = MX[i,ipost+iafter_laser:]
+        #    seq = MX[i,ipost:]
 
         #    for j in range(0, len(seq)-nwin):
         #        p = seq[j:j+nwin+1]
@@ -6057,7 +6135,7 @@ def complete_transition_matrix(MX, idx):
 
 
 
-def _whole_mx(ppath, name, pre, post, tdown, ptie_break=1, tstart=0, tend=-1):
+def _whole_mx(ppath, name, pre, post, tdown, ptie_break=1, tstart=0, tend=-1, ma_thr=0):
     """
     get all laser trials (brain state sequences) discretized in $tdown second bins
 
@@ -6081,6 +6159,11 @@ def _whole_mx(ppath, name, pre, post, tdown, ptie_break=1, tstart=0, tend=-1):
 
     # load brain state
     M = load_stateidx(ppath, name)[0]
+    if ma_thr > 0:
+        seq = get_sequences(np.where(M==2)[0])
+        if len(seq)*dt <= ma_thr:
+            M[seq] = 3
+
     if tend == -1:
         iend = M.shape[0] - 1
     istart = np.round(tstart/dt)
