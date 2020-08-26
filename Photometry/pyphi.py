@@ -159,6 +159,7 @@ def fit_dff(a465, a405, sr, nskip=5, wcut=2, wcut405=0, shift_only=False):
     return dff
 
 
+
 def fit_dff_perc(a465, a405, sr, nskip=5, wcut=2, perc=20):
 
     w0 = wcut / (0.5*sr)
@@ -225,7 +226,7 @@ def calculate_dff(ppath, name, nskip=5, wcut=2, wcut405=0, perc=0, shift_only=Fa
 
 
 def plot_rawtraces(ppath, name, tskip=10, wcut=2.0, ndown=100, vm=3, tstart=0, tend=-1,
-                   pzscore=False, ylim=[], fig_file='', color_scheme=1):
+                   pzscore=False, ylim=[], fig_file='', color_scheme=1, shift_only=False):
     """
     plot brain state, EEG spectrogram, EMG amplitude, photometry raw traces and DF/F.
     DF/F signal is re-calculated using the given parameters (does not use DFF.mat)
@@ -238,6 +239,8 @@ def plot_rawtraces(ppath, name, tskip=10, wcut=2.0, ndown=100, vm=3, tstart=0, t
     :param tstart: discard first $tstart seconds for plotting, no effect on linear fit
     :param tend: discard last $tend seconds for plotting, no effect on linear fit
     :param color_scheme, 1 - use conventional color scheme, 2 - use color scheme from Chung et al. 2017
+    :param shift_only, boolean; if True, only shift the 405 signal to optimally match the 465 signal w/o scaling it.
+            So, the formula is 465 ~ 405 + b
     :return: vector, DF/F
     """
     sr = get_snr(ppath, name)
@@ -262,7 +265,13 @@ def plot_rawtraces(ppath, name, tskip=10, wcut=2.0, ndown=100, vm=3, tstart=0, t
 
     # fit 405 to 465 signal
     nstart = int(np.round(nskip*nbin))
-    X = np.vstack([a405, np.ones(len(a405))]).T
+    #X = np.vstack([a405, np.ones(len(a405))]).T
+
+    if shift_only:
+        X = np.vstack([np.ones(len(a405))]).T
+    else:
+        X = np.vstack([a405, np.ones(len(a405))]).T
+
     p = np.linalg.lstsq(X[nstart:,:], a465[nstart:])[0]
     afit = np.dot(X, p)
     # DF/F
@@ -1366,7 +1375,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
            from 0 to 10
     :param xticks: list, xticks for DF/F plots
     :param cb_ticks: ticks for colorbar
-    :param vm: saturation of EEG spectrogram
+    :param vm: tuple, min and max value for colorbar of EEG spectrogram
     :param pzscore: if True, z-score DF/F values
     :param sf: float, smoothing factor
     :param base_int: float, duration of baseline interval (first $base_int seconds), for statistics to test,
