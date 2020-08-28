@@ -1392,8 +1392,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
 
     :return: trans_act:  dict: transitions --> np.array(mouse id x timepoint),
              trans_act_trials: dict: transitions --> np.array(all single transitions x timepoint)
-             trans_spe:  dict: transitions --> average spectrogram
-             trans_spm:  dict: transitions --> average EMG amplitude
+             t: np.array, time axis for transitions.
              df:         pd.DataFrame: index - time intervals, columns - transitions,
                          reports all the p-values for comparison of baseline interval (first $base_int seconds) vs.
                          each consecutive interval of equal duration. 
@@ -1674,7 +1673,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
     print(df)
 
-    return trans_act, trans_act_trials, df
+    return trans_act, trans_act_trials, t, df
 
 
 
