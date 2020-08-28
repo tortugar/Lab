@@ -70,6 +70,7 @@ def downsample_vec(x, nbin):
     return x_down / nbin
 
 
+
 def least_squares(x, y, n):
     A = np.zeros((len(x), n + 1))
     for i in range(n + 1):
@@ -265,14 +266,15 @@ def plot_rawtraces(ppath, name, tskip=10, wcut=2.0, ndown=100, vm=3, tstart=0, t
 
     # fit 405 to 465 signal
     nstart = int(np.round(nskip*nbin))
-    #X = np.vstack([a405, np.ones(len(a405))]).T
+    X = np.vstack([a405, np.ones(len(a405))]).T
 
     if shift_only:
-        X = np.vstack([np.ones(len(a405))]).T
+        X1 = np.ones((len(a405),1))
+        p = np.linalg.lstsq(X1[nstart:], a465[nstart:]-a405[nstart:])[0]
+        p = np.array([1, p[0]])
     else:
-        X = np.vstack([a405, np.ones(len(a405))]).T
+        p = np.linalg.lstsq(X[nstart:,:], a465[nstart:])[0]
 
-    p = np.linalg.lstsq(X[nstart:,:], a465[nstart:])[0]
     afit = np.dot(X, p)
     # DF/F
     dff = np.divide((a465-afit), afit)
@@ -1389,6 +1391,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
            perform statistics across single trials
 
     :return: trans_act:  dict: transitions --> np.array(mouse id x timepoint),
+             trans_act_trials: dict: transitions --> np.array(all single transitions x timepoint)
              trans_spe:  dict: transitions --> average spectrogram
              trans_spm:  dict: transitions --> average EMG amplitude
              df:         pd.DataFrame: index - time intervals, columns - transitions,
@@ -1428,9 +1431,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         trans_act[sid] = []
         trans_spe[sid] = []
         trans_spm[sid] = []
-        
         trans_act_trials[sid] = []
-        
 
     for (si,sj) in transitions:
         sid = states[si] + states[sj]
@@ -1673,7 +1674,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
     print(df)
 
-    return trans_act, trans_spe, trans_spm, df
+    return trans_act, trans_act_trials, df
 
 
 
