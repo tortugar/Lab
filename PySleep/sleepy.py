@@ -2478,7 +2478,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     lsr = load_laser(ppath, name)
     idxs, idxe = laser_start_end(lsr)
     laser_dur = np.mean((idxe-idxs)/SR)
-    print('Average laser duration: %f; Number of trials %d' % (laser_dur, len(idxs)))
+    print('%s: Average laser duration: %f; Number of trials %d' % (name, laser_dur, len(idxs)))
 
     # downsample EEG time to spectrogram time    
     idxs = [int(i/NBIN) for i in idxs]
@@ -2525,7 +2525,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
             if len(k) > 0 or len(l) > 0:
                 skips.append(i)
                 skipe.append(j)
-    print("kicking out %d trials" % len(skips))
+    print("%s: kicking out %d trials" % (name, len(skips)))
 
     idxs_new = []
     idxe_new = []
@@ -5783,7 +5783,7 @@ def build_markov_matrix_blocks(MX, tdown, large_bin):
 
 
 def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, bootstrap_mode=0,
-                               backup='', pstationary=False, paired_stats=True, nboot=1000, ma_thr=0):
+                               backup='', pstationary=False, stats_lastpoint=True, paired_stats=True, nboot=1000, ma_thr=0):
     """
     Cumulative transition probabilities:
     How likely is is that a specific brain state transitions happens within a given time interval?
@@ -5796,7 +5796,6 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
     Example call:
     sleepy.transition_markov_strength(ppath, recs, 120, 120, 20, np.arange(0, 121, 20))
 
-
     :param ppath: base folder with sleep recordings
     :param rec_file: file OR list of recordings
     :param pre: time before laser onset [s]
@@ -5807,6 +5806,9 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
     :param backup: if a recording is not located in $ppath, the function looks for it in folder $backup
     :param pstationary: if True, we assume that the laser induced changes in transition probabilities
             are stationary; i.e. they are constant acorss the laser stimulation interval.
+    :param stats_lastpoint: if True, test whether the laser time point during laser (at laser_tend) is significantly different
+            from the corresponding time point in the baseline interval; if False, compare the averages of the cumulative distributions
+            to each other.
     :param paired_stats: if True, treat baseline interval and following laser interval as paired statistics.
         If False, treat baseline and laser interval as independent.
     :param nboot: number of bootstrap iterations; >1000 recommended; but for a quick check just set to ~100
@@ -5973,10 +5975,14 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
             #d = cum_base[id].mean(axis=1) - cum_laser[id].mean(axis=1)
             #d = d.mean(axis=1)
 
-            # here, we test whether the probability to observe transition id during a time interval of duration
-            # $laster_tend was significantly changed by laser.
-            a = cum_base[id][:,-1]
-            b = cum_laser[id][:,-1]
+            if stats_lastpoint:
+                # here, we test whether the probability to observe transition id during a time interval of duration
+                # $laster_tend was significantly changed by laser.
+                a = cum_base[id][:,-1]
+                b = cum_laser[id][:,-1]
+            else:
+                a = cum_base[id].mean(axis=1)
+                b = cum_laser[id].mean(axis=1)
 
             if not paired_stats:
                 d = a[irand] - b
@@ -6023,9 +6029,11 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, pstationary=Fal
     :param tdown: duration of downsampled brain state bins
     :param plaser: if True, compute cum. probabilities for laser interval;
         otherwise for baseline
-    :param win:
-    :param pstationary:
-    :return:
+    :param win: time interval [s] for which we test whether there was a given brain state transition
+    :param pstationary: boolean; if True, we assume that the transition probabilities are constant during
+        laser stimulation
+    :return: pmx, np.array(3 x 3)
+        pmx[i,j] holds the cumulative probability of a transition from state i to j
     """
     ipre = int(np.round(pre / tdown))
     ipost = int(np.round((pre+laser_tend) / tdown))+1
