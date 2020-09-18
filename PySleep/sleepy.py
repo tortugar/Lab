@@ -5814,7 +5814,6 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
     :param nboot: number of bootstrap iterations; >1000 recommended; but for a quick check just set to ~100
     :return:
     """
-
     alpha = 0.05
     fontsize = 12
 
@@ -5981,8 +5980,8 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
                 a = cum_base[id][:,-1]
                 b = cum_laser[id][:,-1]
             else:
-                a = cum_base[id].mean(axis=1)
-                b = cum_laser[id].mean(axis=1)
+                a = np.nanmean(cum_base[id], axis=1)
+                b = np.nanmean(cum_laser[id], axis=1)
 
             if not paired_stats:
                 d = a[irand] - b
@@ -6002,6 +6001,7 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
                     sig = 1.0/nboot
             P[id] = sig
 
+            # Division by 2 to make it a two sided test
             if sig < alpha/2.0:
                 S[id] = 'yes'
             else:
