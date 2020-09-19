@@ -5782,7 +5782,7 @@ def build_markov_matrix_blocks(MX, tdown, large_bin):
 
 
 
-def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, bootstrap_mode=0,
+def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstrap_mode=0,
                                backup='', pstationary=False, stats_lastpoint=True, paired_stats=True, nboot=1000, ma_thr=0):
     """
     Cumulative transition probabilities:
@@ -5792,6 +5792,11 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
     The brainstate is downsampled to time bins of duration $tdown.
 
     See also function &quantify_transition()
+
+    NOTE: The CDF for a transition from si -> sj within time interval X is defined as P(si -> sj, t <= X)
+    I define the CDF for the discrete timepoint tdown as P(si -> sj, t <= tdown).
+    and count whether a brain state change happened between bin [-todown, 0[ and bin [0, tdown].
+    In other words the brain state right before the laser serves as si P(si -> sj, t <= X)
 
     Example call:
     sleepy.transition_markov_strength(ppath, recs, 120, 120, 20, np.arange(0, 121, 20))
@@ -5816,6 +5821,10 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
     """
     alpha = 0.05
     fontsize = 12
+
+    # Note: We increase the preceding baseline period by one bin, to account for the
+    # fact that for the laser period, we also use one bin right before the laser as starting point.
+    pre = laser_tend + tdown
 
     if type(rec_file) == str:
         E = load_recordings(ppath, rec_file)[1]
@@ -6021,7 +6030,7 @@ def transition_markov_strength(ppath, rec_file, pre, laser_tend, tdown, dur, boo
 def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, pstationary=False):
     """
     Calculate probability to observe a transition for a given pair of brain states
-    with time interval $win. P( X -> Y <= $win )
+    with time interval $win. P( si -> sj, t <= $win )
 
     :param MX: Matrix with all laser stimulation trials
     :param pre: Duration of baseline interval preceding laser onset
@@ -6036,7 +6045,7 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, pstationary=Fal
         pmx[i,j] holds the cumulative probability of a transition from state i to j
     """
     ipre = int(np.round(pre / tdown))
-    ipost = int(np.round((pre+laser_tend) / tdown))+1
+    ipost = int(np.round((pre+laser_tend) / tdown))  #HERE
     nwin = int(np.round(win / tdown))
     nrows = MX.shape[0]
 
@@ -6046,9 +6055,10 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, pstationary=Fal
     idx = [0]
     if plaser:
         for i in range(nrows):
-            seq = MX[i,ipre:ipost]
+            # I'm starting with one bin before the laser!
+            seq = MX[i,ipre-1:ipost]
             if pstationary:
-                idx = range(0, len(seq) - nwin)
+                idx = range(0, len(seq)-nwin)
 
             for j in idx:
                 p = seq[j:j+nwin+1]
@@ -6064,9 +6074,9 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, pstationary=Fal
     # no laser
     else:
         for i in range(nrows):
-            seq = MX[i,0:ipre]
+            seq = MX[i,0:ipre+1]
             if pstationary:
-                idx = range(0, len(seq) - nwin)
+                idx = range(0, len(seq)-nwin)
 
             for j in idx:
                 p = seq[j:j+nwin+1]
@@ -6146,6 +6156,9 @@ def complete_transition_matrix(MX, idx):
 def _whole_mx(ppath, name, pre, post, tdown, ptie_break=1, tstart=0, tend=-1, ma_thr=0):
     """
     get all laser trials (brain state sequences) discretized in $tdown second bins
+
+    Note: the first ipre = int(pre/tdown) columns are before the laser.
+    The first bin with laser corresponds to column ipre (starting counting with 0).
 
     :param tdown: time bin for downsampled brain state annotation; ideally a multiple of the time bin
                   for the originial annotation as saved in remidx_*.txt (typically 2.5s)
