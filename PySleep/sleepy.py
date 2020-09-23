@@ -5451,7 +5451,8 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
 
 ### TRANSITION ANALYSIS #########################################################
 def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
-                        backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1, bootstrap_mode=0, paired_stats=True,
+                        backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1,
+                        bootstrap_mode=0, paired_stats=True, ma_thr=0,
                         fig_file='', fontsize=12):
     """
     Transition analysis
@@ -5487,6 +5488,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
            bootstrapping models the variance expected when redoing the experiment
            with exactly the same mice.
     :param paired_stats, boolean; if True, perform paired test between baseline and laser interval.
+    :param ma_thr: if > 0, set wake periods < ma_thr to NREM.
 
     :param fig_file, if file name specified, save figure
     :param fontsize, if specified, set fontsize to given value
@@ -5521,7 +5523,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
     MouseMx = {idf:[] for idf in mouse_ids}
 
     for m in E:
-        trials = _whole_mx(rec_paths[m], m, pre, post, tdown, tstart=tstart, tend=tend)
+        trials = _whole_mx(rec_paths[m], m, pre, post, tdown, tstart=tstart, tend=tend, ma_thr=ma_thr)
         idf = re.split('_', m)[0]
         MouseMx[idf] += trials
     ntdown = len(trials[0])
@@ -5716,7 +5718,8 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
                     s = '<'
                     val = 1.0 / nboot
                 Sig[si-1, sj-1] = val
-                if val < alpha:
+                # division by 2.0 to make the test two-sided!
+                if val < alpha/2.0:
                     print('%s -> %s: Trans. prob. is INCREASED by a factor of %.3f; P %s %.4f'
                           % (states[si], states[sj], Mod[si-1, sj-1], s, val))
                 else:
@@ -5731,7 +5734,8 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
                     s = '<'
                     val = 1.0 / nboot
                 Sig[si-1, sj-1] = val
-                if val < alpha:
+                # division by 2.0 to make the test two-sided!
+                if val < alpha/2.0:
                     print('%s -> %s: Trans. prob. is DECREASED by a factor of %.3f; P %s %.4f'
                             % (states[si], states[sj], Mod[si - 1, sj - 1], s, val))
                 else:
@@ -5817,6 +5821,7 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
     :param paired_stats: if True, treat baseline interval and following laser interval as paired statistics.
         If False, treat baseline and laser interval as independent.
     :param nboot: number of bootstrap iterations; >1000 recommended; but for a quick check just set to ~100
+    :param ma_thr: if > 0, set wake periods < $ma_thr to NREM.
     :return:
     """
     alpha = 0.05
