@@ -103,8 +103,8 @@ def load_stateidx(ppath, name, ann_name=''):
         if re.match('\d', l):
             n += 1
             
-    M = np.zeros(n)
-    K = np.zeros(n)
+    M = np.zeros(n, dtype='int')
+    K = np.zeros(n, dtype='int')
     
     i = 0
     for l in lines :
@@ -2484,10 +2484,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     idxs = [int(i/NBIN) for i in idxs]
     idxe = [int(i/NBIN) for i in idxe]
     #load EEG and EMG
-    if not peeg2:
-        P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'))
-    else:
-        P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'))
+    P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'))
     Q = so.loadmat(os.path.join(ppath, name, 'msp_' + name + '.mat'))
 
     if not peeg2:
@@ -2557,12 +2554,14 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     speeg_parts = []
     spemg_parts = []
     for (i,j) in zip(idxs, idxe):
-        if i>=ipre and j+ipost < len(t):
+        if i>=ipre and j+ipost < len(t):                        
             eeg_part = SPEEG[ifreq,i-ipre:i+ipost+1]
+            
             speeg_parts.append(eeg_part)
             spemg_parts.append(SPEMG[ifreq,i-ipre:i+ipost+1])
 
     EEGLsr = np.array(speeg_parts).mean(axis=0)
+    #EEGLsr = np.nanmean(np.array(speeg_parts), axis=0)
     EMGLsr = np.array(spemg_parts).mean(axis=0)
     
     # smooth spectrogram
@@ -2637,7 +2636,6 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
         mf = np.where((f>=mu[0]) & (f <= mu[1]))[0]
         df = f[1]-f[0]
         
-        pdb.set_trace()
         # amplitude is square root of (integral over each frequency)
         avg_emg = np.sqrt(EMGLsr[mf,:].sum(axis=0)*df)    
         m = np.max(avg_emg)*1.5
@@ -2660,7 +2658,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
 
 
 def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnorm=1, pplot=1, tstart=0, tend=-1,
-                            vm=[], cb_ticks=[], mu=[10, 100], trig_state=0, harmcs=0, fig_file=''):
+                            vm=[], cb_ticks=[], mu=[10, 100], trig_state=0, harmcs=0, peeg2=False, fig_file=''):
     """
     calculate average spectrogram for all recordings listed in @recordings; for averaging take
     mouse identity into account
@@ -2687,6 +2685,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     :param mu: frequencies for EMG amplitude calculation
     :param trig_state: if > 0, only use trials where brain is at laser onset in brainstate trig_state
            1=REM, 2=Wake, 3=NREM
+    :param peeg2: if True, use EEG2 instead of EEG
     :param fig_file: if specified, save figure to given file
     :return: n/a
     """
@@ -2702,7 +2701,8 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     
     for rec in recordings:
         idf = re.split('_', rec)[0]
-        EEG, EMG, f, t = laser_triggered_eeg(ppath, rec, pre, post, f_max, mu=mu, pnorm=pnorm, pplot=False, psave=False, tstart=tstart, tend=tend, trig_state=trig_state)
+        EEG, EMG, f, t = laser_triggered_eeg(ppath, rec, pre, post, f_max, mu=mu, pnorm=pnorm, pplot=False,
+                                             psave=False, tstart=tstart, tend=tend, trig_state=trig_state, peeg2=peeg2)
         EEGSpec[idf].append(EEG)
         EMGSpec[idf].append(EMG)
     
@@ -4501,7 +4501,7 @@ def sleep_through_days(ppath, recordings, tstart=0, tend=-1, stats=0, xticks=[],
 
 
 
-def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, stats='perc', csv_file=''):
+def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, stats='perc', csv_file='', ma_thr=0):
     """
     plot how percentage of REM,Wake,NREM changes over time;
     compares control with experimental data; experimental recordings can have different "doses"
@@ -4585,6 +4585,13 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
 
         M = load_stateidx(ppath, rec)[0]        
         M[np.where(M)==5] = 2
+        
+        if ma_thr > 0:
+            seq = get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if len(s)*dt <= ma_thr:
+                    M[s] = 3
+        
         if tend==-1:
             iend = len(M)-1
         else:
@@ -4645,8 +4652,13 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
             # [time_bin x br_state]
             tmp = np.array(TimeCourseCtr[k]).mean(axis=0)
             TimeMxCtr[s][:,i] = tmp[:,s-1]
+            #for j in range(n):
+            #    df = df.append(pd.Series([k, '0', state_map[s], 't'+str(j), tmp[j,s-1]], index=cols), ignore_index=True)
+            #pdb.set_trace()
             for j in range(n):
-                df = df.append(pd.Series([k, '0', state_map[s], 't'+str(j), tmp[j,s-1]], index=cols), ignore_index=True)
+                for r in range(len(TimeCourseCtr[k])):
+                    df = df.append(pd.Series([k, '0', state_map[s], 't'+str(j), TimeCourseCtr[k][r][j,s-1]], index=cols), ignore_index=True)
+            
         i += 1
                 
     # collect all recording belonging to one Exp mouse with a specific dose
@@ -4680,8 +4692,12 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
                 # [time_bin x br_state] for mouse k
                 #tmp = sum(TimeCourseExp[d][k]) / (1.0*len(TimeCourseExp[d][k]))                
                 TimeMxExp[s][d][:,i] = tmp[:,s-1]
+                #for j in range(n):
+                #    df = df.append(pd.Series([k, d, state_map[s], 't'+str(j), tmp[j, s-1]], index=cols), ignore_index=True)
                 for j in range(n):
-                    df = df.append(pd.Series([k, d, state_map[s], 't'+str(j), tmp[j, s-1]], index=cols), ignore_index=True)
+                    for r in range(len(TimeCourseExp[d][k])):
+                        df = df.append(pd.Series([k, d, state_map[s], 't'+str(j), TimeCourseExp[d][k][r][j,s-1]], index=cols), ignore_index=True)
+                                
             i += 1
 
     if pplot:
@@ -5223,7 +5239,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
 
 def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, 
                           mu=[10,100], ci='sd', pmode=1, pnorm = False, pplot=True, 
-                          harmcs=0, pemg2=False, exclusive_mode=False, csv_files=[]):
+                          harmcs=0, peeg2=False, pemg2=False, exclusive_mode=False, csv_files=[]):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -5241,6 +5257,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     :param pplot: if True, plot figure
     :param harmcs: if > 0, remove all harmonics of base frequency $harm, from the frequencies used
     for EMG amplitude calculation
+    :parm peeg2: if True, use EEG2.mat instead of EEG.mat for EEG powerspectrum calculation
     :param pemg2: if True, use EMG2 for EMG amplitude calcuation
     :param csv_files: if two file names are provided, the results for EEG power spectrum
     and EMG amplitude are saved to the csv files. The EEG powerspectrum is
@@ -5326,7 +5343,10 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
 
         # load EEG spectrogram
         tmp = so.loadmat(os.path.join(ppath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
-        SP = tmp['SP'][:,istart:iend]
+        if not peeg2:
+            SP = tmp['SP'][:,istart:iend]
+        else:
+            SP = tmp['SP2'][:, istart:iend]
         if pnorm:
             sp_mean = np.mean(SP, axis=1)
             SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
@@ -5344,6 +5364,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
             freq_emg = tmp['freq']
         else:
             MSP = tmp['mSP2'][:,istart:iend]
+            freq_emg = tmp['freq']
         imu = np.where((freq_emg>=mu[0]) & (freq_emg<=mu[-1]))[0]
         
         if harmcs > 0:
