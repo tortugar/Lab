@@ -1094,6 +1094,8 @@ def corr_activity(ppath, recordings, states, nskip=10, pzscore=True, bands=[]):
 
     plt.draw()
 
+    return r_values
+
 
 
 def freqband_vs_activity(ppath, name, band, win=120, ndown=763, tstart=0, tend=-1, ma_thr=0, vm=-1, fmax=30, r_mu = [10, 100], states=[1,2,3]):
@@ -1352,7 +1354,7 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
 
 def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold, sj_threshold,
                          backup='', mu=[10, 100], fmax=30, ma_thr=0, ylim=[], xticks=[], cb_ticks=[], vm=[],
-                         tstart=0, tend=-1, pzscore=False, sf=0, base_int = 10, mouse_stats=True, fig_file=''):
+                         tstart=0, tend=-1, pzscore=False, sf=0, base_int=10, mouse_stats=True, mouse_avg=True, fig_file=''):
     """
     calculate average DFF activity along brain state transitions
     :param ppath: base folder
@@ -1424,6 +1426,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     trans_spe = dict()
     trans_spm = dict()
     trans_act_trials = dict()
+    trans_spe_trials = dict()
     for (si,sj) in transitions:
         sid = states[si] + states[sj]
         # dict: transition type -> mouse -> DFF transitions
@@ -1431,6 +1434,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         trans_spe[sid] = []
         trans_spm[sid] = []
         trans_act_trials[sid] = []
+        trans_spe_trials[sid] = []
 
     for (si,sj) in transitions:
         sid = states[si] + states[sj]
@@ -1438,6 +1442,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         spe_mouse = {m:[] for m in mice}
         spm_mouse = {m:[] for m in mice}
         for rec in recordings:
+            print(rec)
             idf = re.split('_', rec)[0]
             sr = sleepy.get_snr(ppath, rec)
             nbin = int(np.round(sr)*2.5)
@@ -1455,7 +1460,16 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             
             # load DF/F
             ddir = os.path.join(paths[rec], rec)
-            dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+            # NEW 10/15/2020
+            if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
+                dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
+            else:
+                dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+                print('%s - saving dffd.mat' % rec)
+                so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd':dff})
+            
+            # OLD
+            #dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
             if sf > 0:
                 dff = sleepy.smooth_data(dff, sf)
 
@@ -1541,9 +1555,11 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     for tr in trans_act_trials:
         for mouse in trans_act[tr]:
             trans_act_trials[tr] += trans_act[tr][mouse] 
+            trans_spe_trials[tr] += trans_spe[tr][mouse]
     
     for tr in trans_act_trials:
-        trans_act_trials[tr] = np.vstack( trans_act_trials[tr] )
+        trans_act_trials[tr] = np.vstack(trans_act_trials[tr])
+        trans_spe_trials[tr] = np.array(trans_spe_trials[tr])
 
     for tr in trans_act: 
         for mouse in trans_act[tr]:
@@ -1580,7 +1596,10 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         ax = plt.axes([nx*i+dx, 0.15, nx-dx-dx/3.0, 0.3])
         if nmice == 1:
             # dimensions: number of mice x time
-            plt.plot(t, trans_act[tr].mean(axis=0), color='blue')
+            if mouse_avg:
+                plt.plot(t, trans_act[tr].mean(axis=0), color='blue')
+            else:
+                plt.plot(t, trans_act_trials[tr].mean(axis=0), color='blue')
         else:
             # mean is linear
             tmp = trans_act[tr].mean(axis=0)
@@ -1609,12 +1628,16 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         plt.title(states[si] + ' $\\rightarrow$ ' + states[sj])
 
         # if statement does not make much sense here...
-        if nmice==1:
+        #if nmice==1:
             # dimensions of trans_spe: number of mice x frequencies x time
             # so, to average over mice, average over first dimension (axis)
+            #im = ax.pcolorfast(t, f, trans_spe[tr].mean(axis=0), cmap='jet')
+        #else:
+        
+        if mouse_avg:
             im = ax.pcolorfast(t, f, trans_spe[tr].mean(axis=0), cmap='jet')
         else:
-            im = ax.pcolorfast(t, f, trans_spe[tr].mean(axis=0), cmap='jet')
+            im = ax.pcolorfast(t, f, trans_spe_trials[tr].mean(axis=0), cmap='jet')
 
         if len(vm) > 0:
             im.set_clim(vm)
@@ -1651,7 +1674,6 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         sleepy.save_figure(fig_file)
 
     # Statistics: When does activity becomes significantly different from baseline?
-
     ibin = int(np.round(base_int / dt))
     nbin = int(np.floor((pre+post)/base_int))
     data = []
@@ -1788,6 +1810,8 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
             mice[idf] = 1
     mice = list(mice.keys())
 
+    data = []
+    ev = 0
     dff_mouse = {m: [] for m in mice}
     spe_mouse = {m: [] for m in mice}
     for rec in recordings:
@@ -1799,7 +1823,16 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
 
         # load DF/F
         ddir = os.path.join(paths[rec], rec)
-        dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+        # load DF/F
+        ddir = os.path.join(paths[rec], rec)
+        if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
+            dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
+        else:
+            dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+            print('%s - saving dffd.mat' % rec)
+            so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd':dff})
+
+        #dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
         if sf > 0:
             dff = sleepy.smooth_data(dff, sf)
 
@@ -1879,13 +1912,20 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
 
                             dff_mouse[idf].append(np.concatenate((dffi, dffj, dffk)))
                             spe_mouse[idf].append(np.concatenate((SPi, SPj, SPk), axis=1))
+                            ev += 1
+                            
+                            data += zip([idf]*sum(nstates), [ev]*sum(nstates), [ii for ii in range(sum(nstates))], list(np.concatenate((dffi, dffj, dffk))))
+                            
+    df = pd.DataFrame(data=data, columns=['mouse', 'event', 'section', 'dff'])
 
     seq_dff = {}
     seq_spe = {}
+    #seq_dff_trials = []
     for mouse in mice:
         # average for each transition tr and mouse over trials
         seq_dff[mouse] = np.array(dff_mouse[mouse]).mean(axis=0)
         seq_spe[mouse] = np.array(spe_mouse[mouse]).mean(axis=0)
+        #seq_dff_trials += dff_mouse[mouse]
 
     i = 0
     mx_dff = np.zeros((len(mice), sum(nstates)))
@@ -1934,7 +1974,59 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
     if len(fig_file) > 0:
         sleepy.save_figure(fig_file)
 
-    return mx_dff, mx_spe
+    return mx_dff, mx_spe, df
+
+
+
+def irem_corr(ppath, recordings, pzscore=True):
+    
+    data = []
+    for rec in recordings:
+        ddir = os.path.join(ppath, rec)
+        idf = re.split('_', rec)[0]
+        print(idf)
+
+        sr = sleepy.get_snr(ppath, rec)
+        nbin = int(np.round(sr)*2.5)
+        dt = (1.0/sr)*nbin
+
+        if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
+            dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
+        else:
+            dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+            print('%s - saving dffd.mat' % rec)
+            so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd':dff})
+
+        dff = dff*100
+        if pzscore:
+            dff = (dff - dff.mean()) / dff.std()
+
+        M = sleepy.load_stateidx(ppath, rec)[0]
+        seq = sleepy.get_sequences(np.where(M==1)[0])    
+        if len(seq) >= 2:
+            for (si, sj) in zip(seq[:-1], seq[1:]):
+                # indices of inter-REM period
+                idx = range(si[-1]+1,sj[0])
+                m_cut = M[idx]
+                dff_cut = dff[idx]
+                
+                rem_pre = len(si)*dt
+                rem_post = len(sj)*dt
+                dur_irem = len(idx)*dt
+                dur_inrem = len(np.where(m_cut==3)[0])*dt
+                dur_iwake = len(np.where(m_cut==2)[0])*dt
+                
+                dff_irem = np.mean(dff_cut).mean()
+                dff_inrem = dff_cut[np.where(m_cut==3)[0]].mean()
+                dff_iwake = dff_cut[np.where(m_cut==2)[0]].mean()
+                dff_pre = dff[si].mean()
+                dff_post = dff[sj].mean()
+
+                data.append([idf, rec, rem_pre, rem_post, dur_irem, dur_inrem, dur_iwake, dff_pre, dff_post, dff_irem, dff_inrem, dff_iwake])
+        
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'rem_pre', 'rem_post', 'dur_irem', 'dur_inrem', 'dur_iwake', 'dff_pre', 'dff_post', 'dff_irem', 'dff_inrem', 'dff_iwake'])
+        
+    return df
 
 
 
@@ -1958,6 +2050,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
     :param cb_ticks: ticks for colorbar (for EEG spectrogram)
     :param ylim: y range for DF/F axis
     :param fig_file: if specified save figure to $fig_file
+
     :return: np.arrays for DF/F for each mouse and EEG spectrogram for each mouse
     (mice x 2*nstates_rem + ntstates_itrem, mice x frequencies x 2*nstates_rem + ntstates_itrem)
     """
@@ -2117,7 +2210,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
 
 
 def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
-                       pzscore=False, ma_polish=True, ma_thr=10, sf=0, ylim=[]):
+                       pzscore=False, ma_thr=10, sf=0, ylim=[]):
     """
     plot NREM and wake activity for $nsections consecutive sections 
     of the sleep cycle (interval between two consecutive REM periods)
@@ -2152,20 +2245,27 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
             mice.append(idf)
 
     list_mx = []
+    data = []
+    ev = 0
     for rec in recordings:
         sections_wake = [[] for p in range(nsections)]
         sections_nrem = [[] for p in range(nsections)]
 
-        
         idf = re.split('_', rec)[0]
-
         sr = sleepy.get_snr(ppath, rec)
         nbin = int(np.round(sr) * 2.5)
         dt = (1.0 / sr) * nbin
 
         # load DF/F
         ddir = os.path.join(paths[rec], rec)
-        dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+        if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
+            dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
+        else:
+            dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+            print('%s - saving dffd.mat' % rec)
+            so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd':dff})
+
+        #dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
         if sf > 0:
             dff = sleepy.smooth_data(dff, sf)
 
@@ -2174,7 +2274,7 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
         else:
             dff *= 100
 
-            # load brain state
+        # load brain state
         M,_ = sleepy.load_stateidx(paths[rec], rec)
 
         # flatten out microarousals
@@ -2198,6 +2298,8 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
                 M_up = np.round(M_up)
                 dff_up = upsample_mx(dff[idx], nsections)
 
+                single_event_nrem = []
+                single_event_wake = []
                 for p in range(nsections):
                     # for each m consecutive bins calculate average NREM, REM, Wake activity
                     mi = list(range(p*m, (p+1)*m))
@@ -2208,6 +2310,7 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
                     else:
                         wake_dff = np.nanmean(dff_up[idcut])
                     sections_wake[p].append(wake_dff)
+                    single_event_wake.append(wake_dff)
 
                     idcut = np.intersect1d(mi, np.where(M_up == 3)[0])
                     if len(idcut) == 0:
@@ -2215,11 +2318,18 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
                     else:
                         nrem_dff = np.nanmean(dff_up[idcut])
                     sections_nrem[p].append(nrem_dff)
+                    single_event_nrem.append(nrem_dff)
+                
+                data += zip([idf]*nsections, [ev]*nsections, list(range(1, nsections+1)), single_event_nrem, ['NREM']*nsections)
+                data += zip([idf]*nsections, [ev]*nsections, list(range(1, nsections+1)), single_event_wake, ['Wake']*nsections)
+                ev += 1
+            
 
         list_mx += list(zip([np.nanmean(np.array(w)) for w in sections_wake], list(range(1, nsections+1)), ['Wake']*nsections, [idf]*nsections))
         list_mx += list(zip([np.nanmean(np.array(w)) for w in sections_nrem], list(range(1, nsections+1)), ['NREM']*nsections, [idf]*nsections))
-        print('done')
         
+        print('done')
+    df_trials = pd.DataFrame(columns = ['mouse', 'event', 'section', 'dff', 'state'], data=data)
     df = pd.DataFrame(columns = ['dff', 'section', 'state', 'idf'], data=list_mx)
     df = df.groupby(['idf', 'state', 'section'], as_index=False).mean()
     df_mean = df.groupby(['section', 'state'], as_index=False).mean()   
@@ -2233,16 +2343,25 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
     sns.regplot(x='section', y='dff', data=df[df.state=='NREM'], color='black')
     plt.xlabel('')
     plt.xticks(list(range(1, nsections+1)))
-    plt.ylabel('$\mathrm{\Delta F / F}$')
+    if pzscore:
+        plt.ylabel('$\mathrm{\Delta F / F}$ (z-scored)')
+    else:
+        plt.ylabel('$\mathrm{\Delta F / F}$ (%)')
+    if len(ylim) > 0:
+        plt.ylabel(ylim)
     sns.despine()
     
     plt.subplot(212)
     sns.lineplot(x='section', y='dff', data=df_mean[df_mean.state=='Wake'], color=colors[1,:])
     sns.regplot(x='section', y='dff', data=df[df.state=='Wake'], color='black')
     plt.xticks(list(range(1, nsections+1)))
-    plt.ylabel('$\mathrm{\Delta F / F}$')
+    if pzscore:
+        plt.ylabel('$\mathrm{\Delta F / F}$ (z-scored)')
+    else:
+        plt.ylabel('$\mathrm{\Delta F / F}$ (%)')
+    if len(ylim) > 0:
+        plt.ylabel(ylim)
     sns.despine()
-
 
     dfw = df[df.state=='Wake'] 
     dfn = df[df.state=='NREM'] 
@@ -2268,7 +2387,7 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
     else:
         print("NREM firing rates decrease throughout sleep cycle by a factor of %.2f; r=%.2f, p=%.2f" % (nres.slope, nres.rvalue, nres.pvalue))
 
-    return df
+    return df, df_trials
 
 
 
