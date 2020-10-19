@@ -1139,7 +1139,7 @@ def freqband_vs_activity(ppath, name, band, win=120, ndown=763, tstart=0, tend=-
             if len(s)*dt <= ma_thr:
                 M[s] = 3
     # time axis for spectrogram and brain state
-    t = np.arange(0, len(M))*dt
+    t = np.arange(0, len(M))*dt+dt
 
     # load EEG and EMG spectrogram
     P = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
@@ -1276,7 +1276,7 @@ def bandpass_corr(ppath, name, band, win=120, state=3, tbreak=60, pemg=False):
 
 
 
-def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=False):
+def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=False, pplot=True):
     """
     correlate band in EEG spectrogram with calcium activity;
     plot cross-correlation for all intervals of brain state $state.
@@ -1284,6 +1284,16 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
     precedes the EEG.
 
     see also &bandpass_corr which correlates calcium activity and EEG for the whole recording, irrespective of brain state
+
+    Say we correlate:
+        x = [0,1,0]
+        y = [0,0,1]
+    so y follows x, then the result of cross correlation is
+        cc = [0, 1, 0, 0, 0]
+    The center point is cc[len(x)-1]. So a negative peak means that y follows x
+
+    We correlate DF/F with the power band, so a negative peak means that the power band follows DF/F 
+    (or DF/F precedes the power band)
 
     :param ppath: base folder
     :param name: name of recording
@@ -1296,7 +1306,7 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
     """
     sr = get_snr(ppath, name)
     nbin = int(np.round(2.5 * sr))
-    nwin = int(np.round(sr / 4.0))+1
+    nwin = int(np.round(sr / 8))+1
     dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dff']
 
     if pemg:
@@ -1316,39 +1326,73 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
         dffcut = dff[i:j]
         dffd = sleepy.downsample_vec(dffcut, int(nwin))
         #Pow, f, t = sleepy.spectral_density(EEGcut, 2 * nwin, nwin, 1.0 / sr)
-        f, t, Pow= scipy.signal.spectrogram(EEGcut, nperseg=nwin, noverlap=0, fs=sr)
+        f, t, Pow = scipy.signal.spectrogram(EEGcut, nperseg=nwin, noverlap=0, fs=sr)
+
         ifreq = np.where((f >= band[0]) & (f <= band[1]))[0]
         dt = t[1] - t[0]
-        iwin = win / dt
+        iwin = int(win / dt)
 
         pow_band = np.sqrt(Pow[ifreq, :].sum(axis=0) * (f[1]-f[0]))
         pow_band -= pow_band.mean()
         dffd -= dffd.mean()
         m = np.min([pow_band.shape[0], dffd.shape[0]])
-        norm = np.nanstd(dffd[0:m]) * np.nanstd(pow_band[0:m])
-        xx = scipy.signal.correlate(dffd[1:m], pow_band[0:m - 1])/ norm
+        # Say we correlate x and y;
+        # x and y have length m
+        # then the correlation vector cc will have length 2*m - 1
+        # the center element with lag 0 will be cc[m-1]
+        norm = np.nanstd(dffd[0::]) * np.nanstd(pow_band[0::])
+        # for used normalization, see: https://en.wikipedia.org/wiki/Cross-correlation
+        
+        #xx = scipy.signal.correlate(dffd[1:m], pow_band[0:m - 1])/ norm
+        xx = (1/m) * scipy.signal.correlate(dffd[0::], pow_band[0::])/ norm
         ii = np.arange(len(xx) / 2 - iwin, len(xx) / 2 + iwin + 1)
         ii = [int(i) for i in ii]
-
+        
+        ii = np.concatenate((np.arange(m-iwin-1, m), np.arange(m, m+iwin, dtype='int')))
+        # note: point ii[iwin] is the "0", so xx[ii[iwin]] corresponds to the 0-lag correlation point
+        #pdb.set_trace()
         CC.append(xx[ii])
 
-    CC = np.array(CC)
-    plt.ion()
-    plt.figure()
-    ax = plt.subplot(111)
-    t = np.arange(-iwin, iwin + 1) * dt
-    c = np.sqrt(CC.shape[0])
-    a = CC.mean(axis=0) - CC.std(axis=0)/c
-    b = CC.mean(axis=0) + CC.std(axis=0)/c
-    plt.fill_between(t,a,b, color='gray', alpha=0.5)
-    plt.plot(t, np.nanmean(CC, axis=0), color='black')
-    plt.xlabel('Time (s)')
-    plt.ylabel('Corr. $\Delta F/F$ vs. EEG')
-    plt.xlim([t[0], t[-1]])
-    sleepy.box_off(ax)
-    plt.show()
 
-    return CC
+    CC = np.array(CC)
+    t = np.arange(-iwin, iwin+1) * dt
+
+    if pplot:
+        plt.ion()
+        plt.figure()
+        ax = plt.subplot(111)
+        #t = np.arange(-iwin, iwin + 1) * dt
+        # note: point t[iwin] is "0"
+        c = np.sqrt(CC.shape[0])
+        a = CC.mean(axis=0) - CC.std(axis=0)/c
+        b = CC.mean(axis=0) + CC.std(axis=0)/c
+        plt.fill_between(t,a,b, color='gray', alpha=0.5)
+        plt.plot(t, np.nanmean(CC, axis=0), color='black')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Corr. $\Delta F/F$ vs. EEG')
+        plt.xlim([t[0], t[-1]])
+        sleepy.box_off(ax)
+        plt.show()
+
+    return CC, t
+
+
+def bandpass_corr_state_avg(ppath, recordings, band, win=120, state=3, tbreak=20, pemg=False):
+    
+    data = []
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        CC, t = bandpass_corr_state(ppath, rec, band, win=win, state=state, tbreak=tbreak, pemg=False, pplot=False)
+        ccmean = np.array(CC).mean(axis=0)
+        data += zip([idf]*ccmean.shape[0], [rec]*ccmean.shape[0], list(ccmean), list(t))
+        
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'cc', 'time'])
+    
+    plt.figure()
+    dfm = df.groupby(['mouse', 'time']).mean().reset_index()
+    sns.lineplot(data=df.groupby(['mouse', 'time']).mean().reset_index(), x='time', y='cc', ci=None)
+
+    return dfm
 
 
 
@@ -2074,7 +2118,6 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
 
     dff_cycle_mouse = {m:[] for m in mice}
     sp_cycle_mouse  = {m:[] for m in mice}
-
     for rec in recordings:
         idf = re.split('_', rec)[0]
 
@@ -2084,7 +2127,16 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
 
         # load DF/F
         ddir = os.path.join(paths[rec], rec)
-        dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+        if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
+            dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
+        else:
+            dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+            print('%s - saving dffd.mat' % rec)
+            so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd':dff})
+
+        # load DF/F
+        #ddir = os.path.join(paths[rec], rec)
+        #dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
         if sf > 0:
             dff = sleepy.smooth_data(dff, sf)
 
@@ -2156,7 +2208,10 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
     if len(vm) > 0:
         cb_ticks = vm
     ax = plt.axes([0.15, 0.5, 0.75, 0.3])
-    im = ax.pcolorfast(list(range(ntime)), freq[ifreq], SPmx.mean(axis=0), cmap='jet', vmin=vm[0], vmax=vm[1])
+    if len(vm) == 0:
+        im = ax.pcolorfast(list(range(ntime)), freq[ifreq], np.nanmean(SPmx,axis=0), cmap='jet')
+    else:
+        im = ax.pcolorfast(list(range(ntime)), freq[ifreq], np.nanmean(SPmx,axis=0), cmap='jet', vmin=vm[0], vmax=vm[1])
     ax.set_xticks([nstates_rem, nstates_rem + nstates_itrem])
     plt.ylabel('Freq (Hz)')
     ax.set_xticklabels([])
@@ -2169,10 +2224,10 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
     if single_mode:
         plt.plot(list(range(ntime)), DFFmx.T)
     else:
-        tmp = DFFmx.mean(axis=0)
+        tmp = np.nanmean(DFFmx, axis=0)
         plt.plot(list(range(ntime)), tmp, color='blue')
         if nmice > 1:
-            sem = np.std(DFFmx, axis=0) / np.sqrt(nmice)
+            sem = np.nanstd(DFFmx, axis=0) / np.sqrt(nmice)
             ax.fill_between(list(range(ntime)), tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
     sleepy.box_off(ax)
     ax.set_xticks([nstates_rem, nstates_rem + nstates_itrem])
@@ -2462,6 +2517,113 @@ def dff_vs_statedur(ppath, recordings, istate, pzscore=False, sf=0, fs=1.5, ma_t
     plt.xlabel('Duration (s)')
     plt.ylabel('$\mathrm{\Delta F / F}$')
     plt.show()
+
+
+
+def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
+                     band=[10,15], state=3, win=64, pplot=True, pflipx=True, pnorm=False, tstart=0, tend=-1, peeg2=False):
+    """
+    calculate powerspectrum of EEG spectrogram to identify oscillations in sleep activity within different frequency bands;
+    only contineous NREM periods are considered for
+    @PARAMETERS:
+    ppath        -       base folder of recordings
+    recordings   -       single recording name or list of recordings
+    
+    @OPTIONAL:
+    ma_thr       -       microarousal threshold; wake periods <= $min_dur are transferred to NREM
+    min_dur      -       minimal duration [s] of a NREM period
+    band         -       frequency band used for calculation
+    win          -       window (number of indices) for FFT calculation
+    pplot        -       if True, plot window showing result
+    pflipx       -       if True, plot wavelength instead of frequency on x-axis
+    pnorm        -       if True, normalize spectrum (for each mouse) by its total power
+    
+    @RETURN:
+    SpecMx, f    -       ndarray [mice x frequencies], vector [frequencies]
+    """
+    import scipy.linalg as LA
+
+    #min_dur = win*2.5
+    min_dur = np.max([win*2.5, min_dur])
+    
+    if type(recordings) != list:
+        recordings = [recordings]
+
+    Spec = {}    
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        Spec[idf] = []
+    mice = list(Spec.keys())
+    
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+
+        # sampling rate and time bin for spectrogram
+        SR = get_snr(ppath, rec)
+        NBIN = np.round(2.5*SR)
+        dt = NBIN * 1/SR
+        istart = int(np.round(tstart/dt))
+        if tend > -1:
+            iend   = int(np.round(tend/dt))
+
+        # load sleep state
+        M = sleepy.load_stateidx(ppath, rec)[0]
+        if tend == -1:
+            iend = M.shape[0]
+        M = M[istart:iend]
+        seq = sleepy.get_sequences(np.where(M==state)[0], np.round(ma_thr/dt))
+        seq = [list(range(s[0], s[-1]+1)) for s in seq]
+        
+        # load frequency band
+        P = so.loadmat(os.path.join(ppath, rec,  'sp_' + rec + '.mat'))
+        if not peeg2:
+            SP = np.squeeze(P['SP'])[:,istart:iend]
+        else:
+            SP = np.squeeze(P['SP2'])[:, istart:iend]
+        freq = np.squeeze(P['freq'])
+        ifreq = np.where((freq>=band[0]) & (freq<=band[1]))[0]
+        pow_band = SP[ifreq,:].mean(axis=0)
+        #pow_band = so.loadmat(os.path.join(ppath, rec, 'dffd.mat'), squeeze_me=True)['dffd']
+        
+        seq = [s for s in seq if len(s)*dt >= min_dur]   
+        for s in seq:
+            y,f = sleepy.power_spectrum(pow_band[s], win, dt)
+            Spec[idf].append(y)
+    
+    pdb.set_trace()
+    # Transform %Spec to ndarray
+    SpecMx = np.zeros((len(Spec), len(f)))
+    i=0
+    for idf in Spec:
+        SpecMx[i,:] = np.array(Spec[idf]).mean(axis=0)
+        if pnorm==True:
+            SpecMx[i,:] = SpecMx[i,:]/LA.norm(SpecMx[i,:])
+        i += 1
+
+    if pplot == True:
+        plt.figure()
+        ax = plt.axes([0.1, 0.1, 0.8, 0.8])
+        
+        x = f[1:]
+        if pflipx == True: x = 1.0/f[1:]
+        y = SpecMx[:,1:]
+        if len(mice) <= 1:
+            ax.plot(x, y.mean(axis=0), color='gray', lw=2)
+            
+        else:
+            ax.errorbar(x, y.mean(axis=0), yerr=y.std(axis=0), color='gray', fmt='-o')
+
+        box_off(ax)
+        if pflipx == True:
+            plt.xlabel('Wavelength (s)')
+        else:
+            plt.xlabel('Frequency (Hz)')
+        plt.ylabel('Power (uV^2)')
+        plt.show()
+
+    return SpecMx, f
+
+
 
 
 
