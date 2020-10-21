@@ -1276,7 +1276,7 @@ def bandpass_corr(ppath, name, band, win=120, state=3, tbreak=60, pemg=False):
 
 
 
-def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=False, pplot=True):
+def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, mode='cross', pemg=False, pplot=True):
     """
     correlate band in EEG spectrogram with calcium activity;
     plot cross-correlation for all intervals of brain state $state.
@@ -1301,6 +1301,7 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
     :param win: time range for cross-correlation
     :param state: correlate calcium activity and EEG power during state $state
     :param tbreak: maximum interruption of $state
+    :param mouse: 'cross' or 'auto'; if 'auto' perform autocorrelation of DF/F signal
     :param pemg: if True, perform analysis with EMG instead of EEG
     :return: np.array, cross-correlation for each $state interval
     """
@@ -1332,8 +1333,13 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
         dt = t[1] - t[0]
         iwin = int(win / dt)
 
-        pow_band = np.sqrt(Pow[ifreq, :].sum(axis=0) * (f[1]-f[0]))
+        if mode != 'cross':
+            pow_band = dffd
+        else:
+            pow_band = np.sqrt(Pow[ifreq, :].sum(axis=0) * (f[1]-f[0]))
+
         pow_band -= pow_band.mean()
+        
         dffd -= dffd.mean()
         m = np.min([pow_band.shape[0], dffd.shape[0]])
         # Say we correlate x and y;
@@ -1377,12 +1383,13 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, pemg=Fal
     return CC, t
 
 
-def bandpass_corr_state_avg(ppath, recordings, band, win=120, state=3, tbreak=20, pemg=False):
+
+def bandpass_corr_state_avg(ppath, recordings, band, win=120, state=3, tbreak=20, mode='cross', pemg=False):
     
     data = []
     for rec in recordings:
         idf = re.split('_', rec)[0]
-        CC, t = bandpass_corr_state(ppath, rec, band, win=win, state=state, tbreak=tbreak, pemg=False, pplot=False)
+        CC, t = bandpass_corr_state(ppath, rec, band, win=win, state=state, tbreak=tbreak, mode=mode, pemg=pemg, pplot=False)
         ccmean = np.array(CC).mean(axis=0)
         data += zip([idf]*ccmean.shape[0], [rec]*ccmean.shape[0], list(ccmean), list(t))
         
@@ -1743,6 +1750,354 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
 
 
 
+def activity_transitions_ma(ppath, recordings, transitions, pre, post, si_threshold, sj_threshold,
+                         backup='', mu=[10, 100], fmax=30, ma_thr=0, ylim=[], xticks=[], cb_ticks=[], vm=[],
+                         tstart=0, tend=-1, pzscore=False, sf=0, base_int=10, mouse_stats=True, mouse_avg=True, fig_file=''):
+    """
+    calculate average DFF activity along brain state transitions
+    :param ppath: base folder
+    :param recordings: list of recordings
+    :param transitions: list of tuples to denote transitions to be considered;
+           1 - REM, 2 - Wake, 3 - NREM; For example to calculate NREM to REM and REM to wake transitions,
+           type [(3,1), (1,2)]
+    :param pre: time before transition in s
+    :param post: time after transition
+    :param si_threshold: list of floats, thresholds how long REM, Wake, NREM should be at least before the transition.
+           So, if there's a REM to Wake transition, but the duration of REM is shorter then si_threshold[0], then this
+           transition if discarded.
+    :param sj_threshold: list of floats, thresholds how long REM, Wake, NREM should be at least after the transition
+    :param backup: string, potential backup path
+    :param mu: tuple, specifying the lower and upper limit of frequencies for EMG amplitude calculation
+    :param fmax: maximum frequency shown for EEG spectrogram
+    :param ma_thr: threshold in seconds for microarousals; i.e. wake periods < ma_thr are considered as microarousals
+           and instead treated as NREM (if ma_polish == True)
+    :param tstart: only consider transitions happenening after $tstart seconds
+    :param tend: only consider transitions up to $tend seconds
+    :param ylim: list, specifying y-limits for y axis of DF/F plots, for example ylim=[0, 10] will limit the yrange
+           from 0 to 10
+    :param xticks: list, xticks for DF/F plots
+    :param cb_ticks: ticks for colorbar
+    :param vm: tuple, min and max value for colorbar of EEG spectrogram
+    :param pzscore: if True, z-score DF/F values
+    :param sf: float, smoothing factor
+    :param base_int: float, duration of baseline interval (first $base_int seconds), for statistics to test,
+           when the activity becomes significantly different from baseline. 
+           Uses relative (paired) t-test. 
+           All subsequent bins after basline, have the same width. 
+           NOTE: To know which time points are significantly different from baseline,
+           apply Bonferroni correction: If n time steps are compared with baseline,
+           then divide the significance criterion (alphs = 0.05) by n.
+    :param mouse_stats: if True, calculate statistics across single mice, otherwise
+           perform statistics across single trials
+
+    :return: trans_act:  dict: transitions --> np.array(mouse id x timepoint),
+             trans_act_trials: dict: transitions --> np.array(all single transitions x timepoint)
+             t: np.array, time axis for transitions.
+             df:         pd.DataFrame: index - time intervals, columns - transitions,
+                         reports all the p-values for comparison of baseline interval (first $base_int seconds) vs.
+                         each consecutive interval of equal duration. 
+                         
+    Todo: return further dataframe holding all single trials along with mouse identity
+    """
+    if type(recordings) != list:
+        recordings = [recordings]
+
+    if len(vm) > 0:
+        cb_ticks=vm
+
+    paths = dict()
+    for rec in recordings:
+        if os.path.isdir(os.path.join(ppath, rec)):
+            paths[rec] = ppath
+        else:
+            paths[rec] = backup
+
+    states = {1:'R', 2:'W', 3:'N', 4:'M'}
+    mice = dict()
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        if not idf in mice:
+            mice[idf] = 1
+    mice = list(mice.keys())
+
+    trans_act = dict()
+    trans_spe = dict()
+    trans_spm = dict()
+    trans_act_trials = dict()
+    trans_spe_trials = dict()
+    for (si,sj) in transitions:
+        sid = states[si] + states[sj]
+        # dict: transition type -> mouse -> DFF transitions
+        trans_act[sid] = []
+        trans_spe[sid] = []
+        trans_spm[sid] = []
+        trans_act_trials[sid] = []
+        trans_spe_trials[sid] = []
+
+    for (si,sj) in transitions:
+        sid = states[si] + states[sj]
+        act_mouse = {m:[] for m in mice}
+        spe_mouse = {m:[] for m in mice}
+        spm_mouse = {m:[] for m in mice}
+        for rec in recordings:
+            print(rec)
+            idf = re.split('_', rec)[0]
+            sr = sleepy.get_snr(ppath, rec)
+            nbin = int(np.round(sr)*2.5)
+            dt = (1.0/sr)*nbin
+            ipre  = int(np.round(pre/dt))
+            ipost = int(np.round(post/dt)) + 1
+            # Why the +1?
+            # Say dt=10 and pre and post = 30
+            # then ipre and ipost = 3... at first thought
+            # the preceding period starts with
+            # -30 -20 -10 
+            # by definitino I say that the post period starts with 0, so:
+            # 0 10 20 30... but this are four states!
+            # so because of the 0, ipost = 3+1
+            
+            # load DF/F
+            ddir = os.path.join(paths[rec], rec)
+            # NEW 10/15/2020
+            if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
+                dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
+            else:
+                dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+                print('%s - saving dffd.mat' % rec)
+                so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd':dff})
+            
+            # OLD
+            #dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+            if sf > 0:
+                dff = sleepy.smooth_data(dff, sf)
+
+            if pzscore:
+                dff = (dff-dff.mean())/dff.std()
+            else:
+                dff *= 100
+
+            # load spectrogram and normalize
+            P = so.loadmat(os.path.join(ddir, 'sp_%s.mat' % rec), squeeze_me=True)
+            SP = P['SP']
+            freq = P['freq']
+            ifreq = np.where(freq <= fmax)[0]
+            df = freq[1]-freq[0]
+
+            sp_mean = SP.mean(axis=1)
+            SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
+
+            # load EMG
+            imu = np.where((freq>=mu[0]) & (freq<=mu[1]))[0]
+            MP = so.loadmat(os.path.join(ddir, 'msp_%s.mat' % rec), squeeze_me=True)['mSP']
+            emg_ampl = np.sqrt(MP[imu,:].sum(axis=0)*df)
+
+            # load brain state
+            M, _ = sleepy.load_stateidx(paths[rec], rec)
+
+            # set istart, iend
+            istart = int(np.round(tstart/dt))
+            if tend == -1:
+                iend = len(M)
+            else:
+                iend = int(np.round(tend/dt))
+
+            # some sleep state corrections
+            # M[np.where(M==4)]=3
+
+            if ma_thr>0:
+                seq = sleepy.get_sequences(np.where(M==2)[0])
+                for s in seq:
+                    if len(s)*dt < ma_thr:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 4
+
+            seq = sleepy.get_sequences(np.where(M==si)[0])
+            for s in seq:
+                # the last time point in state si; so ti+1 is the first time point in state sj
+                ti = s[-1]
+
+                # check if next state is sj; only then continue
+                if ti < len(M)-1 and M[ti+1] == sj:
+                    # go into future
+                    p = ti+1
+                    while p<len(M)-1 and M[p] == sj:
+                        p += 1
+                    p -= 1
+                    sj_idx = list(range(ti+1, p+1))
+                    # so the indices of state si are seq
+                    # the indices of state sj are sj_idx
+
+                    if ipre <= ti < len(M)-ipost and len(s)*dt >= si_threshold[si-1] and len(sj_idx)*dt >= sj_threshold[sj-1] and istart <= ti < iend:
+                        act_si = dff[ti-ipre+1:ti+1]
+                        act_sj = dff[ti+1:ti+ipost+1]
+                        act = np.concatenate((act_si, act_sj))
+
+                        spe_si = SP[ifreq,ti-ipre+1:ti+1]
+                        spe_sj = SP[ifreq,ti+1:ti+ipost+1]
+
+                        spe = np.concatenate((spe_si, spe_sj), axis=1)
+
+                        spm_si = emg_ampl[ti-ipre+1:ti+1]
+                        spm_sj = emg_ampl[ti+1:ti+ipost+1]
+                        spm = np.concatenate((spm_si, spm_sj))
+
+                        act_mouse[idf].append(act)
+                        spe_mouse[idf].append(spe)
+                        spm_mouse[idf].append(spm)
+
+        trans_act[sid] = act_mouse
+        trans_spe[sid] = spe_mouse
+        trans_spm[sid] = spm_mouse
+
+    # generate matrices for each transition type holding all single trials in each row
+    for tr in trans_act_trials:
+        for mouse in trans_act[tr]:
+            trans_act_trials[tr] += trans_act[tr][mouse] 
+            trans_spe_trials[tr] += trans_spe[tr][mouse]
+    
+    for tr in trans_act_trials:
+        trans_act_trials[tr] = np.vstack(trans_act_trials[tr])
+        trans_spe_trials[tr] = np.array(trans_spe_trials[tr])
+
+    for tr in trans_act: 
+        for mouse in trans_act[tr]:
+            # average for each transition tr and mouse over trials
+            trans_act[tr][mouse] = np.array(trans_act[tr][mouse]).mean(axis=0)
+            trans_spm[tr][mouse] = np.array(trans_spm[tr][mouse]).mean(axis=0)
+            trans_spe[tr][mouse] = np.array(trans_spe[tr][mouse]).mean(axis=0)
+
+    # let's get rid of mouse identity by replacing dict with np.arrays
+    for tr in trans_act:
+        trans_act[tr] = np.array(list(trans_act[tr].values()))
+        trans_spm[tr] = np.array(list(trans_spm[tr].values()))
+        trans_spe[tr] = np.array(list(trans_spe[tr].values()))
+
+    # set variables helpful for plotting
+    ntrans = len(trans_act)
+    nmice = len(mice)
+    nx = 1.0/ntrans
+    dx = 0.2 * nx
+    f = freq[ifreq]
+    #t = np.arange(-ipre*dt+dt, ipost*dt + dt/2, dt)
+    t = np.arange(-ipre*dt, ipost*dt-dt + dt/2, dt)
+    
+    tinit = -ipre*dt
+    i = 0
+    plt.ion()
+    if len(transitions) > 2:
+        plt.figure(figsize=(10, 5))
+    else:
+        plt.figure()
+    for (si,sj) in transitions:
+        tr = states[si] + states[sj]
+        # plot DF/F
+        ax = plt.axes([nx*i+dx, 0.15, nx-dx-dx/3.0, 0.3])
+        if nmice == 1:
+            # dimensions: number of mice x time
+            if mouse_avg:
+                plt.plot(t, trans_act[tr].mean(axis=0), color='blue')
+            else:
+                plt.plot(t, trans_act_trials[tr].mean(axis=0), color='blue')
+        else:
+            # mean is linear
+            tmp = trans_act[tr].mean(axis=0)
+            # std is not linear
+            sem = np.std(trans_act[tr],axis=0) / np.sqrt(nmice)
+            plt.plot(t, tmp, color='blue')
+            ax.fill_between(t, tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
+        sleepy.box_off(ax)
+        plt.xlabel('Time (s)')
+        plt.xlim([t[0], t[-1]])
+        if i==0:
+            if pzscore:
+                plt.ylabel('$\Delta$F/F (z-scored)')
+            else:
+                plt.ylabel('$\Delta$F/F (%)')
+        if len(ylim) == 2:
+            plt.ylim(ylim)
+        if len(xticks) == 2:
+            plt.xticks(xticks)
+        # END - DF/F
+
+        # plot spectrogram
+        if i==0:
+            axes_cbar = plt.axes([nx * i + dx+dx*2, 0.55+0.25+0.03, nx - dx-dx/3.0, 0.1])
+        ax = plt.axes([nx * i + dx, 0.55, nx - dx-dx/3.0, 0.25])
+        plt.title(states[si] + ' $\\rightarrow$ ' + states[sj])
+
+        # if statement does not make much sense here...
+        #if nmice==1:
+            # dimensions of trans_spe: number of mice x frequencies x time
+            # so, to average over mice, average over first dimension (axis)
+            #im = ax.pcolorfast(t, f, trans_spe[tr].mean(axis=0), cmap='jet')
+        #else:
+        
+        if mouse_avg:
+            im = ax.pcolorfast(t, f, trans_spe[tr].mean(axis=0), cmap='jet')
+        else:
+            im = ax.pcolorfast(t, f, trans_spe_trials[tr].mean(axis=0), cmap='jet')
+
+        if len(vm) > 0:
+            im.set_clim(vm)
+
+        ax.set_xticks([0])
+        ax.set_xticklabels([])
+        if i==0:
+            plt.ylabel('Freq. (Hz)')
+        if i>0:
+            ax.set_yticklabels([])
+        sleepy.box_off(ax)
+
+        if i==0:
+            # colorbar for EEG spectrogram
+            cb = plt.colorbar(im, ax=axes_cbar, pad=0.0, aspect=10.0, orientation='horizontal')
+            #cb = plt.colorbar(im, cax=ax, orientation="horizontal")
+            cb.set_label('Rel. Power')
+            cb.ax.xaxis.set_ticks_position("top")
+            cb.ax.xaxis.set_label_position('top')
+            if len(cb_ticks) > 0:
+                cb.set_ticks(cb_ticks)
+            axes_cbar.set_alpha(0.0)
+            axes_cbar.spines["top"].set_visible(False)
+            axes_cbar.spines["right"].set_visible(False)
+            axes_cbar.spines["bottom"].set_visible(False)
+            axes_cbar.spines["left"].set_visible(False)
+            axes_cbar.axes.get_xaxis().set_visible(False)
+            axes_cbar.axes.get_yaxis().set_visible(False)
+
+        i += 1
+    plt.show()
+
+    if len(fig_file) > 0:
+        sleepy.save_figure(fig_file)
+
+    # Statistics: When does activity becomes significantly different from baseline?
+    ibin = int(np.round(base_int / dt))
+    nbin = int(np.floor((pre+post)/base_int))
+    data = []
+    for tr in trans_act:
+        if mouse_stats:
+            trans = trans_act[tr]
+        else:
+            trans = trans_act_trials[tr]
+        base = trans[:,0:ibin].mean(axis=1)
+        for i in range(1,nbin):
+            p = stats.ttest_rel(base, trans[:,i*ibin:(i+1)*ibin].mean(axis=1))
+            sig = 'no'
+            if p.pvalue < (0.05 / (nbin-1)):
+                sig = 'yes'
+            tpoint = i*(ibin*dt)+tinit + ibin*dt/2
+            tpoint = float('%.2f'%tpoint)
+            
+            data.append([tpoint, p.pvalue, sig, tr])
+    df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
+    print(df)
+
+    return trans_act, trans_act_trials, t, df
+
+
+
+
 def downsample_mx(X, nbin):
     """
     y = downsample_vec(x, nbin)
@@ -2045,7 +2400,12 @@ def irem_corr(ppath, recordings, pzscore=True):
         if pzscore:
             dff = (dff - dff.mean()) / dff.std()
 
+
         M = sleepy.load_stateidx(ppath, rec)[0]
+        mmin = np.min((len(M), dff.shape[0]))
+        M = M[0:mmin]
+        dff = dff[0:mmin]
+
         seq = sleepy.get_sequences(np.where(M==1)[0])    
         if len(seq) >= 2:
             for (si, sj) in zip(seq[:-1], seq[1:]):
@@ -2172,18 +2532,19 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
         if len(seq) >= 2:
             for (si, sj) in zip(seq[:-1], seq[1:]):
                 # indices of inter-REM period
-                idx = list(range(si[-1]+1, sj[0]))
-
-                dff_pre = time_morph(dff[si], nstates_rem)
-                dff_post = time_morph(dff[sj], nstates_rem)
-                dff_itrem = time_morph(dff[idx], nstates_itrem)
-                dff_cycle = np.concatenate((dff_pre, dff_itrem, dff_post))
-                dff_cycle_mouse[idf].append(dff_cycle)
-
-                SP_pre = time_morph(SP[:, si].T, nstates_rem).T
-                SP_post = time_morph(SP[:, sj].T, nstates_rem).T
-                SP_itrem = time_morph(SP[:, idx].T, nstates_itrem).T
-                sp_cycle_mouse[idf].append(np.concatenate((SP_pre, SP_itrem, SP_post), axis=1))
+                if True:
+                    idx = list(range(si[-1]+1, sj[0]))
+    
+                    dff_pre = time_morph(dff[si], nstates_rem)
+                    dff_post = time_morph(dff[sj], nstates_rem)
+                    dff_itrem = time_morph(dff[idx], nstates_itrem)
+                    dff_cycle = np.concatenate((dff_pre, dff_itrem, dff_post))
+                    dff_cycle_mouse[idf].append(dff_cycle)
+    
+                    SP_pre = time_morph(SP[:, si].T, nstates_rem).T
+                    SP_post = time_morph(SP[:, sj].T, nstates_rem).T
+                    SP_itrem = time_morph(SP[:, idx].T, nstates_itrem).T
+                    sp_cycle_mouse[idf].append(np.concatenate((SP_pre, SP_itrem, SP_post), axis=1))
 
     ntime = 2*nstates_rem+nstates_itrem
     nfreq = ifreq.shape[0]
