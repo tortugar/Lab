@@ -641,8 +641,8 @@ def spectral_density(data, length, nfft, dt):
         Pow[:,j]   = power_spectrum(w1, nfft, dt)[0]
         Pow[:,j+1] = power_spectrum(w2, nfft, dt)[0]
         j += 2
-    # last time points
-    (Pow[:,j],f) = power_spectrum(data[length*(k-1):k*length], nfft, dt)
+    # last time point
+    Pow[:,j],f = power_spectrum(data[length*(k-1):k*length], nfft, dt)
     
     return Pow, f, t
 
@@ -1608,7 +1608,7 @@ def rem_online_analysis(ppath, recordings, backup='', single_mode=False, fig_fil
 
 
 
-def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, pplot=True):
+def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, pplot=True, overlap=0, ma_thr=0):
     """
     Further analysis of data obtained from closed loop stimulation
     Assume the sleep structure looks like this
@@ -1671,6 +1671,12 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
         nbin = int(np.round(sr)*2.5)
         dt = (1.0/sr)*nbin
 
+        if ma_thr>0:
+            seq = get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if len(s)*dt <= ma_thr:
+                    M[s] = 3
+
         laser = load_laser(paths[rec], rec)
         rem_trig = so.loadmat(os.path.join(paths[rec], rec, 'rem_trig_%s.mat' % rec), squeeze_me=True)['rem_trig']
 
@@ -1702,12 +1708,14 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
                 #it_idx = range(p[-1]+1, q[0])
                 #it_drn = len(np.where(M[it_idx] == 3)[0])*dt
                 # does the sequence overlap with laser?
-                if len(np.intersect1d(p, laser_idx))>0:
+                if len(np.intersect1d(p, laser_idx))>overlap:
                     remdur_exp[idf].append(drn)
                     itdur_exp[idf].append(it_drn)
-                else:
+                elif len(np.intersect1d(p, laser_idx))<=overlap:
                     remdur_ctr[idf].append(drn)
                     itdur_ctr[idf].append(it_drn)
+                else:
+                    pass
 
 
     # if single_mode put all REM periods together,
@@ -1751,9 +1759,8 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
         dfm = pd.melt(df, id_vars=['laser', 'mouse'], var_name='state')
         sns.set_style('whitegrid')
 
-
         plt.ion()
-
+        plt.figure()
         sns.barplot(data=dfm, hue='laser', x='state', y='value', palette=['blue', 'gray'])
         sns.swarmplot(data=dfm, hue='laser', x='state', y='value', dodge=True, color='black')
 
@@ -3526,7 +3533,7 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     :param r_mu: range of frequencies for EMG amplitude
     :param fw_color: if True, use standard color scheme for brainstate (gray - NREM, violet - Wake, cyan - REM);
             otherwise use Shinjae's color scheme
-    :param pemg_ampl: 
+    :param pemg_ampl: if True, plot EMG amplitude, other EMG raw traces
     :param raw_ex: list of tuples; e.g. if you wish to show 2 raw examples of length t s at time point i and j s, 
                    set raw_ex = [(i,t), (j,t)]. 
                    If raw_ex == [], no raw traces are plotted
@@ -3685,8 +3692,6 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     axes_emg.patch.set_alpha(0.0)
     axes_emg.spines["bottom"].set_visible(False)
 
-
-    # NEW
     # axis for raw data example
     if len(raw_ex) > 0:
         axes_raw_ex = plt.axes([0.1, .39, 0.8, 0.51])
@@ -5281,6 +5286,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     count_mice = {0: {m:0 for m in mice}, 1: {m:0 for m in mice}}
     data = []
     for rec in recordings:
+        print(rec)
         # load brain state
         idf = re.split('_', rec)[0]
         M = load_stateidx(ppath, rec)[0]
@@ -5338,7 +5344,6 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                         idx_nolsr = np.setdiff1d(idx_nolsr, drm)
                         idx_lsr = np.union1d(idx_lsr, drm)
             
-            print(len(idx_nolsr))
         ###################################################
 
         # load EEG spectrogram
@@ -6265,7 +6270,7 @@ def downsample_states(M, nbin, ptie_break=True):
 
 
 
-def infraslow_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160,
+def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
                      band=[10,15], state=3, win=64, pplot=True, pflipx=True, pnorm=False, tstart=0, tend=-1, peeg2=False):
     """
     calculate powerspectrum of EEG spectrogram to identify oscillations in sleep activity within different frequency bands;
@@ -6311,7 +6316,6 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160,
         if tend > -1:
             iend   = int(np.round(tend/dt))
 
-
         # load sleep state
         M = load_stateidx(ppath, rec)[0]
         if tend == -1:
@@ -6334,14 +6338,17 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160,
         for s in seq:
             y,f = power_spectrum(pow_band[s], win, dt)
             Spec[idf].append(y)
-        
+    
     # Transform %Spec to ndarray
     SpecMx = np.zeros((len(Spec), len(f)))
     i=0
+    data = []
     for idf in Spec:
         SpecMx[i,:] = np.array(Spec[idf]).mean(axis=0)
         if pnorm==True:
             SpecMx[i,:] = SpecMx[i,:]/LA.norm(SpecMx[i,:])
+            
+        data += zip([idf]*len(f), SpecMx[i,:], f)
         i += 1
 
     if pplot == True:
@@ -6364,8 +6371,10 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160,
             plt.xlabel('Frequency (Hz)')
         plt.ylabel('Power (uV^2)')
         plt.show()
+        
+    df = pd.DataFrame(data=data, columns=['mouse', 'pow', 'freq'])
 
-    return SpecMx, f
+    return SpecMx, f, df
 
 
 
@@ -6475,7 +6484,7 @@ def nparray2df(mx, rows, cols, mx_label='', row_label='', column_label=''):
     transform a 2D np.array to pandas DataFrame.
     :param mx: 2D np.array
     :param rows: list or vector of row labels
-    :param cols: list or vecotr of columns labels
+    :param cols: list or vector of columns labels
     :param mx_label, row_label, column_label: label (string) for values in matrix, 
                                               name for rows and columns        
     """
