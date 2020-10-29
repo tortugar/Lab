@@ -1009,7 +1009,15 @@ def corr_activity(ppath, recordings, states, nskip=10, pzscore=True, bands=[]):
         nskip = int(nskip / sdt)
 
         M = sleepy.load_stateidx(ppath, rec)[0][nskip:]
-        dff_rec = so.loadmat(os.path.join(ppath, rec, 'DFF.mat'), squeeze_me=True)['dffd'][nskip:]*100.0
+
+        ddir = os.path.join(ppath, rec)
+        if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
+            dff_rec = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
+        else:
+            dff_rec = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+            print('%s - saving dffd.mat' % rec)
+            so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd': dff_rec})
+        #dff_rec = so.loadmat(os.path.join(ppath, rec, 'DFF.mat'), squeeze_me=True)['dffd'][nskip:]*100.0
         if pzscore:
             dff_rec = (dff_rec - dff_rec.mean()) / dff_rec.std()
 
@@ -1276,7 +1284,7 @@ def bandpass_corr(ppath, name, band, win=120, state=3, tbreak=60, pemg=False):
 
 
 
-def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, mode='cross', pemg=False, pplot=True):
+def bandpass_corr_state(ppath, name, band, fft_win = 1/8, win=120, state=3, tbreak=60, mode='cross', pzscore=True, pnorm_spec=True, pemg=False, pplot=True):
     """
     correlate band in EEG spectrogram with calcium activity;
     plot cross-correlation for all intervals of brain state $state.
@@ -1307,7 +1315,7 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, mode='cr
     """
     sr = get_snr(ppath, name)
     nbin = int(np.round(2.5 * sr))
-    nwin = int(np.round(sr / 8))+1
+    nwin = int(np.round(sr * fft_win))+1
     dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dff']
 
     if pemg:
@@ -1326,8 +1334,15 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, mode='cr
         EEGcut = EEG[i:j]
         dffcut = dff[i:j]
         dffd = sleepy.downsample_vec(dffcut, int(nwin))
+        if pzscore:
+            dffd = (dffd-dffd.mean()) / dffd.std()
+
         #Pow, f, t = sleepy.spectral_density(EEGcut, 2 * nwin, nwin, 1.0 / sr)
         f, t, Pow = scipy.signal.spectrogram(EEGcut, nperseg=nwin, noverlap=0, fs=sr)
+
+        if pnorm_spec:
+            sp_mean = Pow.mean(axis=1)
+            Pow = np.divide(Pow, np.tile(sp_mean, (Pow.shape[1], 1)).T)
 
         ifreq = np.where((f >= band[0]) & (f <= band[1]))[0]
         dt = t[1] - t[0]
@@ -1336,7 +1351,10 @@ def bandpass_corr_state(ppath, name, band, win=120, state=3, tbreak=60, mode='cr
         if mode != 'cross':
             pow_band = dffd
         else:
-            pow_band = np.sqrt(Pow[ifreq, :].sum(axis=0) * (f[1]-f[0]))
+            if not pnorm_spec:
+                pow_band = Pow[ifreq, :].sum(axis=0) * (f[1]-f[0])
+            else:
+                pow_band = Pow[ifreq, :].mean(axis=0)
 
         pow_band -= pow_band.mean()
         
@@ -1396,11 +1414,81 @@ def bandpass_corr_state_avg(ppath, recordings, band, win=120, state=3, tbreak=20
     df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'cc', 'time'])
     
     plt.figure()
-    dfm = df.groupby(['mouse', 'time']).mean().reset_index()
+    dfm = df.groupby(['mouse', 'recording', 'time']).mean().reset_index()
     sns.lineplot(data=df.groupby(['mouse', 'time']).mean().reset_index(), x='time', y='cc', ci=None)
 
     return dfm
 
+
+def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, pplot=True):
+    """
+    calculate the correlation between the power in the given frequency band and the DF/F activity
+    :param ppath:
+    :param recordings:
+    :param band:
+    :return:
+    """
+    data = []
+    state_map = {1:'REM', 2:'Wake', 3:'NREM'}
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        print('Processing mouse %s' % idf)
+        # load DF/F
+        ddir = os.path.join(ppath, rec)
+        # NEW 10/15/2020
+        if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
+            dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
+        else:
+            dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+            print('%s - saving dffd.mat' % rec)
+            so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd': dff})
+
+        if pzscore:
+            dff = (dff - dff.mean()) / dff.std()
+        else:
+            dff *= 100
+
+        # load spectrogram and normalize
+        P = so.loadmat(os.path.join(ddir, 'sp_%s.mat' % rec), squeeze_me=True)
+        SP = P['SP']
+        freq = P['freq']
+        ifreq = np.where((freq >= band[0]) & (freq <= band[1]))[0]
+        df = freq[1] - freq[0]
+
+        if pnorm_spec:
+            sp_mean = SP.mean(axis=1)
+            SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
+            pow_band = SP[ifreq, :].mean(axis=0)
+        else:
+
+            pow_band = SP[ifreq,:].sum(axis=0)*df
+
+        M = sleepy.load_stateidx(ppath, rec)[0]
+        for s in [1,2,3]:
+            idx = np.where(M==s)[0]
+            #pdb.set_trace()
+            r,p = scipy.stats.pearsonr(dff[idx], pow_band[idx])
+            if p < 0.05:
+                sig = 'yes'
+            else:
+                sig = 'no'
+            data.append([idf, rec, r, p, sig, state_map[s]])
+
+
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'r', 'p', 'sig', 'state'])
+
+    if pplot:
+        dfm_sig = df[df.p > 0.05].groupby(['mouse', 'state']).mean().reset_index()
+        dfm_nsg = df[df.p <= 0.05].groupby(['mouse', 'state']).mean().reset_index()
+
+        plt.figure()
+        sns.swarmplot(data=dfm_sig, x='state', y='r', hue='sig')
+
+
+
+
+
+    return df
 
 
 def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold, sj_threshold,
@@ -2882,10 +2970,15 @@ def dff_vs_statedur(ppath, recordings, istate, pzscore=False, sf=0, fs=1.5, ma_t
 
 
 def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
-                     band=[10,15], state=3, win=64, pplot=True, pflipx=True, pnorm=False, tstart=0, tend=-1, peeg2=False):
+                     band=[10,15], state=3, win=64, pplot=True, 
+                     pnorm=False, pzscore=True, tstart=0, tend=-1, peeg2=False, dff_control=False):
     """
     calculate powerspectrum of EEG spectrogram to identify oscillations in sleep activity within different frequency bands;
-    only contineous NREM periods are considered for
+    only contineous NREM periods are considered for infraslow calculation.
+    
+    Example call: 
+        df = pyphi.dff_infraslow(ppath, recordings, win=128, min_dur=3*60, pplot=False, pnorm=True) 
+    
     @PARAMETERS:
     ppath        -       base folder of recordings
     recordings   -       single recording name or list of recordings
@@ -2896,11 +2989,11 @@ def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
     band         -       frequency band used for calculation
     win          -       window (number of indices) for FFT calculation
     pplot        -       if True, plot window showing result
-    pflipx       -       if True, plot wavelength instead of frequency on x-axis
     pnorm        -       if True, normalize spectrum (for each mouse) by its total power
     
+    
     @RETURN:
-    SpecMx, f    -       ndarray [mice x frequencies], vector [frequencies]
+    df           -       pd.DataFrame
     """
     import scipy.linalg as LA
 
@@ -2911,9 +3004,13 @@ def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
         recordings = [recordings]
 
     Spec = {}    
+    DFF  = {}
     for rec in recordings:
         idf = re.split('_', rec)[0]
         Spec[idf] = []
+        DFF[idf] = []
+        
+        
     mice = list(Spec.keys())
     
     for rec in recordings:
@@ -2921,7 +3018,7 @@ def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
 
         # sampling rate and time bin for spectrogram
         SR = get_snr(ppath, rec)
-        NBIN = np.round(2.5*SR)
+        NBIN = int(np.round(2.5*SR))
         dt = NBIN * 1/SR
         istart = int(np.round(tstart/dt))
         if tend > -1:
@@ -2944,45 +3041,70 @@ def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
         freq = np.squeeze(P['freq'])
         ifreq = np.where((freq>=band[0]) & (freq<=band[1]))[0]
         pow_band = SP[ifreq,:].mean(axis=0)
-        #pow_band = so.loadmat(os.path.join(ppath, rec, 'dffd.mat'), squeeze_me=True)['dffd']
+        if not dff_control:
+            if os.path.isfile(os.path.join(ppath, rec, 'dffd.mat')):
+                dffd = so.loadmat(os.path.join(ppath, rec, 'dffd.mat'), squeeze_me=True)['dffd']
+            else:
+                dffd = so.loadmat(os.path.join(ppath, rec, 'DFF.mat'), squeeze_me=True)['dffd']
+                so.savemat(os.path.join(ppath, rec, 'dffd.mat'), {'dffd': dffd})
+        else:
+            if os.path.isfile(os.path.join(ppath, rec, 'dffd_405.mat')):
+                dffd = so.loadmat(os.path.join(ppath, rec, 'dffd_405.mat'), squeeze_me=True)['dffd']
+            else:
+                dff_405 = so.loadmat(os.path.join(ppath, rec, 'DFF.mat'), squeeze_me=True)['405']
+                #pdb.set_trace()
+                dffd = downsample_vec(dff_405, NBIN)
+                print('%s - saving dffd_405.mat' % rec)
+                so.savemat(os.path.join(ppath, rec, 'dffd_405.mat'), {'dffd': dffd})
+
+        if pzscore:
+            dffd = (dffd-dffd.mean()) / dffd.std()
         
         seq = [s for s in seq if len(s)*dt >= min_dur]   
         for s in seq:
             y,f = sleepy.power_spectrum(pow_band[s], win, dt)
             Spec[idf].append(y)
-    
-    pdb.set_trace()
+            
+            y,f = sleepy.power_spectrum(dffd[s], win, dt)
+            DFF[idf].append(y)
+            
     # Transform %Spec to ndarray
     SpecMx = np.zeros((len(Spec), len(f)))
+    DFFMx  = np.zeros((len(Spec), len(f)))
+    
+    data = []
     i=0
     for idf in Spec:
         SpecMx[i,:] = np.array(Spec[idf]).mean(axis=0)
+        DFFMx[i,:]  = np.array(DFF[idf]).mean(axis=0)
         if pnorm==True:
             SpecMx[i,:] = SpecMx[i,:]/LA.norm(SpecMx[i,:])
+            DFFMx[i,:]  = DFFMx[i,:]/LA.norm(DFFMx[i,:])
+            
+        data += zip([idf]*len(f), f, SpecMx[i,:], ['spec']*len(f))
+        data += zip([idf]*len(f), f, DFFMx[i,:], ['dff']*len(f))
+        
         i += 1
 
     if pplot == True:
         plt.figure()
         ax = plt.axes([0.1, 0.1, 0.8, 0.8])
         
-        x = f[1:]
-        if pflipx == True: x = 1.0/f[1:]
-        y = SpecMx[:,1:]
+        y = SpecMx[:,:]
         if len(mice) <= 1:
-            ax.plot(x, y.mean(axis=0), color='gray', lw=2)
+            ax.plot(f, y.mean(axis=0), color='gray', lw=2)
             
         else:
-            ax.errorbar(x, y.mean(axis=0), yerr=y.std(axis=0), color='gray', fmt='-o')
+            ax.errorbar(f, y.mean(axis=0), yerr=y.std(axis=0), color='gray', fmt='-o')
 
-        box_off(ax)
-        if pflipx == True:
-            plt.xlabel('Wavelength (s)')
-        else:
-            plt.xlabel('Frequency (Hz)')
+        sleepy.box_off(ax)
+        plt.xlabel('Frequency (Hz)')
         plt.ylabel('Power (uV^2)')
         plt.show()
 
-    return SpecMx, f
+    df = pd.DataFrame(data=data, columns=['mouse', 'freq', 'pow', 'type'])
+
+    return df
 
 
 
