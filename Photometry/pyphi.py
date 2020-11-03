@@ -71,6 +71,35 @@ def downsample_vec(x, nbin):
 
 
 
+def downsample_overlap(x, nwin, noverlap):
+    """
+    Say,
+    len(x)=10
+    nwin=5
+    nolverap=3
+    1 2 3 4 5 6 7 8 9 10
+
+    1 2 3 4 5
+        3 4 5 6 7
+            5 6 7 8 9
+
+    :param x:
+    :param nwin:
+    :param noverlap:
+    :return:
+    """
+    nsubwin = nwin-noverlap
+    n_down = int(np.floor((x.shape[0]-noverlap)/nsubwin))
+    x_down = np.zeros((n_down,))
+    j = 0
+    for i in range(0, x.shape[0]-nwin+1, nsubwin):
+        x_down[j] = x[i:i+nwin].mean()
+        j += 1
+
+    return x_down
+
+
+
 def least_squares(x, y, n):
     A = np.zeros((len(x), n + 1))
     for i in range(n + 1):
@@ -676,7 +705,14 @@ def avg_activity(ppath, name, tstart = 10, tend = -1, awake=False, mu=[10,100]):
         iend = int(np.round(tend/sdt))
     M = M[istart:iend]
 
-    dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dffd'][istart:iend]
+    ddir = os.path.join(ppath, rec)
+    if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
+        dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
+    else:
+        dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
+        print('%s - saving dffd.mat' % rec)
+        so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd': dff})
+    #dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dffd'][istart:iend]
 
     dff_mean = np.zeros((5,))
     dff_std  = np.zeros((5,))
@@ -732,7 +768,8 @@ def avg_activity(ppath, name, tstart = 10, tend = -1, awake=False, mu=[10,100]):
 
 
 
-def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzscore=False, awake=False, mu=[10,100], fig_file='', csv_file=''):
+def avg_activity_recs(ppath, recordings, tstart=10, tend=-1, backup='', pzscore=False, awake=False,
+                      ma_thr=0, mu=[10,100], fig_file='', csv_file=''):
     """
     calculate average DF/F activity during each brainstate for a list of recordings.
     If the recordings come from several mice, the function averages across mice.
@@ -754,6 +791,7 @@ def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzsc
     :param awake: it True, also plot active and quite wake. Active wake is determine
                   based on an EMG threshold; which is the mean EMG amplitude 
                   during wake + 1 std.
+    :param ma_thr: set wake sequences <= ma_thr seconds to NREM
     :param mu: range of frequencies used to calculated EMG amplitude
     :param fig_file: string, if non-empty, save file to specific file name; can be just a file name
            or complete path including file name. If single filename, the file is saved, in the
@@ -795,6 +833,14 @@ def avg_activity_recs(ppath, recordings, tstart = 10, tend = -1, backup='', pzsc
         istart = int(np.round(tstart/sdt))
         # load brain state
         M = sleepy.load_stateidx(ppath, rec)[0]
+        # flatten out microarousals
+        if ma_thr > 0:
+            seq = sleepy.get_sequences(np.where(M == 2)[0])
+            if ma_thr > 0:
+                for s in seq:
+                    if len(s) * sdt <= ma_thr:
+                        M[s] = 3
+
         if tend == -1:
             iend = M.shape[0]
         else:
@@ -1284,7 +1330,7 @@ def bandpass_corr(ppath, name, band, win=120, state=3, tbreak=60, pemg=False):
 
 
 
-def bandpass_corr_state(ppath, name, band, fft_win = 1/8, win=120, state=3, tbreak=60, mode='cross', pzscore=True, pnorm_spec=True, pemg=False, pplot=True):
+def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=120, state=3, tbreak=10, mode='cross', pzscore=True, pnorm_spec=True, pemg=False, pplot=True, sr=0):
     """
     correlate band in EEG spectrogram with calcium activity;
     plot cross-correlation for all intervals of brain state $state.
@@ -1313,9 +1359,13 @@ def bandpass_corr_state(ppath, name, band, fft_win = 1/8, win=120, state=3, tbre
     :param pemg: if True, perform analysis with EMG instead of EEG
     :return: np.array, cross-correlation for each $state interval
     """
-    sr = get_snr(ppath, name)
+    if sr==0:
+        sr = get_snr(ppath, name)
     nbin = int(np.round(2.5 * sr))
-    nwin = int(np.round(sr * fft_win))+1
+    nwin = int(np.round(sr * fft_win))
+    if nwin % 2 == 1:
+        nwin += 1
+    noverlap = int(nwin*perc_overlap)
     dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dff']
 
     if pemg:
@@ -1325,7 +1375,17 @@ def bandpass_corr_state(ppath, name, band, fft_win = 1/8, win=120, state=3, tbre
 
     M, S = sleepy.load_stateidx(ppath, name)
 
-    seq = sleepy.get_sequences(np.where(M == state)[0], ibreak=int(tbreak/2.5))
+    # Say perc_overlap = 0.9, then we have 10 sub-windows (= 1 / (1-perc_overlap)
+    # Each subwindow has nwin_sub = nwin * (1 - 0.9) data points
+    # Each subwindow has 10 = timebins_per_fftwin = fft_win - perc_overlap*fft_win = fft_win * (1 - perc_overlap)
+    # Now the fft_win ranges over 10 subwindows.
+    # I downsample dff to time steps of the size of the subwindows. So for one FFT step we have 10 corresponding
+    # dff values, which one to take? I would argue the center point
+
+    timebins_per_fftwin = int(1 / (1-perc_overlap))
+    #dff_shift = int(timebins_per_fftwin/2)
+
+    seq = sleepy.get_sequences(np.where(M == state)[0], ibreak=int(tbreak/2.5)+1)
     seq = [s for s in seq if len(s)*2.5 > 2*win]
     CC = []
     for s in seq:
@@ -1333,19 +1393,26 @@ def bandpass_corr_state(ppath, name, band, fft_win = 1/8, win=120, state=3, tbre
         j = s[-1] * nbin + 1
         EEGcut = EEG[i:j]
         dffcut = dff[i:j]
-        dffd = sleepy.downsample_vec(dffcut, int(nwin))
+        if noverlap==0:
+            #dffd = sleepy.downsample_vec(dffcut, nwin-noverlap)[dff_shift:]
+            #dffd = dffd[dff_shift:]
+            dffd = sleepy.downsample_vec(dffcut, nwinp)
+        else:
+            dffd = downsample_overlap(dffcut, nwin, noverlap)
+
         if pzscore:
             dffd = (dffd-dffd.mean()) / dffd.std()
 
         #Pow, f, t = sleepy.spectral_density(EEGcut, 2 * nwin, nwin, 1.0 / sr)
-        f, t, Pow = scipy.signal.spectrogram(EEGcut, nperseg=nwin, noverlap=0, fs=sr)
-
+        f, t, Pow = scipy.signal.spectrogram(EEGcut, nperseg=nwin, noverlap=noverlap, fs=sr)
         if pnorm_spec:
             sp_mean = Pow.mean(axis=1)
             Pow = np.divide(Pow, np.tile(sp_mean, (Pow.shape[1], 1)).T)
 
         ifreq = np.where((f >= band[0]) & (f <= band[1]))[0]
         dt = t[1] - t[0]
+        print(dt)
+        print('Frequency binning: %f' % (f[1]-f[0]))
         iwin = int(win / dt)
 
         if mode != 'cross':
@@ -1402,12 +1469,12 @@ def bandpass_corr_state(ppath, name, band, fft_win = 1/8, win=120, state=3, tbre
 
 
 
-def bandpass_corr_state_avg(ppath, recordings, band, win=120, state=3, tbreak=20, mode='cross', pemg=False):
+def bandpass_corr_state_avg(ppath, recordings, band, win=120, fft_win=2.5, perc_overlap=0.8, state=3, tbreak=10, mode='cross', pemg=False, sr=0):
     
     data = []
     for rec in recordings:
         idf = re.split('_', rec)[0]
-        CC, t = bandpass_corr_state(ppath, rec, band, win=win, state=state, tbreak=tbreak, mode=mode, pemg=pemg, pplot=False)
+        CC, t = bandpass_corr_state(ppath, rec, band, win=win, state=state, tbreak=tbreak, mode=mode, pemg=pemg, fft_win=fft_win, perc_overlap=perc_overlap, pplot=False, sr=0)
         ccmean = np.array(CC).mean(axis=0)
         data += zip([idf]*ccmean.shape[0], [rec]*ccmean.shape[0], list(ccmean), list(t))
         
@@ -1466,7 +1533,6 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
         M = sleepy.load_stateidx(ppath, rec)[0]
         for s in [1,2,3]:
             idx = np.where(M==s)[0]
-            #pdb.set_trace()
             r,p = scipy.stats.pearsonr(dff[idx], pow_band[idx])
             if p < 0.05:
                 sig = 'yes'
@@ -1483,9 +1549,6 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
 
         plt.figure()
         sns.swarmplot(data=dfm_sig, x='state', y='r', hue='sig')
-
-
-
 
 
     return df
@@ -1648,7 +1711,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             if ma_thr>0:
                 seq = sleepy.get_sequences(np.where(M==2)[0])
                 for s in seq:
-                    if len(s)*dt < ma_thr:
+                    if len(s)*dt <= ma_thr:
                         if (s[0]>1) and (M[s[0] - 1] != 1):
                             M[s] = 3
 
@@ -2785,7 +2848,7 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
         if ma_thr > 0:
             seq = sleepy.get_sequences(np.where(M == 2)[0])
             for s in seq:
-                if len(s) * dt < ma_thr:
+                if np.round(len(s)*dt) < ma_thr:
                     if (s[0] > 1) and (M[s[0] - 1] != 1):
                         M[s] = 3
         print(idf)
@@ -2969,9 +3032,9 @@ def dff_vs_statedur(ppath, recordings, istate, pzscore=False, sf=0, fs=1.5, ma_t
 
 
 
-def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
-                     band=[10,15], state=3, win=64, pplot=True, 
-                     pnorm=False, pzscore=True, tstart=0, tend=-1, peeg2=False, dff_control=False):
+def dff_infraslow(ppath, recordings, ma_thr=10, min_dur = 160,
+                     band=[10,15], state=3, win=100, pplot=True,
+                     pnorm=False, spec_norm=True, pzscore=True, tstart=0, tend=-1, peeg2=False, dff_control=False):
     """
     calculate powerspectrum of EEG spectrogram to identify oscillations in sleep activity within different frequency bands;
     only contineous NREM periods are considered for infraslow calculation.
@@ -3020,6 +3083,9 @@ def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
         SR = get_snr(ppath, rec)
         NBIN = int(np.round(2.5*SR))
         dt = NBIN * 1/SR
+
+        dt = 2.5
+
         istart = int(np.round(tstart/dt))
         if tend > -1:
             iend   = int(np.round(tend/dt))
@@ -3029,7 +3095,7 @@ def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
         if tend == -1:
             iend = M.shape[0]
         M = M[istart:iend]
-        seq = sleepy.get_sequences(np.where(M==state)[0], np.round(ma_thr/dt))
+        seq = sleepy.get_sequences(np.where(M==state)[0], np.round(ma_thr/dt)+1)
         seq = [list(range(s[0], s[-1]+1)) for s in seq]
         
         # load frequency band
@@ -3040,7 +3106,14 @@ def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
             SP = np.squeeze(P['SP2'])[:, istart:iend]
         freq = np.squeeze(P['freq'])
         ifreq = np.where((freq>=band[0]) & (freq<=band[1]))[0]
-        pow_band = SP[ifreq,:].mean(axis=0)
+        if spec_norm:
+            sp_mean = SP[:, :].mean(axis=1)
+            SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
+            pow_band = SP[ifreq,:].mean(axis=0)
+        else:
+            pow_band = SP[ifreq, :].sum(axis=0) * (freq[1]-freq[0])
+
+
         if not dff_control:
             if os.path.isfile(os.path.join(ppath, rec, 'dffd.mat')):
                 dffd = so.loadmat(os.path.join(ppath, rec, 'dffd.mat'), squeeze_me=True)['dffd']
@@ -3056,6 +3129,7 @@ def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
                 dffd = downsample_vec(dff_405, NBIN)
                 print('%s - saving dffd_405.mat' % rec)
                 so.savemat(os.path.join(ppath, rec, 'dffd_405.mat'), {'dffd': dffd})
+        dffd = dffd[istart:iend]
 
         if pzscore:
             dffd = (dffd-dffd.mean()) / dffd.std()
@@ -3078,8 +3152,8 @@ def dff_infraslow(ppath, recordings, ma_thr=20.0, min_dur = 160,
         SpecMx[i,:] = np.array(Spec[idf]).mean(axis=0)
         DFFMx[i,:]  = np.array(DFF[idf]).mean(axis=0)
         if pnorm==True:
-            SpecMx[i,:] = SpecMx[i,:]/LA.norm(SpecMx[i,:])
-            DFFMx[i,:]  = DFFMx[i,:]/LA.norm(DFFMx[i,:])
+            SpecMx[i,:] = SpecMx[i,:] / SpecMx[i,:].mean()#/LA.norm(SpecMx[i,:])
+            DFFMx[i,:]  = DFFMx[i,:] / DFFMx[i,:].mean()#/LA.norm(DFFMx[i,:])
             
         data += zip([idf]*len(f), f, SpecMx[i,:], ['spec']*len(f))
         data += zip([idf]*len(f), f, DFFMx[i,:], ['dff']*len(f))
