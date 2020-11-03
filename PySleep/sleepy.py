@@ -3274,6 +3274,31 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0, nboot
     plt.draw()
 
     # statistics
+    # OLD VERSION
+    # ibase = np.where((t>=-laser_dur) & (t<0))[0]
+    # ilsr  = np.where((t>=0) & (t<laser_dur))[0]
+    # P   = np.zeros((3,))
+    # Mod = np.zeros((3,))
+    # for istate in [1,2,3]:
+    #     basel = usProb[:,ibase,istate-1].mean(axis=1)
+    #     laser = usProb[:,ilsr, istate-1].mean(axis=1)
+    #     d = laser - basel
+    #     if np.mean(d) >= 0:
+    #         # now we want all values be larger than 0
+    #         p = len(np.where(d>0)[0]) / (1.0*nboots)
+    #         sig = 1 - p
+    #         if sig == 0:
+    #             sig = 1.0/nboots
+    #         Mod[istate-1] = (np.mean(laser) / np.mean(basel) - 1) * 100
+    #     else:
+    #         p = len(np.where(d<0)[0]) / (1.0*nboots)
+    #         sig = 1 - p
+    #         if sig == 0:
+    #             sig = 1.0/nboots
+    #         Mod[istate-1] = -(1 - np.mean(laser) / np.mean(basel)) * 100
+    #     P[istate-1] = sig
+
+    # NEW VERSION
     ibase = np.where((t>=-laser_dur) & (t<0))[0]
     ilsr  = np.where((t>=0) & (t<laser_dur))[0]
     P   = np.zeros((3,))
@@ -3282,20 +3307,23 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0, nboot
         basel = usProb[:,ibase,istate-1].mean(axis=1)
         laser = usProb[:,ilsr, istate-1].mean(axis=1)
         d = laser - basel
+        p = 2 * np.min([len(np.where(d > 0)[0]) / nboots, len(np.where(d < 0)[0]) / nboots])
+
         if np.mean(d) >= 0:
             # now we want all values be larger than 0
-            p = len(np.where(d>0)[0]) / (1.0*nboots)
-            sig = 1 - p
+            #p = len(np.where(d>0)[0]) / (1.0*nboots)
+            sig = p
             if sig == 0:
                 sig = 1.0/nboots
             Mod[istate-1] = (np.mean(laser) / np.mean(basel) - 1) * 100
         else:
-            p = len(np.where(d<0)[0]) / (1.0*nboots)
-            sig = 1 - p
+            # p = len(np.where(d<0)[0]) / (1.0*nboots)
+            sig = p
             if sig == 0:
                 sig = 1.0/nboots
             Mod[istate-1] = -(1 - np.mean(laser) / np.mean(basel)) * 100
         P[istate-1] = sig
+
 
     labels = {1:'REM', 2:'Wake', 3:'NREM'}
     for s in [1,2,3]:
@@ -5726,17 +5754,59 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
 
             # probabilities outside laser stimulation
             basel = Base[id]
+            Mod[si-1, sj-1] = np.nanmean(laser) / np.nanmean(basel)
 
             if not paired_stats:
                 d = laser - basel
             else:
                 irand = random.sample(range(laser.shape[0]), laser.shape[0])
                 d = laser[irand] - basel
-            p = len(np.where(d >= 0)[0]) / (1.0*len(d))
-            Mod[si-1, sj-1] = np.nanmean(laser) / np.nanmean(basel)
+
+            # OLD VERSION
+            # p = len(np.where(d >= 0)[0]) / (1.0*len(d))
+            #
+            # s = '='
+            # if Mod[si-1, sj-1] > 1:
+            #     val = 1 - p
+            #     if val == 1:
+            #         s = '>'
+            #         val = 1 - 1.0 / nboot
+            #     if val == 0:
+            #         s = '<'
+            #         val = 1.0 / nboot
+            #     Sig[si-1, sj-1] = val
+            #     # division by 2.0 to make the test two-sided!
+            #     if val < alpha/2.0:
+            #         print('%s -> %s: Trans. prob. is INCREASED by a factor of %.3f; P %s %.4f'
+            #               % (states[si], states[sj], Mod[si-1, sj-1], s, val))
+            #     else:
+            #         print('%s -> %s: Trans. prob. is increased by a factor of %.3f; P %s %.4f'
+            #             % (states[si], states[sj], Mod[si-1, sj-1], s, val))
+            # else:
+            #     val = p
+            #     if val == 1:
+            #         s = '>'
+            #         val = 1 - 1.0 / nboot
+            #     if val == 0:
+            #         s = '<'
+            #         val = 1.0 / nboot
+            #     Sig[si-1, sj-1] = val
+            #     # division by 2.0 to make the test two-sided!
+            #     if val < alpha/2.0:
+            #         print('%s -> %s: Trans. prob. is DECREASED by a factor of %.3f; P %s %.4f'
+            #                 % (states[si], states[sj], Mod[si - 1, sj - 1], s, val))
+            #     else:
+            #         print('%s -> %s: Trans. prob. is decreased by a factor of %.3f; P %s %.4f'
+            #                 % (states[si], states[sj], Mod[si - 1, sj - 1], s, val))
+            # ##########################################################################################################
+
+            # NEW VERSION
+            # "2 *" to make the test two sided. The different d can be either >0 or <0;
+            # see also http://qed.econ.queensu.ca/working_papers/papers/qed_wp_1127.pdf
+            p = 2 * np.min([len(np.where(d > 0)[0]) / (1.0 * len(d)), len(np.where(d < 0)[0]) / (1.0 * len(d))])
             s = '='
             if Mod[si-1, sj-1] > 1:
-                val = 1 - p
+                val = p
                 if val == 1:
                     s = '>'
                     val = 1 - 1.0 / nboot
@@ -5745,7 +5815,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
                     val = 1.0 / nboot
                 Sig[si-1, sj-1] = val
                 # division by 2.0 to make the test two-sided!
-                if val < alpha/2.0:
+                if val < alpha:#/2.0:
                     print('%s -> %s: Trans. prob. is INCREASED by a factor of %.3f; P %s %.4f'
                           % (states[si], states[sj], Mod[si-1, sj-1], s, val))
                 else:
@@ -5761,12 +5831,13 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
                     val = 1.0 / nboot
                 Sig[si-1, sj-1] = val
                 # division by 2.0 to make the test two-sided!
-                if val < alpha/2.0:
+                if val < alpha:#/2.0:
                     print('%s -> %s: Trans. prob. is DECREASED by a factor of %.3f; P %s %.4f'
                             % (states[si], states[sj], Mod[si - 1, sj - 1], s, val))
                 else:
                     print('%s -> %s: Trans. prob. is decreased by a factor of %.3f; P %s %.4f'
                             % (states[si], states[sj], Mod[si - 1, sj - 1], s, val))
+            ############################################################################################################
 
     if len(fig_file) > 0:
         save_figure(fig_file)
@@ -6271,7 +6342,9 @@ def downsample_states(M, nbin, ptie_break=True):
 
 
 def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
-                     band=[10,15], state=3, win=64, pplot=True, pflipx=True, pnorm=False, tstart=0, tend=-1, peeg2=False):
+                     band=[10,15], state=3, win=64, pplot=True, pflipx=True, pnorm=False,
+                     spec_norm=True,
+                     tstart=0, tend=-1, peeg2=False):
     """
     calculate powerspectrum of EEG spectrogram to identify oscillations in sleep activity within different frequency bands;
     only contineous NREM periods are considered for
@@ -6292,8 +6365,8 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
     SpecMx, f    -       ndarray [mice x frequencies], vector [frequencies]
     """
     import scipy.linalg as LA
+    print('Greetings from infraslow_rhythm')
 
-    #min_dur = win*2.5
     min_dur = np.max([win*2.5, min_dur])
     
     if type(recordings) != list:
@@ -6312,6 +6385,8 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
         SR = get_snr(ppath, rec)
         NBIN = np.round(2.5*SR)
         dt = NBIN * 1/SR
+        dt = 2.5
+
         istart = int(np.round(tstart/dt))
         if tend > -1:
             iend   = int(np.round(tend/dt))
@@ -6321,9 +6396,7 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
         if tend == -1:
             iend = M.shape[0]
         M = M[istart:iend]
-        seq = get_sequences(np.where(M==state)[0], np.round(ma_thr/dt))
-        seq = [list(range(s[0], s[-1]+1)) for s in seq]
-        
+
         # load frequency band
         P = so.loadmat(os.path.join(ppath, rec,  'sp_' + rec + '.mat'))
         if not peeg2:
@@ -6332,13 +6405,24 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
             SP = np.squeeze(P['SP2'])[:, istart:iend]
         freq = np.squeeze(P['freq'])
         ifreq = np.where((freq>=band[0]) & (freq<=band[1]))[0]
-        pow_band = SP[ifreq,:].mean(axis=0)
-        
+
+        if spec_norm:
+            sp_mean = SP.mean(axis=1)
+            SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
+            pow_band = SP[ifreq,:].mean(axis=0)
+        else:
+            pow_band = SP[ifreq,:].sum(axis=0) * (freq[2]-freq[1])
+        mmin = np.min((SP.shape[1], len(M)))
+
+        M=M[0:mmin]
+        seq = get_sequences(np.where(M==state)[0], int(np.round(ma_thr/dt))+1)
+        seq = [list(range(s[0], s[-1]+1)) for s in seq]
+
         seq = [s for s in seq if len(s)*dt >= min_dur]   
         for s in seq:
             y,f = power_spectrum(pow_band[s], win, dt)
             Spec[idf].append(y)
-    
+
     # Transform %Spec to ndarray
     SpecMx = np.zeros((len(Spec), len(f)))
     i=0
@@ -6346,7 +6430,7 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
     for idf in Spec:
         SpecMx[i,:] = np.array(Spec[idf]).mean(axis=0)
         if pnorm==True:
-            SpecMx[i,:] = SpecMx[i,:]/LA.norm(SpecMx[i,:])
+            SpecMx[i,:] = SpecMx[i,:]/SpecMx[i,:].mean()#LA.norm(SpecMx[i,:])
             
         data += zip([idf]*len(f), SpecMx[i,:], f)
         i += 1
