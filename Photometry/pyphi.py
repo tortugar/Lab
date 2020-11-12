@@ -1502,13 +1502,13 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
         print('Processing mouse %s' % idf)
         # load DF/F
         ddir = os.path.join(ppath, rec)
-        # NEW 10/15/2020
         if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
             dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
         else:
             dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
             print('%s - saving dffd.mat' % rec)
             so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd': dff})
+
 
         if pzscore:
             dff = (dff - dff.mean()) / dff.std()
@@ -2528,7 +2528,7 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
 
 
 
-def irem_corr(ppath, recordings, pzscore=True):
+def irem_corr(ppath, recordings, pzscore=True, ma_thr=0):
     
     data = []
     for rec in recordings:
@@ -2553,6 +2553,13 @@ def irem_corr(ppath, recordings, pzscore=True):
 
 
         M = sleepy.load_stateidx(ppath, rec)[0]
+        if ma_thr > 0:
+            seq = sleepy.get_sequences(np.where(M == 2)[0])
+            for s in seq:
+                if len(s) * dt < ma_thr:
+                    if (s[0] > 1) and (M[s[0] - 1] != 1):
+                        M[s] = 3
+
         mmin = np.min((len(M), dff.shape[0]))
         M = M[0:mmin]
         dff = dff[0:mmin]
@@ -2629,6 +2636,9 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
 
     dff_cycle_mouse = {m:[] for m in mice}
     sp_cycle_mouse  = {m:[] for m in mice}
+    df_spec = pd.DataFrame()
+    data = []
+    section_labels = range(0, nstates_rem*2 + nstates_itrem)
     for rec in recordings:
         idf = re.split('_', rec)[0]
 
@@ -2683,20 +2693,30 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
         if len(seq) >= 2:
             for (si, sj) in zip(seq[:-1], seq[1:]):
                 # indices of inter-REM period
-                if True:
-                    idx = list(range(si[-1]+1, sj[0]))
-    
-                    dff_pre = time_morph(dff[si], nstates_rem)
-                    dff_post = time_morph(dff[sj], nstates_rem)
-                    dff_itrem = time_morph(dff[idx], nstates_itrem)
-                    dff_cycle = np.concatenate((dff_pre, dff_itrem, dff_post))
-                    dff_cycle_mouse[idf].append(dff_cycle)
-    
-                    SP_pre = time_morph(SP[:, si].T, nstates_rem).T
-                    SP_post = time_morph(SP[:, sj].T, nstates_rem).T
-                    SP_itrem = time_morph(SP[:, idx].T, nstates_itrem).T
-                    sp_cycle_mouse[idf].append(np.concatenate((SP_pre, SP_itrem, SP_post), axis=1))
+                idx = list(range(si[-1]+1, sj[0]))
 
+                dff_pre = time_morph(dff[si], nstates_rem)
+                dff_post = time_morph(dff[sj], nstates_rem)
+                dff_itrem = time_morph(dff[idx], nstates_itrem)
+                dff_cycle = np.concatenate((dff_pre, dff_itrem, dff_post))
+                dff_cycle_mouse[idf].append(dff_cycle)
+
+                m = dff_cycle.shape[0]
+                data += zip([idf]*m, dff_cycle, section_labels)
+
+                SP_pre = time_morph(SP[:, si].T, nstates_rem).T
+                SP_post = time_morph(SP[:, sj].T, nstates_rem).T
+                SP_itrem = time_morph(SP[:, idx].T, nstates_itrem).T
+                sp_cycle_mouse[idf].append(np.concatenate((SP_pre, SP_itrem, SP_post), axis=1))
+
+                sp_cycle = np.concatenate((SP_pre, SP_itrem, SP_post), axis=1)
+                df = nparray2df(sp_cycle, freq['ifreq'], section_labels, 'pow', 'freq', 'dff')
+                df['mouse'] = idf
+
+                df_spec = df_spec.append(df)
+
+
+    df_dff = pd.DataFrame(data=data, columns=['mouse', 'dff' ,'time'])
     ntime = 2*nstates_rem+nstates_itrem
     nfreq = ifreq.shape[0]
     nmice = len(mice)
@@ -2766,13 +2786,10 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
     axes_cbar.spines["left"].set_visible(False)
     axes_cbar.axes.get_xaxis().set_visible(False)
     axes_cbar.axes.get_yaxis().set_visible(False)
-
-    plt.show()
-
     if len(fig_file) > 0:
         sleepy.save_figure(fig_file)
 
-    return DFFmx, SPmx
+    return DFFmx, SPmx, df_dff, df_spec
 
 
 
@@ -3033,8 +3050,9 @@ def dff_vs_statedur(ppath, recordings, istate, pzscore=False, sf=0, fs=1.5, ma_t
 
 
 def dff_infraslow(ppath, recordings, ma_thr=10, min_dur = 160,
-                     band=[10,15], state=3, win=100, pplot=True,
-                     pnorm=False, spec_norm=True, pzscore=True, tstart=0, tend=-1, peeg2=False, dff_control=False):
+                  band=[10,15], state=3, win=100, pplot=True,
+                  pnorm=False, spec_norm=True, spec_filt=False, box=[1,4],
+                  pzscore=True, tstart=0, tend=-1, peeg2=False, dff_control=False):
     """
     calculate powerspectrum of EEG spectrogram to identify oscillations in sleep activity within different frequency bands;
     only contineous NREM periods are considered for infraslow calculation.
@@ -3073,7 +3091,6 @@ def dff_infraslow(ppath, recordings, ma_thr=10, min_dur = 160,
         Spec[idf] = []
         DFF[idf] = []
         
-        
     mice = list(Spec.keys())
     
     for rec in recordings:
@@ -3106,13 +3123,20 @@ def dff_infraslow(ppath, recordings, ma_thr=10, min_dur = 160,
             SP = np.squeeze(P['SP2'])[:, istart:iend]
         freq = np.squeeze(P['freq'])
         ifreq = np.where((freq>=band[0]) & (freq<=band[1]))[0]
+        if spec_filt:
+            filt = np.ones(box)
+            filt = np.divide(filt, filt.sum())
+            SP = scipy.signal.convolve2d(SP, filt, boundary='symm', mode='same')
+
         if spec_norm:
             sp_mean = SP[:, :].mean(axis=1)
             SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
             pow_band = SP[ifreq,:].mean(axis=0)
         else:
             pow_band = SP[ifreq, :].sum(axis=0) * (freq[1]-freq[0])
-
+            nidx = np.where(M==3)[0]
+            pow_band = pow_band / pow_band[nidx].mean()
+            print('here')
 
         if not dff_control:
             if os.path.isfile(os.path.join(ppath, rec, 'dffd.mat')):
@@ -3160,7 +3184,7 @@ def dff_infraslow(ppath, recordings, ma_thr=10, min_dur = 160,
         
         i += 1
 
-    if pplot == True:
+    if pplot:
         plt.figure()
         ax = plt.axes([0.1, 0.1, 0.8, 0.8])
         
@@ -3800,6 +3824,11 @@ def cross_validation(S, r, theta, nfold=5):
             k = ridge_regression(S[q,:], r[q], th)
             pred_test  = np.dot(S[p,:], k)
             pred_train = np.dot(S[q,:], k)
+
+            #pred_mean = pred_test.mean()
+            #pred_test[pred_test >= pred_mean] = 1
+            #pred_test[pred_test <  pred_mean] = 0
+            #pdb.set_trace()
 
             rtest  = r[p]
             rtrain = r[q]
