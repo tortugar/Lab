@@ -2636,7 +2636,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
 
     dff_cycle_mouse = {m:[] for m in mice}
     sp_cycle_mouse  = {m:[] for m in mice}
-    df_spec = pd.DataFrame()
+    #df_spec = pd.DataFrame()
     data = []
     section_labels = range(0, nstates_rem*2 + nstates_itrem)
     for rec in recordings:
@@ -2709,11 +2709,10 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
                 SP_itrem = time_morph(SP[:, idx].T, nstates_itrem).T
                 sp_cycle_mouse[idf].append(np.concatenate((SP_pre, SP_itrem, SP_post), axis=1))
 
-                sp_cycle = np.concatenate((SP_pre, SP_itrem, SP_post), axis=1)
-                df = nparray2df(sp_cycle, freq['ifreq'], section_labels, 'pow', 'freq', 'dff')
-                df['mouse'] = idf
-
-                df_spec = df_spec.append(df)
+                #sp_cycle = np.concatenate((SP_pre, SP_itrem, SP_post), axis=1)
+                #df = nparray2df(sp_cycle, freq['ifreq'], section_labels, 'pow', 'freq', 'dff')
+                #df['mouse'] = idf
+                #df_spec = df_spec.append(df)
 
 
     df_dff = pd.DataFrame(data=data, columns=['mouse', 'dff' ,'time'])
@@ -2789,7 +2788,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
     if len(fig_file) > 0:
         sleepy.save_figure(fig_file)
 
-    return DFFmx, SPmx, df_dff, df_spec
+    return DFFmx, SPmx, df_dff #, df_spec
 
 
 
