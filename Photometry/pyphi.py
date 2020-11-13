@@ -1803,12 +1803,21 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             else:
                 plt.plot(t, trans_act_trials[tr].mean(axis=0), color='blue')
         else:
-            # mean is linear
-            tmp = trans_act[tr].mean(axis=0)
-            # std is not linear
-            sem = np.std(trans_act[tr],axis=0) / np.sqrt(nmice)
-            plt.plot(t, tmp, color='blue')
-            ax.fill_between(t, tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
+            if mouse_avg:
+                # mean is linear
+                tmp = trans_act[tr].mean(axis=0)
+                # std is not linear
+                sem = np.std(trans_act[tr],axis=0) / np.sqrt(nmice)
+                plt.plot(t, tmp, color='blue')
+                ax.fill_between(t, tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
+            else:
+                # mean is linear
+                tmp = trans_act_trials[tr].mean(axis=0)
+                # std is not linear
+                sem = np.std(trans_act_trials[tr],axis=0) / np.sqrt(trans_act_trials[tr].shape[0])
+                plt.plot(t, tmp, color='blue')
+                ax.fill_between(t, tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
+
         sleepy.box_off(ax)
         plt.xlabel('Time (s)')
         plt.xlim([t[0], t[-1]])
@@ -2528,7 +2537,7 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
 
 
 
-def irem_corr(ppath, recordings, pzscore=True, ma_thr=0):
+def irem_corr(ppath, recordings, pzscore=True, ma_thr=0, rem_break=0):
     
     data = []
     for rec in recordings:
@@ -2564,7 +2573,7 @@ def irem_corr(ppath, recordings, pzscore=True, ma_thr=0):
         M = M[0:mmin]
         dff = dff[0:mmin]
 
-        seq = sleepy.get_sequences(np.where(M==1)[0])    
+        seq = sleepy.get_sequences(np.where(M==1)[0], np.round(rem_break/dt).astype('int')+1)
         if len(seq) >= 2:
             for (si, sj) in zip(seq[:-1], seq[1:]):
                 # indices of inter-REM period
@@ -2594,7 +2603,7 @@ def irem_corr(ppath, recordings, pzscore=True, ma_thr=0):
 
 def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=20,
                   pzscore=False, fmax=30, ma_thr=0, single_mode=False, sf=0, 
-                  vm=[], cb_ticks=[], ylim=[], fig_file=''):
+                  vm=[], cb_ticks=[], ylim=[], rem_break=0, fig_file=''):
     """
     plot average activity across time-normalized sleep cycle;
     a single sleep cycle starts and ends with a REM period
@@ -2688,7 +2697,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
                     if (s[0] > 1) and (M[s[0] - 1] != 1):
                         M[s] = 3
 
-        seq = sleepy.get_sequences(np.where(M == 1)[0])
+        seq = sleepy.get_sequences(np.where(M == 1)[0], np.round(rem_break/dt).astype('int')+1)
         # We have at least 2 REM periods (i.e. one sleep cycle)
         if len(seq) >= 2:
             for (si, sj) in zip(seq[:-1], seq[1:]):
@@ -2793,7 +2802,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
 
 
 def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
-                       pzscore=False, ma_thr=10, sf=0, ylim=[]):
+                       pzscore=False, ma_thr=10, sf=0, ylim=[], rem_break=0):
     """
     plot NREM and wake activity for $nsections consecutive sections 
     of the sleep cycle (interval between two consecutive REM periods)
@@ -2869,7 +2878,7 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
                         M[s] = 3
         print(idf)
 
-        seq = sleepy.get_sequences(np.where(M == 1)[0])
+        seq = sleepy.get_sequences(np.where(M == 1)[0], np.round(rem_break/dt).astype('int')+1)
         # We have at least 2 REM periods (i.e. one sleep cycle)
         if len(seq) >= 2:
             for (si, sj) in zip(seq[:-1], seq[1:]):
