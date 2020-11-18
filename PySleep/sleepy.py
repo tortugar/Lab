@@ -57,7 +57,7 @@ import seaborn as sns
 import pandas as pd
 from functools import reduce
 import random
-import pdb
+#import pdb
 
 
 
@@ -3859,12 +3859,11 @@ def sleep_stats(ppath, recordings, ma_thr=10.0, tstart=0, tend=-1, pplot=True, c
             iend = len(M)-1
         else:
             iend = int(np.round((1.0*tend) / dt))
-
-        M[np.where(M==5)] = 2        
+        M[np.where(M==5)] = 2
         # polish out microarousals
         seq = get_sequences(np.where(M==2)[0])
         for s in seq:
-            if len(s)*dt <= ma_thr:
+            if np.round(len(s)*dt) <= ma_thr:
                 M[s] = 3
 
         midx = np.arange(istart,iend+1)
@@ -5123,7 +5122,6 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                             Spectra[idf][0].append(Pow)
 
     mF = F.copy()
-    
     if sig_type == 'EEG':
         if f_max > -1:
             ifreq = np.where(F<=f_max)[0]
@@ -5740,6 +5738,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
 
             if si==3:
                 plt.xlabel('Time (s)')
+
     plt.draw()
 
     # Statistics summary
@@ -5842,7 +5841,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
     if len(fig_file) > 0:
         save_figure(fig_file)
 
-    return M
+    return M, Base
 
 
 
@@ -6343,7 +6342,7 @@ def downsample_states(M, nbin, ptie_break=True):
 
 def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
                      band=[10,15], state=3, win=64, pplot=True, pflipx=True, pnorm=False,
-                     spec_norm=True,
+                     spec_norm=True, spec_filt=False, box=[1,4],
                      tstart=0, tend=-1, peeg2=False):
     """
     calculate powerspectrum of EEG spectrogram to identify oscillations in sleep activity within different frequency bands;
@@ -6405,6 +6404,13 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
             SP = np.squeeze(P['SP2'])[:, istart:iend]
         freq = np.squeeze(P['freq'])
         ifreq = np.where((freq>=band[0]) & (freq<=band[1]))[0]
+        mmin = np.min((SP.shape[1], len(M)))
+        M=M[0:mmin]
+
+        if spec_filt:
+            filt = np.ones(box)
+            filt = np.divide(filt, filt.sum())
+            SP = scipy.signal.convolve2d(SP, filt, boundary='symm', mode='same')
 
         if spec_norm:
             sp_mean = SP.mean(axis=1)
@@ -6412,9 +6418,9 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
             pow_band = SP[ifreq,:].mean(axis=0)
         else:
             pow_band = SP[ifreq,:].sum(axis=0) * (freq[2]-freq[1])
-        mmin = np.min((SP.shape[1], len(M)))
+            nidx = np.where(M==3)[0]
+            pow_band = pow_band / np.mean(pow_band[nidx])
 
-        M=M[0:mmin]
         seq = get_sequences(np.where(M==state)[0], int(np.round(ma_thr/dt))+1)
         seq = [list(range(s[0], s[-1]+1)) for s in seq]
 
@@ -6435,21 +6441,26 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
         data += zip([idf]*len(f), SpecMx[i,:], f)
         i += 1
 
-    if pplot == True:
+    if pplot:
         plt.figure()
         ax = plt.axes([0.1, 0.1, 0.8, 0.8])
         
-        x = f[1:]
-        if pflipx == True: x = 1.0/f[1:]
-        y = SpecMx[:,1:]
-        if len(mice) <= 1:
-            ax.plot(x, y.mean(axis=0), color='gray', lw=2)
-            
+        if pflipx:
+            x = f[1:]
+            x = 1.0/f[1:]
+            y = SpecMx[:,1:]
+            if len(mice) <= 1:
+                ax.plot(x, y.mean(axis=0), color='gray', lw=2)
+            else:
+                ax.errorbar(x, y.mean(axis=0), yerr=y.std(axis=0), color='gray', fmt='-o')
         else:
-            ax.errorbar(x, y.mean(axis=0), yerr=y.std(axis=0), color='gray', fmt='-o')
-
+            y = SpecMx
+            if len(mice) <= 1:
+                ax.plot(f, y.mean(axis=0), color='gray', lw=2)
+            else:
+                ax.errorbar(f, y.mean(axis=0), yerr=y.std(axis=0), color='gray', fmt='-o')
         box_off(ax)
-        if pflipx == True:
+        if pflipx:
             plt.xlabel('Wavelength (s)')
         else:
             plt.xlabel('Frequency (Hz)')
