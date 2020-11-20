@@ -4029,7 +4029,6 @@ def sleep_timecourse_list(ppath, recordings, tbin, n, tstart=0, tend=-1, ma_thr=
     Mice = {}
     mouse_order = []
     for rec in recordings:
-        #idf = re.split('_', rec)[0]
         idf = re.split('_', os.path.split(rec)[-1])[0]
         if not idf in mouse_order:
             mouse_order.append(idf)
@@ -5471,21 +5470,34 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
         plt.ion()
         plt.figure()
         sns.set_style('ticks')
-        sns.lineplot(data=df, x='Freq', y='Pow', hue='Lsr', ci=ci, palette={'yes':'blue', 'no':'gray'})
-        #plt.plot(freq, ps_mx[0].mean(axis=0), color='red')
-        #plt.plot(freq, ps_mx[1].mean(axis=0), color='green')
+        #sns.lineplot(data=df, x='Freq', y='Pow', hue='Lsr', ci=ci, palette={'yes':'blue', 'no':'gray'})
+        if ci == 'sem':
+            c = np.nanstd(ps_mx[0], axis=0) / np.sqrt(ps_mx[0].shape[0])
+            m = np.nanmean(ps_mx[0], axis=0)
+            plt.plot(freq, m, color='gray')
+            plt.fill_between(freq, m-c, m+c, color='gray', alpha=0.2)
+
+            c = np.nanstd(ps_mx[1], axis=0) / np.sqrt(ps_mx[1].shape[0])
+            m = np.nanmean(ps_mx[1], axis=0)
+            plt.plot(freq, m, color='blue')
+            plt.fill_between(freq, m-c, m+c, color='blue', alpha=0.2)
+        else:
+            sns.lineplot(data=df, x='Freq', y='Pow', hue='Lsr', ci=ci, palette={'yes': 'blue', 'no': 'gray'})
+
         sns.despine()
         plt.xlim([freq[0], freq[-1]])
         
         plt.xlabel('Freq. (Hz)')
         if not pnorm:    
-            plt.ylabel('Power ($\mathrm{\mu V^2}$)')
+            plt.ylabel('Spectral density ($\mathrm{\mu V^2/Hz}$)')
         else:
-            plt.ylabel('Norm. Pow.')
+            plt.ylabel('Norm. power')
         plt.show()
         
         plt.figure()
         plt.axes([0.1, 0.1, 0.4, 0.8])
+        if ci == 'sem':
+            ci = 68
         sns.barplot(data=df_amp, x='Lsr', y='Amp', palette={'yes':'blue', 'no':'gray'}, ci=ci)
         #sns.swarmplot(data=df_amp, x='Lsr', y='Amp', hue='Idf', palette='husl') 
         sns.lineplot(data=df_amp, x='Lsr', y='Amp', hue='Idf', palette='husl')
@@ -5498,6 +5510,16 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
         df.to_csv(csv_files[1], index=False)
         
     return ps_mx, freq, df, df_amp
+
+
+#def plt_lineplot(df, x, y, hue, subject):
+#    subjects = list(df[subject].unique())
+#    hues = list(df[hue].unique())
+#    data_sets = {h:[] for h in hues}
+
+
+
+
 
 
 
