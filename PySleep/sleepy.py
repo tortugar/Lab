@@ -5512,11 +5512,56 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     return ps_mx, freq, df, df_amp
 
 
-#def plt_lineplot(df, x, y, hue, subject):
-#    subjects = list(df[subject].unique())
-#    hues = list(df[hue].unique())
-#    data_sets = {h:[] for h in hues}
 
+def plt_lineplot(df, subject, xcol, ycol, ax=-1, color='blue', xlabel='', ylabel='', lw=1):
+    import pdb
+    subjects = list(df[subject].unique())
+
+    data = []
+    for s in subjects:
+        x = df[df[subject]==s][xcol]
+        y = df[df[subject]==s][ycol]
+
+        data.append(list(y))
+
+    data = np.array(data)
+
+    if ax == -1:
+        plt.figure()
+        ax = plt.subplot(111)
+
+    m = np.nanmean(data, axis=0)
+    s = np.nanstd(data, axis=0)/np.sqrt(len(subjects))
+    ax.plot(x, m, color=color, lw=lw)
+    ax.fill_between(x, m+s, m-s, color=color, alpha=0.2)
+    plt.ylabel(ylabel)
+    plt.xlabel(xlabel)
+
+
+
+def plt_lineplot_byhue(df, subject, xcol, ycol, hue, ax=-1, color='blue', xlabel='', ylabel='', lw=1):
+    import pdb
+    subjects = list(df[subject].unique())
+
+    data = []
+    for s in subjects:
+        x = df[df[subject]==s][xcol]
+        y = df[df[subject]==s][ycol]
+
+        data.append(list(y))
+
+    data = np.array(data)
+
+    if ax == -1:
+        plt.figure()
+        ax = plt.subplot(111)
+
+    m = np.nanmean(data, axis=0)
+    s = np.nanstd(data, axis=0)/np.sqrt(len(subjects))
+    ax.plot(x, m, color=color, lw=lw)
+    ax.fill_between(x, m+s, m-s, color=color, alpha=0.2)
+    plt.ylabel(ylabel)
+    plt.xlabel(xlabel)
 
 
 
