@@ -836,10 +836,9 @@ def avg_activity_recs(ppath, recordings, tstart=10, tend=-1, backup='', pzscore=
         # flatten out microarousals
         if ma_thr > 0:
             seq = sleepy.get_sequences(np.where(M == 2)[0])
-            if ma_thr > 0:
-                for s in seq:
-                    if len(s) * sdt <= ma_thr:
-                        M[s] = 3
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    M[s] = 3
 
         if tend == -1:
             iend = M.shape[0]
@@ -899,7 +898,6 @@ def avg_activity_recs(ppath, recordings, tstart=10, tend=-1, backup='', pzscore=
         var_mx[i, :] = np.array(mean_var[idf]).mean(axis=0)
         num_mx[i, :] = np.array(num_states[idf]).sum(axis=0)
         i += 1
-
 
     # FIGURE
     plt.figure()
@@ -969,7 +967,7 @@ def avg_activity_recs(ppath, recordings, tstart=10, tend=-1, backup='', pzscore=
         #print (results)
 
     for idf in state_vals:
-        print("Mouse %s: f-value: %.3f, p-value: %.3f, significant grp comparisons: %s" % (idf, fvalues[idf], pvalues[idf], " ".join(state_class[idf])))
+        print("Mouse %s: f-value: %.3f, p-value: %.5f, significant grp comparisons: %s" % (idf, fvalues[idf], pvalues[idf], " ".join(state_class[idf])))
 
     # (2) perform analysis across populations of mice
     mice = list(state_vals.keys())
@@ -1352,7 +1350,7 @@ def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=
     :param ppath: base folder
     :param name: name of recording
     :param band: 2 element list, lower and upper range for EEG band
-    :param win: time range for cross-correlation
+    :param win: time range for cross-correlation, ranging from -win/2 to win/2 seconds
     :param state: correlate calcium activity and EEG power during state $state
     :param tbreak: maximum interruption of $state
     :param mouse: 'cross' or 'auto'; if 'auto' perform autocorrelation of DF/F signal
@@ -1411,8 +1409,8 @@ def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=
 
         ifreq = np.where((f >= band[0]) & (f <= band[1]))[0]
         dt = t[1] - t[0]
-        print(dt)
-        print('Frequency binning: %f' % (f[1]-f[0]))
+        #print(dt)
+        #print('Frequency binning: %f' % (f[1]-f[0]))
         iwin = int(win / dt)
 
         if mode != 'cross':
@@ -1711,7 +1709,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             if ma_thr>0:
                 seq = sleepy.get_sequences(np.where(M==2)[0])
                 for s in seq:
-                    if len(s)*dt <= ma_thr:
+                    if np.round(len(s)*dt) <= ma_thr:
                         if (s[0]>1) and (M[s[0] - 1] != 1):
                             M[s] = 3
 
