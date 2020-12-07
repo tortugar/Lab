@@ -625,7 +625,6 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         df = pd.DataFrame(d)
 
         res = pg.anova(data=df, dv='val', between='state')
-        
         res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
  
         def _get_mean(s):
@@ -668,19 +667,24 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
             
         
         else:
+            roi_type = 'X'
             # R>W>N
             if (rmean > wmean) and (rmean > nmean) and (wmean  > nmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
                 cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                # NEW
+                cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
                 
-                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05 and cond3['p-tukey'].iloc[0] <= 0.05:
                     roi_type = 'R>W>N'
             # R>N>W
             elif (rmean > wmean) and (rmean > nmean) and (nmean  > wmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
                 cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
-                
-                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                # NEW
+                cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+
+                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05 and cond3['p-tukey'].iloc[0] <= 0.05:
                     roi_type = 'R>N>W'
             # W-max
             elif (wmean > nmean) and (wmean > rmean):  
@@ -1850,7 +1854,7 @@ def split_hdf5(ppath, name, nblock=10000, dtype='uint8'):
     fcount = 1
     D = np.zeros((nblock, nx, ny), dtype=dtype)
     for i in range(nframes):
-        D[j,:,:] = (dset[i,:,:])
+        D[j,:,:] = dset[i,:,:]
         j+=1
 
         if j==nblock:
@@ -3168,11 +3172,16 @@ def minisc_timing(ipath, name):
     img_time[0] = 0
     nframes = int(d['frameNum'][-1])
 
+
+
     # load stack
     fid = h5py.File(os.path.join(ipath, name, 'recording_%s_downsamp.hdf5'%name), 'r')
     stack = fid['images']
     nx = stack.shape[1]
     ny = stack.shape[2]
+    print('No. of frames in timestamp.dat %d; No. of frames in recording_downsamp.hdf5: %d' % (nframes, stack.shape[0]))
+    nframes = stack.shape[0]
+
 
     fname_stack_new = os.path.join(ipath, name, 'recording_%s_downsampcorr.hdf5'%name)
     fid_new = h5py.File(fname_stack_new, 'w')
