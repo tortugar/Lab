@@ -599,7 +599,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         for index, row in rec_map.iterrows():
             s=row[rec]
             a = re.split('-', s)
-            roi_list = int(a[0])
+            #roi_list = int(a[0])
             roi_num  = int(a[1])
             print(row)
             print(DFF.shape)
@@ -625,6 +625,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         df = pd.DataFrame(d)
 
         res = pg.anova(data=df, dv='val', between='state')
+        #pdb.set_trace()
         res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
  
         def _get_mean(s):
@@ -635,28 +636,28 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         nmean = _get_mean('N')
         
         if class_mode == 'basic':
-            
+            print(res)
             roi_type = 'X'
             # REM-max
-            if (rmean > wmean) and (rmean > nmean):  
+            if (rmean > wmean) and (rmean > nmean):
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
                 cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
                 
-                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'R-max'
             # W-max
             elif (wmean > nmean) and (wmean > rmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
                 cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
     
-                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'W-max'
             # N-max 
             elif (nmean > wmean) and (nmean > rmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
                 cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
     
-                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'N-max'
                     
             else:
@@ -675,7 +676,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
                 # NEW
                 cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
                 
-                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05 and cond3['p-tukey'].iloc[0] <= 0.05:
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'R>W>N'
             # R>N>W
             elif (rmean > wmean) and (rmean > nmean) and (nmean  > wmean):  
@@ -684,21 +685,21 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
                 # NEW
                 cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
 
-                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05 and cond3['p-tukey'].iloc[0] <= 0.05:
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'R>N>W'
             # W-max
             elif (wmean > nmean) and (wmean > rmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
                 cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
     
-                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'W-max'
             # N-max 
             elif (nmean > wmean) and (nmean > rmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
                 cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
     
-                if cond1['p-tukey'].iloc[0] <= 0.05 and cond2['p-tukey'].iloc[0] <= 0.05:
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'N-max'
                     
             else:
