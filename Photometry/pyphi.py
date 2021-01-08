@@ -705,12 +705,12 @@ def avg_activity(ppath, name, tstart = 10, tend = -1, awake=False, mu=[10,100]):
         iend = int(np.round(tend/sdt))
     M = M[istart:iend]
 
-    ddir = os.path.join(ppath, rec)
+    ddir = os.path.join(ppath, name)
     if os.path.isfile(os.path.join(ddir, 'dffd.mat')):
         dff = so.loadmat(os.path.join(ddir, 'dffd.mat'), squeeze_me=True)['dffd']
     else:
         dff = so.loadmat(os.path.join(ddir, 'DFF.mat'), squeeze_me=True)['dffd']
-        print('%s - saving dffd.mat' % rec)
+        print('%s - saving dffd.mat' % name)
         so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd': dff})
     #dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dffd'][istart:iend]
 
@@ -941,6 +941,7 @@ def avg_activity_recs(ppath, recordings, tstart=10, tend=-1, backup='', pzscore=
                                   3*np.ones((len(state_vals[idf][3]),),dtype='int') ))
         mc = MultiComparison(data, labels)
         results = mc.tukeyhsd()
+        print(results)
         meandiffs = results.meandiffs * -1
         reject = results.reject
 
@@ -1394,7 +1395,7 @@ def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=
         if noverlap==0:
             #dffd = sleepy.downsample_vec(dffcut, nwin-noverlap)[dff_shift:]
             #dffd = dffd[dff_shift:]
-            dffd = sleepy.downsample_vec(dffcut, nwinp)
+            dffd = sleepy.downsample_vec(dffcut, nwin)
         else:
             dffd = downsample_overlap(dffcut, nwin, noverlap)
 
@@ -1485,13 +1486,17 @@ def bandpass_corr_state_avg(ppath, recordings, band, win=120, fft_win=2.5, perc_
     return dfm
 
 
+
 def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, pplot=True):
     """
-    calculate the correlation between the power in the given frequency band and the DF/F activity
-    :param ppath:
-    :param recordings:
-    :param band:
-    :return:
+    calculate the Pearson correlation between the power in the given frequency band and the DF/F activity
+    :param ppath: base folder
+    :param recordings: list of recordings
+    :param band: tuple, frequency band
+    :param pnorm_spec: bool, if True normalize the EEG spectrogram before calculation power in given band
+    :param pzscore: if True, z-score DF/F signal
+    :param pplot: if True, plot correlation
+    :return: pandas.DataFrame, with mouse, recording, r-value, p-value, signficiance and state as columns
     """
     data = []
     state_map = {1:'REM', 2:'Wake', 3:'NREM'}
@@ -1538,7 +1543,6 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
                 sig = 'no'
             data.append([idf, rec, r, p, sig, state_map[s]])
 
-
     df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'r', 'p', 'sig', 'state'])
 
     if pplot:
@@ -1548,8 +1552,8 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
         plt.figure()
         sns.swarmplot(data=dfm_sig, x='state', y='r', hue='sig')
 
-
     return df
+
 
 
 def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold, sj_threshold,
@@ -1627,6 +1631,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     trans_spm = dict()
     trans_act_trials = dict()
     trans_spe_trials = dict()
+    data = []
     for (si,sj) in transitions:
         sid = states[si] + states[sj]
         # dict: transition type -> mouse -> DFF transitions
@@ -1747,10 +1752,17 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
                         spe_mouse[idf].append(spe)
                         spm_mouse[idf].append(spm)
 
+                        dtc = 2.5
+                        t = np.arange(-ipre*dtc, ipost*dtc - dtc + dtc / 2, dtc)
+                        m = len(t)
+                        data += zip([idf]*m, t, act, [sid]*m)
+
+
         trans_act[sid] = act_mouse
         trans_spe[sid] = spe_mouse
         trans_spm[sid] = spm_mouse
 
+    df_trans = pd.DataFrame(data=data, columns=['mouse', 'time', 'dff', 'trans'])
     # generate matrices for each transition type holding all single trials in each row
     for tr in trans_act_trials:
         for mouse in trans_act[tr]:
@@ -1904,7 +1916,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
     df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
     print(df)
 
-    return trans_act, trans_act_trials, t, df
+    return trans_act, trans_act_trials, t, df, df_trans
 
 
 
