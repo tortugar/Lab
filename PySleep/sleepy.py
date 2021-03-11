@@ -57,7 +57,7 @@ import seaborn as sns
 import pandas as pd
 from functools import reduce
 import random
-#import pdb
+import pdb
 
 
 
@@ -972,11 +972,11 @@ def recursive_sleepstate_rem(ppath, recordings, sf=0.3, alpha=0.3, past_mu=0.2, 
             if th_delta[i] > thr_th_delta1:
                 ### we are potentially entering REM
                 if (i - past_len) >= 0:
-                    sstart = i-past_len
+                    sstart = int(i-past_len)
                 else:
                     sstart = 0
                 # count the percentage of brainstate bins with elevated EMG power
-                c_mu = np.sum( np.where(pow_mu[sstart:i]>thr_mu)[0] ) / past_len
+                c_mu = np.sum( np.where(pow_mu[sstart:i]>thr_mu)[0] ) / (past_len*1.0)
                
                 if c_mu < past_mu:
                     ### we are in REM
@@ -2864,7 +2864,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
 
 
 def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', start_time=0, end_time=-1,
-                     ma_thr=0, edge=0, sf=0, cond=0, single_mode=False, backup='', csv_file=''):
+                     ma_thr=0, edge=0, sf=0, cond=0, single_mode=False, ci=95, backup='', csv_file=''):
     """
     calculate laser triggered probability of REM, Wake, NREM
     ppath        -    base folder holding all recording
@@ -2885,22 +2885,23 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
     single_mode  -    if True, plot every single mouse
     backup       -    optional backup folder; if specified each single recording folder can be either on $ppath or $backup;
                       if it's on both folders, the version in ppath is used
+    ci           -    string; possible values: 'sem', 'sd', or value betwen 0 and 100, corresponding
+                      to the bootstrapped confidence interval. The default is ci=95
     csv_file     -    if filename (without or including full file path) is provided,
                       save pd.DataFrame df (see @Return) to csv file
 
-    @Return:  BS, t, df
-    BS, t, df    -   BS,t: np.array(mice x time x [REM|Wake|NREM]), np.array(time vector)
-                     df: pd.DataFrame.
-                     columns are:
-                     mouse_id  REM, NREM, Wake, Lsr
+    @Return: 
+   
+    df_timecourse: pd.DataFrame with columns: mouse, time, perc, state.
+    df: pd.DataFrame with columns mouse_id, REM, NREM, Wake, Lsr
 
-                     Lsr has three values: 0 - before laser, 1 - during laser, 2 - after laser
-                     if laser was on for laser_dur s, then
-                     df[df['Lsr'] == 0]['REM'] is the average % of REM sleep during laser stimulation for each mouse
-                     df[df['Lsr'] == 0]['REM'] is the average % of REM sleep
-                     during the laser_dur s long time interval preceding laser onset.
-                     df[df['Lsr'] == 2]['REM'] is the average during the time inverval of duration laser_dur that
-                     directly follows laser stimulation
+                      Lsr has three values: 0 - before laser, 1 - during laser, 2 - after laser
+                      if laser was on for laser_dur s, then
+                      df[df['Lsr'] == 0]['REM'] is the average % of REM sleep during laser stimulation for each mouse
+                      df[df['Lsr'] == 0]['REM'] is the average % of REM sleep
+                      during the laser_dur s long time interval preceding laser onset.
+                      df[df['Lsr'] == 2]['REM'] is the average during the time inverval of duration laser_dur that
+                      directly follows laser stimulation
     """
     if type(recordings) != list:
         recordings = [recordings]
@@ -2989,11 +2990,19 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
 
     # flatten Trials
     Trials = reduce(lambda x,y: np.concatenate((x,y), axis=0),  Trials)
+    BS = BS*100
 
     if sf > 0:
         for state in [2, 1, 0]:
             for i in range(nmice):
                 BS[i, :, state] = smooth_data(BS[i, :, state], sf)
+
+    df_timecourse = pd.DataFrame()
+    state_map = {1: 'REM', 2: 'Wake', 3: 'NREM'}
+    for s in state_map:
+        df = nparray2df(BS[:, :, s - 1], mouse_order, t, 'perc', 'mouse', 'time')
+        df['state'] = state_map[s]
+        df_timecourse = df_timecourse.append(df)
 
     nmice = imouse
     if pplot:
@@ -3006,21 +3015,34 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
             plt.figure()
             ax = plt.axes([0.15, 0.15, 0.6, 0.7])
             colors = [[0, 1, 1 ],[0.5, 0, 1],[0.6, 0.6, 0.6]]
-            for state in [2,1,0]:
-                tmp = BS[:, :, state].mean(axis=0)
-                plt.plot(t[it], tmp[it], color=colors[state], lw=3, label=state_label[state])
-                if nmice > 1:
-                    smp = BS[:,:,state].std(axis=0) / np.sqrt(nmice)
-                    plt.fill_between(t[it], tmp[it]-smp[it], tmp[it]+smp[it], color=colors[state], alpha=0.4, zorder=3)
+            if ci == 'sem':
+                for state in [2,1,0]:
+                    tmp = BS[:, :, state].mean(axis=0)
+                    plt.plot(t[it], tmp[it], color=colors[state], lw=3, label=state_label[state])
+                    if nmice > 1:
+                        smp = BS[:,:,state].std(axis=0) / np.sqrt(nmice)
+                        plt.fill_between(t[it], tmp[it]-smp[it], tmp[it]+smp[it], color=colors[state], alpha=0.4, zorder=3)
 
-            plt.xlim([-pre+edge, post-edge])
-            plt.ylim([0,1])
-            ax.add_patch(patches.Rectangle((0,0), laser_dur, 1, facecolor=[0.6, 0.6, 1], edgecolor=[0.6, 0.6, 1]))
-            box_off(ax)
-            plt.xlabel('Time (s)')
-            plt.ylabel('Probability')
-            #plt.legend(bbox_to_anchor=(0., 1.02, 0.5, .102), loc=3, ncol=3, borderaxespad=0.)
-            plt.draw()
+                plt.xlim([-pre+edge, post-edge])
+                plt.ylim([0,100])
+                ax.add_patch(patches.Rectangle((0,0), laser_dur, 100, facecolor=[0.6, 0.6, 1], edgecolor=[0.6, 0.6, 1]))
+                box_off(ax)
+                plt.xlabel('Time (s)')
+                plt.ylabel('Probability')
+                #plt.legend(bbox_to_anchor=(0., 1.02, 0.5, .102), loc=3, ncol=3, borderaxespad=0.)
+                plt.draw()
+            else:
+                bs_colors = {'REM': [0, 1, 1], 'Wake': [0.5, 0, 1], 'NREM': [0.6, 0.6, 0.6]}
+                dfm = df_timecourse.groupby(['mouse', 'state', 'time']).mean().reset_index()
+                for s in [3, 2, 1]:
+                    sns.lineplot(data=dfm[dfm.state == state_map[s]], ci=ci, x='time', y='perc',
+                                 color=bs_colors[state_map[s]], err_kws={'alpha': 0.8, 'zorder': 3})
+                plt.xlim([-pre+edge, post-edge])
+                plt.ylim([0,100])
+                ax.add_patch(patches.Rectangle((0,0), laser_dur, 100, facecolor=[0.6, 0.6, 1], edgecolor=[0.6, 0.6, 1]))
+                box_off(ax)
+                plt.xlabel('Time (s)')
+                plt.ylabel('Probability')
 
         else:
             plt.figure(figsize=(7,7))
@@ -3028,7 +3050,7 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
             for state in [2,1,0]:
                 ax = plt.subplot('31' + str(3-state))
                 for i in range(nmice):
-                    plt.plot(t[it], BS[i,it,state]*100, color=clrs[i], label=mouse_order[i])
+                    plt.plot(t[it], BS[i,it,state], color=clrs[i], label=mouse_order[i])
                 ax.add_patch(patches.Rectangle((0, 0), laser_dur, 100, facecolor=[0.6, 0.6, 1], edgecolor=[0.6, 0.6, 1], alpha=0.8))
                 plt.xlim((t[it][0], t[it][-1]))
                 plt.ylim((0,100))
@@ -3038,7 +3060,6 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
                 else:
                     ax.set_xticklabels([])
                 if state==2:
-                    #plt.legend(bbox_to_anchor=(1.0, 0.7, 1., .102), loc=1, mode='expand', ncol=nmice, frameon=False)
                     ax.legend(mouse_order, bbox_to_anchor=(0., 1.0, 1., .102), loc=3, mode='expand', ncol=len(mouse_order),
                           frameon=False)
                 box_off(ax)
@@ -3080,11 +3101,11 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
     if len(csv_file) > 0:
         df.to_csv(csv_file, index=False)
 
-    return BS, t, df
+    return df_timecourse, df, Trials
 
 
 
-def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0, nboots=10000, alpha=0.05, backup='',
+def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0, nboots=1000, alpha=0.05, backup='',
                                start_time=0, ma_thr=20, bootstrap_mode=0, fig_file=''):
     """
     Align brain state with laser stimulation and calculate two-sided 1-$alpha confidence intervals using
@@ -3153,8 +3174,8 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0, nboot
         (idxs, idxe) = laser_start_end(load_laser(ppath, rec))
         idf = re.split('_', rec)[0]
 
-        SR = get_snr(ppath, rec)
-        NBIN = np.round(2.5 * SR)
+        #SR = get_snr(ppath, rec)
+        #NBIN = np.round(2.5 * SR)
         ipre = int(np.round(pre / dt))
         ipost = int(np.round(post / dt))
 
@@ -3470,7 +3491,7 @@ def laser_brainstate_bootstrap2(ppath, recordings, pre, post,
     Prob = np.sort(Prob, axis=0)
     Bounds = np.zeros((2, len(t), 3))
     a = int((nboots * alpha) / 2.0)
-    #pdb.set_trace()
+
     for s in [1,2,3]:
         Bounds[0,:,s-1] = Prob[a,:,s-1]
         Bounds[1,:,s-1] = Prob[-a,:, s-1]
@@ -3558,6 +3579,7 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     :param fontsize: fontsize
     :param cb_ticks: ticks for colorbar
     :param emg_ticks: ticks for EMG amplitude axis (uV)
+
     :param r_mu: range of frequencies for EMG amplitude
     :param fw_color: if True, use standard color scheme for brainstate (gray - NREM, violet - Wake, cyan - REM);
             otherwise use Shinjae's color scheme
@@ -4421,6 +4443,82 @@ def ma_timecourse_list(ppath, recordings, tbin, n, tstart=0, tend=-1, ma_thr=20,
         df.to_csv(csv_file, index=False)
 
     return TimeMx, DurMx, FreqMx, df
+
+
+
+def transition_timecourse_list(ppath, recordings, tbin, n, tdown=10, tstart=0, tend=-1, ma_thr=-1, pplot=True, single_mode=False, csv_file=''):
+    if type(recordings) != list:
+        recordings = [recordings]
+
+    mouse_order = []
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        if not idf in mouse_order:
+            mouse_order.append(idf)
+    Recordings = {idf:[] for idf in mouse_order}
+
+    SR = get_snr(ppath, recordings[0])
+    NBIN = np.round(2.5 * SR)
+    # time bin in Fourier time
+    dt = NBIN * 1 / SR
+    istart = int(np.round((1.0 * tstart) / dt))
+    ibin = int(np.round(tbin / dt))
+    idown = int(tdown/dt)
+
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+                
+        M = load_stateidx(ppath, rec)[0]
+        # polish out microarousals
+        if ma_thr > 0:
+            seq = get_sequences(np.where(M == 2)[0])
+            for s in seq:
+                if len(s) * dt <= ma_thr:
+                    M[s] = 1
+        if tend == -1:
+            iend = len(M) - 1
+        else:
+            iend = int(np.round((1.0 * tend) / dt))
+        M = M[0:iend + 1]
+        # how brain state percentage changes over time
+
+        Recordings[idf].append(M)
+
+
+    MX = {idf:[] for idf in mouse_order}
+    for i in range(n):
+        for idf in mouse_order:    
+            recs = Recordings[idf]
+                        
+            midx = np.arange(istart + i * ibin, istart + (i + 1) * ibin)
+            
+            recs = [downsample_states(rec[midx], idown) for rec in recs]
+            recs = np.array(recs, dtype='int')
+            #recs = downsample_states(recs, idown)
+            
+            pmx = complete_transition_matrix(recs, np.array(range(recs.shape[1])))
+            
+            MX[idf].append(pmx)
+
+
+    #transform MX to a DataFrame
+    trans_map = {'11':'RR', '12':'RW', '13':'RN', 
+                 '21':'WR', '22':'WW', '23':'WN',
+                 '31':'NR', '32':'NW', '33':'NN'}
+    
+    data = []
+    for i in range(n):
+        for si in [1,2,3]:
+            for sj in [1,2,3]:
+                for idf in mouse_order:                
+                    trans = trans_map[str(si)+str(sj)]
+                    data += [[idf, 't'+str(i), MX[idf][i][si-1, sj-1], trans]]
+    df = pd.DataFrame(data=data, columns=['mouse', 'time', 'prob', 'trans'])
+    
+
+
+    return df
+
 
 
 
@@ -5565,14 +5663,11 @@ def plt_lineplot_byhue(df, subject, xcol, ycol, hue, ax=-1, color='blue', xlabel
 
 
 
-
-
-
 ### TRANSITION ANALYSIS #########################################################
 def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
                         backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1,
                         bootstrap_mode=0, paired_stats=True, ma_thr=0,
-                        fig_file='', fontsize=12):
+                        fig_file='', fontsize=12, nboot=1000):
     """
     Transition analysis
 
@@ -5614,8 +5709,6 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
 
     :return: dict, transitions id --> 3 x 3 x time bins np.array
     """
-    nboot = 1000
-
     if type(rec_file) == str:
         E = load_recordings(ppath, rec_file)[1]
     else:
@@ -5908,7 +6001,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
     if len(fig_file) > 0:
         save_figure(fig_file)
 
-    return M, Base
+    return M, Laser, Base
 
 
 
@@ -6279,6 +6372,20 @@ def quantify_transition(MX, pre, laser_tend, tdown, plaser, win, pstationary=Fal
 
 
 def build_markov_matrix_seq(MX):
+    """
+    build Markov matrix from hypnogram sequences. 
+
+    Parameters
+    ----------
+    MX : 2D np.array
+        rows are trials (e.g. laser stimulation trials), columns refer to time bins
+
+    Returns
+    -------
+    pMX : 3 x 3 np.array
+        pMX[i,j] is the probability to transition from state i to j
+
+    """
     nseq = MX.shape[1]
     nrows = MX.shape[0]
     MX[np.where(MX==4)] = 3
@@ -6307,13 +6414,19 @@ def complete_transition_matrix(MX, idx):
     pmx = np.zeros((3, 3))
     c = np.zeros((3,))
 
+    cwr = 0
+
     for idx in idx_list:
         for i in range(0, nrows):
             seq = MX[i, idx]
             for j in range(0, len(seq)-1):
                 pmx[int(seq[j])-1, int(seq[j+1])-1] += 1
                 c[int(seq[j])-1] += 1
-
+                
+                if seq[j] == 2 and seq[j+1] == 1:
+                    cwr += 1
+                    
+    #print ('We found %d W2R transitions' % cwr)
     for i in range(3):
         pmx[i, :] = pmx[i, :] / c[i]
 
@@ -6321,7 +6434,7 @@ def complete_transition_matrix(MX, idx):
 
 
 
-def _whole_mx(ppath, name, pre, post, tdown, ptie_break=1, tstart=0, tend=-1, ma_thr=0):
+def _whole_mx(ppath, name, pre, post, tdown, ptie_break=True, tstart=0, tend=-1, ma_thr=0):
     """
     get all laser trials (brain state sequences) discretized in $tdown second bins
 
@@ -6348,6 +6461,8 @@ def _whole_mx(ppath, name, pre, post, tdown, ptie_break=1, tstart=0, tend=-1, ma
 
     # load brain state
     M = load_stateidx(ppath, name)[0]
+
+    # NEED CORRECTION!!
     if ma_thr > 0:
         seq = get_sequences(np.where(M==2)[0])
         if len(seq)*dt <= ma_thr:
@@ -6398,10 +6513,6 @@ def downsample_states(M, nbin, ptie_break=True):
             Mds[i] = ii+1
     
     return Mds
-
-
-
-
 
 ### END Transition Analysis ####################################
 
@@ -6502,7 +6613,7 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
     data = []
     for idf in Spec:
         SpecMx[i,:] = np.array(Spec[idf]).mean(axis=0)
-        if pnorm==True:
+        if pnorm:
             SpecMx[i,:] = SpecMx[i,:]/SpecMx[i,:].mean()#LA.norm(SpecMx[i,:])
             
         data += zip([idf]*len(f), SpecMx[i,:], f)
@@ -6536,7 +6647,7 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
         
     df = pd.DataFrame(data=data, columns=['mouse', 'pow', 'freq'])
 
-    return SpecMx, f, df
+    return SpecMx, f, df, Spec
 
 
 
@@ -6598,9 +6709,7 @@ def ma_rhythm(ppath, recordings, ma_thr=20.0, min_dur = 160, band=[10,15],
         #ifreq = np.where((freq>=band[0]) & (freq<=band[1]))
         #pow_band = SP[ifreq,:].mean(axis=0)
         
-        #pdb.set_trace()
         seq = [s for s in seq if len(s)*dt >= min_dur]   
-        #pdb.set_trace()
         for s in seq:
             y,f = power_spectrum(Mseq[s], win, dt)
             #y = y.mean(axis=0)
