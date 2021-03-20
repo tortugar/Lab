@@ -21,6 +21,8 @@ from functools import reduce
 
 import pdb
 
+
+
 def cohen_d(x,y):
     """
     correct if the population S.D. is expected to be equal for the two groups.
@@ -1351,11 +1353,13 @@ def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=
     :param ppath: base folder
     :param name: name of recording
     :param band: 2 element list, lower and upper range for EEG band
+    :parma fft_win:
     :param win: time range for cross-correlation, ranging from -win/2 to win/2 seconds
     :param state: correlate calcium activity and EEG power during state $state
     :param tbreak: maximum interruption of $state
-    :param mouse: 'cross' or 'auto'; if 'auto' perform autocorrelation of DF/F signal
+    :param mode: 'cross' or 'auto'; if 'auto' perform autocorrelation of DF/F signal
     :param pemg: if True, perform analysis with EMG instead of EEG
+    :param pplot: if True, plot figure
     :return: np.array, cross-correlation for each $state interval
     """
     if sr==0:
@@ -1558,7 +1562,7 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
 
 def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold, sj_threshold,
                          backup='', mu=[10, 100], fmax=30, ma_thr=0, ylim=[], xticks=[], cb_ticks=[], vm=[],
-                         tstart=0, tend=-1, pzscore=False, sf=0, base_int=10, mouse_stats=True, mouse_avg=True, fig_file=''):
+                         tstart=0, tend=-1, pzscore=False, sf=0, base_int=10, mouse_stats=True, mouse_avg=True, ci='sem', fig_file=''):
     """
     calculate average DFF activity along brain state transitions
     :param ppath: base folder
@@ -1595,6 +1599,9 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
            then divide the significance criterion (alphs = 0.05) by n.
     :param mouse_stats: if True, calculate statistics across single mice, otherwise
            perform statistics across single trials
+    :param mouse_avg: if True, average across mice (and not individual trials)
+    :param ci: string or int; if 'sem', plot shading showing the standard error of the mean
+           If set to number x (e.g. x=95), plot the x% (e.g. 95%) confidence interval
 
     :return: trans_act:  dict: transitions --> np.array(mouse id x timepoint),
              trans_act_trials: dict: transitions --> np.array(all single transitions x timepoint)
@@ -1602,9 +1609,17 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
              df:         pd.DataFrame: index - time intervals, columns - transitions,
                          reports all the p-values for comparison of baseline interval (first $base_int seconds) vs.
                          each consecutive interval of equal duration. 
-                         
+             df_trans:   p.DataFrame. All individual trials. the DataFrame 
+                         has the following columns: ['mouse', 'time', 'dff', 'trans']
+                         `trans` refers to the type of transition
+    
     Todo: return further dataframe holding all single trials along with mouse identity
     """
+    # corrected time step. The actual timestep is not exactly 2.5 (but slightly off)
+    # This makes trouble when using pandas (groupby.mean) to average across mice for each time point.
+    # With the "real" dt each time point from each trial is different.
+    dtc = 2.5
+
     if type(recordings) != list:
         recordings = [recordings]
 
@@ -1752,11 +1767,10 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
                         spe_mouse[idf].append(spe)
                         spm_mouse[idf].append(spm)
 
-                        dtc = 2.5
+
                         t = np.arange(-ipre*dtc, ipost*dtc - dtc + dtc / 2, dtc)
                         m = len(t)
                         data += zip([idf]*m, t, act, [sid]*m)
-
 
         trans_act[sid] = act_mouse
         trans_spe[sid] = spe_mouse
@@ -1814,19 +1828,30 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
                 plt.plot(t, trans_act_trials[tr].mean(axis=0), color='blue')
         else:
             if mouse_avg:
-                # mean is linear
-                tmp = trans_act[tr].mean(axis=0)
-                # std is not linear
-                sem = np.std(trans_act[tr],axis=0) / np.sqrt(nmice)
-                plt.plot(t, tmp, color='blue')
-                ax.fill_between(t, tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
+                if ci == 'sem':
+                    # mean is linear
+                    tmp = trans_act[tr].mean(axis=0)
+                    # std is not linear
+
+                    sem = np.std(trans_act[tr],axis=0) / np.sqrt(nmice)
+                    plt.plot(t, tmp, color='blue')
+                    ax.fill_between(t, tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
+                else:
+                    dfm = df_trans.groupby(['mouse', 'trans', 'time']).mean().reset_index()
+                    # df_trans = pd.DataFrame(data=data, columns=['mouse', 'time', 'dff', 'trans'])
+                    sns.lineplot(data=dfm, x='time', y='dff', color='blue')
+                    
             else:
-                # mean is linear
-                tmp = trans_act_trials[tr].mean(axis=0)
-                # std is not linear
-                sem = np.std(trans_act_trials[tr],axis=0) / np.sqrt(trans_act_trials[tr].shape[0])
-                plt.plot(t, tmp, color='blue')
-                ax.fill_between(t, tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
+                # plot average across individual trials:
+                if ci == 'sem':
+                    # mean is linear
+                    tmp = trans_act_trials[tr].mean(axis=0)
+                    # std is not linear
+                    sem = np.std(trans_act_trials[tr],axis=0) / np.sqrt(trans_act_trials[tr].shape[0])
+                    plt.plot(t, tmp, color='blue')
+                    ax.fill_between(t, tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
+                else:
+                    sns.lineplot(data=df_trans, x='time', y='dff', color='blue')
 
         sleepy.box_off(ax)
         plt.xlabel('Time (s)')
@@ -1848,13 +1873,6 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
         ax = plt.axes([nx * i + dx, 0.55, nx - dx-dx/3.0, 0.25])
         plt.title(states[si] + ' $\\rightarrow$ ' + states[sj])
 
-        # if statement does not make much sense here...
-        #if nmice==1:
-            # dimensions of trans_spe: number of mice x frequencies x time
-            # so, to average over mice, average over first dimension (axis)
-            #im = ax.pcolorfast(t, f, trans_spe[tr].mean(axis=0), cmap='jet')
-        #else:
-        
         if mouse_avg:
             im = ax.pcolorfast(t, f, trans_spe[tr].mean(axis=0), cmap='jet')
         else:
@@ -1913,10 +1931,10 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
             tpoint = float('%.2f'%tpoint)
             
             data.append([tpoint, p.pvalue, sig, tr])
-    df = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
-    print(df)
+    df_stats = pd.DataFrame(data = data, columns = ['time', 'p-value', 'sig', 'trans'])
+    print(df_stats)
 
-    return trans_act, trans_act_trials, t, df, df_trans
+    return trans_act, trans_act_trials, t, df_stats, df_trans
 
 
 
@@ -2548,6 +2566,30 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
 
 
 def irem_corr(ppath, recordings, pzscore=True, ma_thr=0, rem_break=0):
+    """
+    
+
+    Parameters
+    ----------
+    ppath : string
+        base folder.
+    recordings : []
+        list of recordings.
+    pzscore : TYPE, optional
+        DESCRIPTION. The default is True.
+    ma_thr : TYPE, optional
+        DESCRIPTION. The default is 0.
+    rem_break : TYPE, optional
+        allow for interruptions in REM periods. That is,
+        two REM periods that are separated by less than $rem_break seconds
+        are fused to a single REM period
+
+    Returns
+    -------
+    df : TYPE
+        DESCRIPTION.
+
+    """
     
     data = []
     for rec in recordings:
@@ -2922,8 +2964,9 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
                     sections_nrem[p].append(nrem_dff)
                     single_event_nrem.append(nrem_dff)
                 
-                data += zip([idf]*nsections, [ev]*nsections, list(range(1, nsections+1)), single_event_nrem, ['NREM']*nsections)
-                data += zip([idf]*nsections, [ev]*nsections, list(range(1, nsections+1)), single_event_wake, ['Wake']*nsections)
+                idur = len(idx)*dt
+                data += zip([idf]*nsections, [ev]*nsections, list(range(1, nsections+1)), single_event_nrem, ['NREM']*nsections, [idur]*nsections)
+                data += zip([idf]*nsections, [ev]*nsections, list(range(1, nsections+1)), single_event_wake, ['Wake']*nsections, [idur]*nsections)
                 ev += 1
             
 
@@ -2931,7 +2974,7 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
         list_mx += list(zip([np.nanmean(np.array(w)) for w in sections_nrem], list(range(1, nsections+1)), ['NREM']*nsections, [idf]*nsections))
         
         print('done')
-    df_trials = pd.DataFrame(columns = ['mouse', 'event', 'section', 'dff', 'state'], data=data)
+    df_trials = pd.DataFrame(columns = ['mouse', 'event', 'section', 'dff', 'state', 'idur'], data=data)
     df = pd.DataFrame(columns = ['dff', 'section', 'state', 'idf'], data=list_mx)
     df = df.groupby(['idf', 'state', 'section'], as_index=False).mean()
     df_mean = df.groupby(['section', 'state'], as_index=False).mean()   
