@@ -1331,7 +1331,8 @@ def bandpass_corr(ppath, name, band, win=120, state=3, tbreak=60, pemg=False):
 
 
 
-def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=120, state=3, tbreak=10, mode='cross', pzscore=True, pnorm_spec=True, pemg=False, pplot=True, sr=0):
+def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap=0.8, win=120, state=3, 
+                        tbreak=10, mode='cross', pzscore=True, pnorm_spec=True, pemg=False, pplot=True, sr=0):
     """
     correlate band in EEG spectrogram with calcium activity;
     plot cross-correlation for all intervals of brain state $state.
@@ -1353,11 +1354,18 @@ def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=
     :param ppath: base folder
     :param name: name of recording
     :param band: 2 element list, lower and upper range for EEG band
-    :parma fft_win:
-    :param win: time range for cross-correlation, ranging from -win/2 to win/2 seconds
+    :parma fft_win: The function recalculates the EEG spectrogram from scratch;
+           it does not use the existing sp_$name.mat file.
+           The window size to calculate the FFT is specific in seconds by fft_win.
+    :param perc_overlap: float ranging from 0 to 1; specifies how much to consecutive
+           FFT windows (specified by fft_win) overlap. For perc_overlap = 0.5 two
+           consecutive FFT windows are half overlapping, the temporal resolution (x-axis)
+           of the EEG specotrogram is then $fft_win/2. By using a larger value (say 0.9)
+           the overlap increases, therefore also the temporal resolutios gets finer (0.1 * $fft_win)
+    :param win: float, time range for cross-correlation, ranging from -$win/2 to $win/2 seconds
     :param state: correlate calcium activity and EEG power during state $state
     :param tbreak: maximum interruption of $state
-    :param mode: 'cross' or 'auto'; if 'auto' perform autocorrelation of DF/F signal
+    :param mode: string, 'cross' or 'auto'; if 'auto' perform autocorrelation of DF/F signal
     :param pemg: if True, perform analysis with EMG instead of EEG
     :param pplot: if True, plot figure
     :return: np.array, cross-correlation for each $state interval
@@ -1385,10 +1393,13 @@ def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=
     # I downsample dff to time steps of the size of the subwindows. So for one FFT step we have 10 corresponding
     # dff values, which one to take? I would argue the center point
 
-    timebins_per_fftwin = int(1 / (1-perc_overlap))
+    #timebins_per_fftwin = int(1 / (1-perc_overlap))
     #dff_shift = int(timebins_per_fftwin/2)
 
+    # get all bouts of state $state
     seq = sleepy.get_sequences(np.where(M == state)[0], ibreak=int(tbreak/2.5)+1)
+    # as the cross-correlation should range from -$win to $win, each bout
+    # needs to be at least 2 * $win seconds long
     seq = [s for s in seq if len(s)*2.5 > 2*win]
     CC = []
     for s in seq:
@@ -1396,9 +1407,13 @@ def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=
         j = s[-1] * nbin + 1
         EEGcut = EEG[i:j]
         dffcut = dff[i:j]
+        # to avoid that any time lags in the cross-correlation are due to different
+        # ways of resampling the power band and dff signal, we downsample
+        # the DFF signal in the exactly the same way as the "windowing" for the 
+        # EEG spectrogram calculation: 
+        # We use the same window size, the same amount of overlap to calculate
+        # the average DFF activity for each time point.
         if noverlap==0:
-            #dffd = sleepy.downsample_vec(dffcut, nwin-noverlap)[dff_shift:]
-            #dffd = dffd[dff_shift:]
             dffd = sleepy.downsample_vec(dffcut, nwin)
         else:
             dffd = downsample_overlap(dffcut, nwin, noverlap)
@@ -1414,8 +1429,6 @@ def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=
 
         ifreq = np.where((f >= band[0]) & (f <= band[1]))[0]
         dt = t[1] - t[0]
-        #print(dt)
-        #print('Frequency binning: %f' % (f[1]-f[0]))
         iwin = int(win / dt)
 
         if mode != 'cross':
@@ -1444,7 +1457,6 @@ def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap = 0.8, win=
         
         ii = np.concatenate((np.arange(m-iwin-1, m), np.arange(m, m+iwin, dtype='int')))
         # note: point ii[iwin] is the "0", so xx[ii[iwin]] corresponds to the 0-lag correlation point
-        #pdb.set_trace()
         CC.append(xx[ii])
 
 
