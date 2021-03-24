@@ -1195,6 +1195,123 @@ def brstate_transition_stats(df, timevec, trans_type):
 
 
 
+def dff_interrem(ipath, roi_mapping, nstates_rem=10, nstates_irem=20, pspec=True,
+                 pzscore=True, fmax=30):
+    """
+    Calculate DF/F activity of ROIs in given roi_mapping across time-normalized
+    inter-REM interval
+
+    Parameters
+    ----------
+    ipath : string
+        Imaging base folder
+    roi_mapping : pd.DataFrame
+        ROI mapping, as returned by load_roimapping. DataFrame with 
+        columns "ROI ID", "mouse", "Recording1", "Recording2", etc.
+        Example:
+                    ID mouse J361_081320n1
+                0    0  J361           1-0
+                1    1  J361           1-1
+                2    2  J361           1-2
+                3    3  J361           1-3
+
+            
+    nstates_rem : int, optional
+        Number of normalized time bins
+    nstates_irem : int, optional
+        DESCRIPTION. The default is 20.
+    pspec : bool, optional
+        DESCRIPTION. The default is True.
+    pzscore : bool, optional
+        DESCRIPTION. The default is True.
+    fmax : int, optional
+        Maximum frequency in EEG spectrogram (currently not implemented)
+
+    Returns
+    -------
+    df : pd.DataFrame
+        DataFrame with columns "mouse name", "ROI ID", "recording", "DF/F", "normalized time point"
+ 
+    """
+    
+
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
+    
+    data = []
+    for rec in recordings:
+        print(rec)
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        # load imaging timing
+        img_time = imaging_timing(ipath, rec)
+        #pdb.set_trace()
+
+        # load spectrogram and normalize
+        if pspec:
+            P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
+            SP = P['SP']
+            freq = P['freq']
+            ifreq = np.where(freq <= fmax)[0]
+            sp_mean = SP.mean(axis=1)
+            SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
+
+        # go through all ROIs in recording rec
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            roi_num = int(re.split('-', s)[1])
+            dff = DFF[:,roi_num]
+            if pzscore:
+                dff = (dff-dff.mean())/dff.std()
+            
+            # All REM sleep sequences
+            seq = sleepy.get_sequences(np.where(M==1)[0])
+            if len(seq) >= 2:
+                for (si, sj) in zip(seq[0:-1], seq[1:]):
+                    irem_idx = np.arange(si[-1]+1, sj[0], dtype='int')
+                    
+                    # returns indices of the imaging frames that are closest to given time points 
+                    a = eeg2img_time([si[0]*sdt, si[-1]*sdt],  img_time)
+                    rempre_idx = np.arange(a[0], a[-1]+1, dtype='int')
+                    
+                    a = eeg2img_time([sj[0]*sdt, sj[-1]*sdt],  img_time)
+                    rempost_idx = np.arange(a[0], a[-1]+1, dtype='int')
+                    
+                    irem_idx = np.arange(rempre_idx[-1]+1, rempost_idx[0], dtype='int')
+                    
+                    dff_pre  = time_morph(dff[rempre_idx], nstates_rem)
+                    dff_irem = time_morph(dff[irem_idx], nstates_irem)
+                    dff_post = time_morph(dff[rempost_idx], nstates_rem)
+    
+                    dff_rir = np.concatenate((dff_pre, dff_irem, dff_post))
+                    
+                    m = dff_rir.shape[0]
+                    tlabel = list(range(m))
+                    
+                    
+                    data += zip([idf]*m, [roi_num]*m, [rec]*m, dff_rir, tlabel)
+    
+
+    df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'recording',  'dff', 'time'])
+    return df
+
+
 def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq_max=30,
                   pemg_ampl=True, r_mu = [10, 100], dff_legend=100):
     """
