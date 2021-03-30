@@ -493,7 +493,7 @@ def my_hpfilter(x, w0, N=4):
 
 
 
-def my_bpfilter(x, w0, w1, N=4):
+def my_bpfilter(x, w0, w1, N=4,bf=True):
     """
     create N-th order bandpass Butterworth filter with corner frequencies 
     w0*sampling_rate/2 and w1*sampling_rate/2
@@ -504,7 +504,10 @@ def my_bpfilter(x, w0, w1, N=4):
     #return y
     from scipy import signal
     b,a = signal.butter(N, [w0, w1], 'bandpass')
-    y = signal.filtfilt(b,a, x)
+    if bf:
+        y = signal.filtfilt(b,a, x)
+    else:
+        y = signal.lfilter(b,a, x)
         
     return y
 
@@ -6414,8 +6417,7 @@ def complete_transition_matrix(MX, idx):
     pmx = np.zeros((3, 3))
     c = np.zeros((3,))
 
-    cwr = 0
-
+    #cwr = 0
     for idx in idx_list:
         for i in range(0, nrows):
             seq = MX[i, idx]
@@ -6423,8 +6425,8 @@ def complete_transition_matrix(MX, idx):
                 pmx[int(seq[j])-1, int(seq[j+1])-1] += 1
                 c[int(seq[j])-1] += 1
                 
-                if seq[j] == 2 and seq[j+1] == 1:
-                    cwr += 1
+                #if seq[j] == 2 and seq[j+1] == 1:
+                #    cwr += 1
                     
     #print ('We found %d W2R transitions' % cwr)
     for i in range(3):
@@ -6536,12 +6538,13 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
     win          -       window (number of indices) for FFT calculation
     pplot        -       if True, plot window showing result
     pflipx       -       if True, plot wavelength instead of frequency on x-axis
-    pnorm        -       if True, normalize spectrum (for each mouse) by its total power
+    pnorm        -       string, if pnorm == 'mean', normalize spectrum by the mean power, 
+                         if pnorm == 'area', normalize by area under spectrogram
     
     @RETURN:
     SpecMx, f    -       ndarray [mice x frequencies], vector [frequencies]
     """
-    import scipy.linalg as LA
+    #import scipy.linalg as LA
     print('Greetings from infraslow_rhythm')
 
     min_dur = np.max([win*2.5, min_dur])
@@ -6613,8 +6616,11 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
     data = []
     for idf in Spec:
         SpecMx[i,:] = np.array(Spec[idf]).mean(axis=0)
-        if pnorm:
-            SpecMx[i,:] = SpecMx[i,:]/SpecMx[i,:].mean()#LA.norm(SpecMx[i,:])
+        if len(pnorm) > 0:
+            if pnorm == 'mean':
+                SpecMx[i,:] = SpecMx[i,:]/SpecMx[i,:].mean()#LA.norm(SpecMx[i,:])
+            else:
+                SpecMx[i,:] = SpecMx[i,:]/(SpecMx[i,:].sum()*(f[1]-f[0]))
             
         data += zip([idf]*len(f), SpecMx[i,:], f)
         i += 1
