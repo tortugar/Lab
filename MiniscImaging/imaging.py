@@ -353,7 +353,7 @@ def calc_brstates(ipath, name, roi_id, cf=0, bcorr=1) :
     for i in range(nroi) :
         for istate in range(1,4) :
             idx = np.nonzero(M==istate)[0]
-            seq = get_sequences(idx)
+            seq = sleepy.get_sequences(idx)
 
             fidx = []
             for s in seq :
@@ -669,17 +669,9 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         
         else:
             roi_type = 'X'
-            # R>W>N
-            if (rmean > wmean) and (rmean > nmean) and (wmean  > nmean):  
-                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
-                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
-                # NEW
-                cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
-                
-                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
-                    roi_type = 'R>W>N'
+
             # R>N>W
-            elif (rmean > wmean) and (rmean > nmean) and (nmean  > wmean):  
+            if (rmean > wmean) and (rmean > nmean) and (nmean  > wmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
                 cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
                 # NEW
@@ -687,6 +679,17 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
 
                 if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'R>N>W'
+                    
+            # R>W>N
+            elif (rmean > wmean) and (rmean > nmean) and (wmean  > nmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                # NEW
+                cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'R>W>N'
+                    
             # W-max
             elif (wmean > nmean) and (wmean > rmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
@@ -1044,6 +1047,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
     for index, row in roi_mapping.iterrows():
         for (si,sj) in transitions:
             sid = states[si] + states[sj]
+            print(sid)
             tmp_si = roi_transact_si[sid][row['ID']]
             tmp_sj = roi_transact_sj[sid][row['ID']]
             #roi_transact_mean[sid][row['ID']] = np.hstack([tmp_si, tmp_sj])
@@ -1233,8 +1237,6 @@ def dff_interrem(ipath, roi_mapping, nstates_rem=10, nstates_irem=20, pspec=True
         DataFrame with columns "mouse name", "ROI ID", "recording", "DF/F", "normalized time point"
  
     """
-    
-
     recordings = list(roi_mapping.columns)
     recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
     
@@ -1310,6 +1312,261 @@ def dff_interrem(ipath, roi_mapping, nstates_rem=10, nstates_irem=20, pspec=True
 
     df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'recording',  'dff', 'time'])
     return df
+
+
+
+def dff_remrem_sections(ipath, roi_mapping, nsections=5, pzscore=False, ma_thr=10):
+    """
+    Calculate the NREM/wake activity of the given ROIs within consecutive sections 
+    of the inter-REM cycle
+
+    Parameters
+    ----------
+    ipath : string
+        DESCRIPTION.
+    roi_mapping : pd.DataFrame
+        DESCRIPTION.
+    nsections : int, optional
+        DESCRIPTION. The default is 5.
+    pzscore : bool, optional
+        DESCRIPTION. The default is False.
+    ma_thr : int, optional
+        DESCRIPTION. The default is 10.
+
+    Returns
+    -------
+    df_trials : pd.DataFrame
+        DESCRIPTION.
+
+    """
+    
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
+    
+    data = []
+    ev = 0
+    for rec in recordings:
+        print(rec)
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        #DFF = so.loadmat(dff_file, squeeze_me=True)['dffd']
+        DFF = downsample_dff2bs(ipath, rec, roi_list)
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        # flatten out microarousals
+        if ma_thr > 0:
+            seq = sleepy.get_sequences(np.where(M == 2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) < ma_thr:
+                    if (s[0] > 1) and (M[s[0] - 1] != 1):
+                        M[s] = 3
+        
+        # go through all ROIs in recording rec
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            roi_num = int(re.split('-', s)[1])
+            dff = DFF[:,roi_num]
+            if pzscore:
+                print('here')
+                dff = (dff-dff.mean())/dff.std()
+            
+            # All REM sleep sequences
+            seq = sleepy.get_sequences(np.where(M==1)[0])
+            if len(seq) >= 2:
+                for (si, sj) in zip(seq[0:-1], seq[1:]):
+                    
+                    irem_idx = np.arange(si[-1]+1, sj[0], dtype='int')
+                    m = len(irem_idx)
+                    
+                    M_up = upsample_mx( M[irem_idx], nsections )
+                    M_up = np.round(M_up)
+                    #pdb.set_trace()
+                    dff_up = upsample_mx(dff[irem_idx], nsections)
+
+                    single_event_nrem = []
+                    single_event_wake = []
+                    for p in range(nsections):
+                        # for each m consecutive bins calculate average NREM, REM, Wake activity
+                        mi = list(range(p*m, (p+1)*m))
+
+                        idcut = np.intersect1d(mi, np.where(M_up == 2)[0])
+                        if len(idcut) == 0:
+                            wake_dff = np.nan
+                        else:
+                            wake_dff = np.nanmean(dff_up[idcut])
+                        single_event_wake.append(wake_dff)
+    
+                        idcut = np.intersect1d(mi, np.where(M_up == 3)[0])
+                        if len(idcut) == 0:
+                            nrem_dff = np.nan
+                        else:
+                            nrem_dff = np.nanmean(dff_up[idcut])
+                        single_event_nrem.append(nrem_dff)
+
+                    idur = len(irem_idx)*sdt
+                    data += zip([idf]*nsections, [roi_num]*nsections, [ev]*nsections, list(range(1, nsections+1)), single_event_nrem, ['NREM']*nsections, [idur]*nsections)
+                    data += zip([idf]*nsections, [roi_num]*nsections, [ev]*nsections, list(range(1, nsections+1)), single_event_wake, ['Wake']*nsections, [idur]*nsections)
+                    ev += 1
+    
+    df_trials = pd.DataFrame(columns = ['mouse', 'ID', 'event', 'section', 'dff', 'state', 'idur'], data=data)
+    
+    return df_trials                
+
+
+
+def pearson_state_corr(ipath, roi_mapping, band, ma_thr=10, min_dur = 20, pnorm_spec=True, pzscore=True):
+    """
+    calculate brain state dependent pearson correlation for given list of ROIs
+
+    Parameters
+    ----------
+    ipath : TYPE
+        DESCRIPTION.
+    roi_mapping : pd.DataFrame
+        ROI mapping
+    band : tuple
+        Frequency band, specified as [f_low, f_high]
+    ma_thr : float, optional
+        MA threshold. The default is 10.
+    pnorm_spec : bool, optional
+        If True, normalize EEG spectrogram before calculating pearson's r. The default is True.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        DataFrame with one row for each ROI. The columns are
+        ['mouse', 'recording', 'ID', 'r', 'p', 'sig', 'state']
+        'r' is the pearson correlation coefficient
+        'p' the p-value of the correlation
+        'sig': yes or no, depending on whether the correlation is significant or not
+        'state': REM, Wake, or NREM 
+
+
+    """
+    
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
+    
+    data = []
+    state_map = {1:'REM', 2:'Wake', 3:'NREM'}
+    for rec in recordings:
+        print(rec)
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+
+        DFF = downsample_dff2bs(ipath, rec, roi_list)
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        # flatten out microarousals
+        if ma_thr > 0:
+            seq = sleepy.get_sequences(np.where(M == 2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) < ma_thr:
+                    #if (s[0] > 1) and (M[s[0] - 1] != 1):
+                    M[s] = 3
+        
+
+        # load spectrogram and normalize
+        P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
+        SP = P['SP']
+        freq = P['freq']
+        ifreq = np.where((freq >= band[0]) & (freq <= band[1]))[0]
+        df = freq[1] - freq[0]
+
+        if pnorm_spec:
+            sp_mean = SP.mean(axis=1)
+            SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
+            pow_band = SP[ifreq,:].mean(axis=0)
+        else:
+            pow_band = SP[ifreq,:].sum(axis=0)*df
+
+
+        ######################################################################
+        # go through all ROIs in recording rec
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            roi_num = int(re.split('-', s)[1])
+            dff = DFF[:,roi_num]
+                
+            if pzscore:
+                dff = (dff - dff.mean()) / dff.std()
+            
+            for s in [1,2,3]:
+                idx = np.where(M==s)[0]
+                seq = sleepy.get_sequences(idx)
+                seq = [s for s in seq if np.round(len(s)*sdt) >= min_dur]
+                idx = np.concatenate(seq)
+                
+                r,p = scipy.stats.pearsonr(dff[idx], pow_band[idx])
+                if p < 0.05:
+                    sig = 'yes'
+                else:
+                    sig = 'no'
+                    
+                data.append([idf, rec, roi_num, r, p, sig, state_map[s]])
+    
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'ID', 'r', 'p', 'sig', 'state'])    
+
+    return df
+
+
+
+def downsample_dff2bs(ipath, rec, roi_list, psave=False):
+
+    sr = sleepy.get_snr(ipath, rec)
+    nbin = int(np.round(sr)*2.5)
+    sdt = nbin * (1.0/sr)
+
+    P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
+    bs_time = P['t'] + sdt
+    bs_time = np.concatenate(([0], bs_time))
+    
+    # load DF/F for recording rec 
+    dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+    if not(os.path.isfile(dff_file)):
+        calculate_dff(ipath, rec, roi_list)
+    DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+    
+    # load imaging timing
+    img_time = imaging_timing(ipath, rec)
+
+    # indices of the imaging frames that are closest to given time points
+    idx = eeg2img_time(bs_time, img_time)    
+    
+    data = []
+    for (a,b) in zip(idx[0:-1], idx[1:]):
+        data.append(DFF[a:b,:].mean(axis=0))        
+    dffd = np.array(data)
+
+    if psave:
+        so.savemat(dff_file, {'dff':DFF, 'dffd':dffd})
+
+    return dffd
+
 
 
 def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq_max=30,
@@ -1524,7 +1781,270 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq
     return F, t
 
 
+
+def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, tend=-1, emg_ticks=[], cb_ticks=[], show_avgs=True):
+    """
+    For each mouse in the given ROI mapping, plot all ROIs sorted by different classes. If $show_avgs = True, 
+    plot for each class the average across all ROIs.
+
+    Parameters
+    ----------
+    ipath : TYPE
+        DESCRIPTION.
+    roi_mapping : TYPE
+        DESCRIPTION.
+    pplot : TYPE, optional
+        DESCRIPTION. The default is True.
+    vm : TYPE, optional
+        DESCRIPTION. The default is -1.
+    tstart : TYPE, optional
+        DESCRIPTION. The default is 0.
+    tend : TYPE, optional
+        DESCRIPTION. The default is -1.
+    emg_ticks : TYPE, optional
+        DESCRIPTION. The default is [].
+    cb_ticks : TYPE, optional
+        DESCRIPTION. The default is [].
+    show_avgs : TYPE, optional
+        DESCRIPTION. The default is True.
+
+    Returns
+    -------
+    df : TYPE
+        DESCRIPTION.
+    dfr : TYPE
+        DESCRIPTION.
+
+    """
+
+    tlegend = 300
+    types = roi_mapping.Type.unique()
+    types.sort()
+    clrs = sns.color_palette("husl", 5)
+    color_dict = {}        
+    i = 0
+    for typ in types:
+        color_dict[typ] = clrs[i]
+        i += 1
+
     
+        
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
+    
+    data = []
+    data_r = []
+    for rec in recordings:
+        print(rec)
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        types = rec_map.Type.unique()
+        types.sort()
+        print(types)
+        
+        # 
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+
+        DFF = downsample_dff2bs(ipath, rec, roi_list)
+        t = np.arange(0, DFF.shape[0])*sdt
+        m = len(t)
+    
+        roi_dict = {typ:[] for typ in types}
+        ######################################################################
+        # go through all ROIs in recording rec
+        for typ in types:
+            dfs = rec_map[rec_map.Type == typ]
+            roi_ids = []
+            for index, row in dfs.iterrows():
+                s=row[rec]
+                roi_num = int(re.split('-', s)[1])
+                roi_ids.append(roi_num)
+            if len(roi_ids) > 0:
+                
+                dff = DFF[:,roi_ids].mean(axis=1)
+                data += zip([idf]*m, [rec]*m, [typ]*m, t, dff, M)
+            if len(roi_ids) >= 2:
+                rval = []
+                block = DFF[:,roi_ids]
+                for i in range(block.shape[1]):
+                    for j in range(i+1, block.shape[1]):
+                        r, p = scipy.stats.pearsonr(block[:,i], block[:,j])
+                        rval.append(r)
+                        
+                data_r.append([idf, rec, typ, np.array(rval).mean()])
+                
+            
+            roi_dict[typ] = roi_ids
+
+        nrois = 0
+        for typ in roi_dict:
+            nrois += len(roi_dict[typ])
+
+        fmax = 20            
+        r_mu = [10, 100]
+        if pplot:
+            
+            M = sleepy.load_stateidx(ipath, rec)[0]
+            if tend == -1:
+                iend = len(M)
+            else:
+                iend = int(np.round(tend/sdt))
+            istart = int(np.round(tstart/sdt))
+
+            
+            # load EEG and EMG spectrogram
+            P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
+            SPEEG = P['SP'] 
+            med = np.median(SPEEG.max(axis=0))
+            if vm == -1:
+                vm = med*2.5
+            freq = P['freq']
+            P = so.loadmat(os.path.join(ipath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
+            SPEMG = P['mSP'] 
+        
+            plt.ion()
+            plt.figure(figsize=(10,8))
+        
+            # show hypnogram
+            # HYPNOGRAM AXES
+            axes_brs = plt.axes([0.1, 0.63, 0.8, 0.03])
+            cmap = plt.cm.jet
+            my_map = cmap.from_list('brs', [[0, 0, 0], [0, 1, 1], [0.6, 0, 1], [0.8, 0.8, 0.8]], 4)
+            tmp = axes_brs.pcolorfast(t, [0, 1], np.array([M]), vmin=0, vmax=3)
+        
+            tmp.set_cmap(my_map)
+            axes_brs.axis('tight')
+            axes_brs.axes.get_xaxis().set_visible(False)
+            axes_brs.axes.get_yaxis().set_visible(False)
+            axes_brs.spines["top"].set_visible(False)
+            axes_brs.spines["right"].set_visible(False)
+            axes_brs.spines["bottom"].set_visible(False)
+            axes_brs.spines["left"].set_visible(False)
+
+            
+            # show spectrogram
+            ifreq = np.where(freq <= fmax)[0]
+            # axes for colorbar
+            axes_cbar = plt.axes([0.82, 0.8, 0.1, 0.15])
+            # axes for EEG spectrogram
+            # AXES SPECTROGRAM 
+            axes_spec = plt.axes([0.1, 0.8, 0.8, 0.15], sharex=axes_brs)                                            #AXES
+            im = axes_spec.pcolorfast(t, freq[ifreq], SPEEG[ifreq, istart:iend], cmap='jet', vmin=0, vmax=vm)
+            axes_spec.axis('tight')
+            #axes_spec.set_xticklabels([])
+            #axes_spec.set_xticks([])
+            axes_spec.spines["bottom"].set_visible(False)
+            axes_spec.axes.get_xaxis().set_visible(False)
+
+            plt.ylabel('Freq (Hz)')
+            sleepy.box_off(axes_spec)
+            plt.xlim([t[0], t[-1]])
+            plt.title(rec)
+            
+            
+            # colorbar for EEG spectrogram
+            cb = plt.colorbar(im, ax=axes_cbar, pad=0.0, aspect=10.0)
+            cb.set_label('Power ($\mathrm{\mu}$V$^2$s)')
+            if len(cb_ticks) > 0:
+                cb.set_ticks(cb_ticks)
+            axes_cbar.set_alpha(0.0)
+            axes_cbar.spines["top"].set_visible(False)
+            axes_cbar.spines["right"].set_visible(False)
+            axes_cbar.spines["bottom"].set_visible(False)
+            axes_cbar.spines["left"].set_visible(False)
+            axes_cbar.axes.get_xaxis().set_visible(False)
+            axes_cbar.axes.get_yaxis().set_visible(False)
+
+            
+            # show EMG
+            i_mu = np.where((freq >= r_mu[0]) & (freq <= r_mu[1]))[0]
+            # * 1000: to go from mV to uV
+            p_mu = np.sqrt(SPEMG[i_mu, :].sum(axis=0) * (freq[1] - freq[0])) #* 1000.0
+            # AXES EMG
+            axes_emg = plt.axes([0.1, 0.68, 0.8, 0.1], sharex=axes_spec)
+            axes_emg.plot(t, p_mu[istart:iend], color='black')
+            axes_emg.patch.set_alpha(0.0)
+            axes_emg.spines["bottom"].set_visible(False)
+            axes_emg.axes.get_xaxis().set_visible(False)
+
+            if len(emg_ticks) > 0:
+                axes_emg.set_yticks(emg_ticks)
+            plt.ylabel('Ampl. ' + '$\mathrm{(\mu V)}$')
+            plt.xlim((t[0], t[-1]))
+            sleepy.box_off(axes_emg)
+            
+            # DF/F signals
+            axes_dff = plt.axes([0.1, .05, 0.8, 0.5], sharex=axes_spec)
+            dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+            if not(os.path.isfile(dff_file)):
+                calculate_dff(ipath, rec, roi_list)
+            DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+            img_time = imaging_timing(ipath, rec) 
+            nframes = DFF.shape[0]
+            dffmax = DFF.max()
+            
+            if not show_avgs:
+                i = 0
+                for typ in types:
+                    roi_ids = roi_dict[typ]
+                    for j in roi_ids:
+                        plt.plot(img_time[0:nframes], DFF[0:nframes,j]+i*dffmax, color=color_dict[typ])
+                        plt.text(100, i*dffmax+dffmax/4, str(j) + ' ' + typ, fontsize=12, color=color_dict[typ],bbox=dict(facecolor='w', alpha=0.))
+                        i += 1
+    
+                plt.ylim([-dffmax, dffmax*nrois])
+            else:
+                dmax = []
+                for typ in types:
+                    roi_ids = roi_dict[typ]
+                    dmax.append(DFF[:,roi_ids].mean(axis=1).max())
+                dffmax = np.max(np.array(dmax))
+
+                                
+                ntypes = len(types)
+                i = 0
+                for typ in types:
+                    roi_ids = roi_dict[typ]
+                    plt.plot(img_time[0:nframes], DFF[0:nframes,roi_ids].mean(axis=1)+i*dffmax, color=color_dict[typ])
+                    plt.text(100, i*dffmax+dffmax/4, 'avg' + ' ' + typ, fontsize=12, color=color_dict[typ],bbox=dict(facecolor='w', alpha=0.))
+                    i += 1
+                plt.ylim([-dffmax, dffmax*(ntypes)])
+            plt.title('Time (s)')
+
+            # AXES TIME LEGEND
+            axes_legend = plt.axes([0.1, 0.58, 0.8, 0.03], sharex=axes_dff)
+            plt.ylim((0, 1.1))
+            plt.xlim([t[0], t[-1]])
+            axes_legend.plot([0, tlegend], [1, 1], color='black')
+            axes_legend.text(tlegend/4.0, 0.0, str(tlegend) + ' s')
+            axes_legend.patch.set_alpha(0.0)
+            axes_legend.spines["top"].set_visible(False)
+            axes_legend.spines["right"].set_visible(False)
+            axes_legend.spines["bottom"].set_visible(False)
+            axes_legend.spines["left"].set_visible(False)
+            axes_legend.axes.get_xaxis().set_visible(False)
+            axes_legend.axes.get_yaxis().set_visible(False)
+
+    dfr = pd.DataFrame(data=data_r, columns=['mouse', 'recording', 'type', 'r'])
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'type', 'time', 'dff', 'state'])
+
+    return df, dfr
+    
+
+
 def plot_catraces_simple(ipath, name, roi_id, cf=0, bcorr=1, SR=0):
     """
     plot Ca traces of all ROIs without any brainstate information
