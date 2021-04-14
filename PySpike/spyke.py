@@ -596,7 +596,7 @@ def pca(data,dims=2) :
     # carry out the transformation on the data using eigenvectors
     # and return the re-scaled data, eigenvalues, and eigenvectors
 
-    # return projection of data onto eigenvenctors, eigenvalues and eigenvectors  
+    # return projection of data onto eigenvectors, eigenvalues and eigenvectors  
     return np.dot(evecs.T, data.T).T, evals, evecs
 
 
@@ -1006,6 +1006,7 @@ def detect_spikes_corr(ppath, name, grp_name='', med_factor=4.0, spike_window=15
         # sampleN3_electrodeN2_spikeN1
         spkFileName = os.path.join(ppath, name, name + '.spk.' + str(g))
         spk_vec.astype('int16').tofile(spkFileName)
+        pdb.set_trace()
             
     # write .xml configuration file
     print("Writing config file...")
@@ -2006,7 +2007,7 @@ def unpack_unit(ppath, name, grp, un):
         idx = Spk[un].idx
         ch  = Spk[un].ch
     elif os.path.isfile(sfile + '.npz'):
-        Spk = np.load(sfile + '.npz', encoding='bytes')
+        Spk = np.load(sfile + '.npz', encoding='bytes', allow_pickle=True)
         # explanation of why this is necessary:
         # https://stackoverflow.com/questions/22661764/storing-a-dict-with-np-savez-gives-unexpected-result/41566840
         Spk = {key:Spk[key].item() for key in Spk if Spk[key].dtype == 'O'}
@@ -2260,7 +2261,7 @@ def write_fr(ppath, name, grp, un):
 
 
 
-def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu = [10, 100]):
+def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu = [10, 100], ma_thr=10, ma_mode=False):
     """
     plot firing rate along spectrogram, brainstate, EMG amplitude using matplotlib
     For example, spyke.brstate_fr_plt(ppath, name, [(1,3)]) to plot unit 1,3 of recording name, located in ppath
@@ -2272,6 +2273,8 @@ def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu 
     :param tstart: float, tstart, first time point to be shown (in [s])
     :param tend: float, last time point to be shown (in [s]), if -1 show everything till the end
     :param r_mu: tuple, frequency used for calculation of EMG amplitude
+    :param ma_thr: float, microarousal threshold
+    :param ma_mode: bool, if True plot microarousals in different colors
     :return: n/a
     """
     # load brainstate
@@ -2302,9 +2305,19 @@ def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu 
     else:
         iend = int(np.round(tend/dt))
     M = M[istart:iend]
-    M[M==0.] = 3
+    M[M==0] = 3
     t = t[istart:iend]
     t = t-t[0]
+
+    if ma_thr > 0:
+        seq = sleepy.get_sequences(np.where(M==2)[0])
+        for s in seq:
+            if np.round((len(s)*dt)) <= ma_thr:
+                if not ma_mode:
+                    M[s] = 3
+                else:
+                    M[s] = 4
+
 
     # plot the stuff
     plt.figure(figsize=(10,4))
@@ -2313,8 +2326,12 @@ def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu 
     A = np.zeros((1, len(M)))
     A[0, :] = M
     cmap = plt.cm.jet
-    my_map = cmap.from_list('ha', [[0, 0, 0], [0, 1, 1], [0.6, 0, 1], [0.8, 0.8, 0.8]], 4)
-    tmp = axes1.pcolorfast(t, [0, 1], A, vmin=0, vmax=3)
+    if not ma_mode:
+        my_map = cmap.from_list('ha', [[0, 0, 0], [0, 1, 1], [0.6, 0, 1], [0.8, 0.8, 0.8]], 4)
+        tmp = axes1.pcolorfast(t, [0, 1], A, vmin=0, vmax=3)
+    else:
+        my_map = cmap.from_list('brs', [[0, 0, 0], [0, 1, 1], [0.6, 0, 1], [0.8, 0.8, 0.8], [1, 0, 1]], 5)
+        tmp = axes1.pcolorfast(t, [0, 1], np.array([M]), vmin=0, vmax=5)
     tmp.set_cmap(my_map)
     axes1.axis('tight')
     tmp.axes.get_xaxis().set_visible(False)
@@ -2327,7 +2344,6 @@ def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu 
     axes1.spines["right"].set_visible(False)
     axes1.spines["bottom"].set_visible(False)
     axes1.spines["left"].set_visible(False)
-
 
     # show spectrogram
     ifreq = np.where(freq <= fmax)[0]
@@ -2554,7 +2570,6 @@ def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
     for k in units:
         for rec in units[k]:
             rec.set_path(ppath, backup)
-
 
     FR = {k:[] for k in units}
     for k in units:
@@ -4369,7 +4384,7 @@ def statedep_autocorrelogram(ppath, name, grp, un, win=100, seq_dur = 10, pcompl
         for s in [1,2,3]:
             plt.semilogx(t, CC[s], color=clrs[s-1])
         if pcomplete:
-            plt.semilogx(t, CCcomp, color='black')
+            plt.semilogx(t, CC, color='black')
         plt.xlabel('Time (ms)')
         plt.ylabel('Rate (overlap/s)')
         sleepy.box_off(ax)
@@ -5052,9 +5067,7 @@ def tdt_videotiming(ppath, name, res=1.0):
                'frame_tick_time':frame_tick_time})
             
 
-    
-    
-    
+            
 def avi_to_zippedstack(ppath, name):
     import scipy.ndimage
     
