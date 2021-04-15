@@ -454,9 +454,8 @@ def cleanup_recording(ppath, name):
         for f in files_to_delete:
             os.unlink(os.path.join(ddir, f))
 
+
             
-
-
 def downsample_vec(x, nbin):
     """
     y = downsample_vec(x, nbin)
@@ -474,6 +473,36 @@ def downsample_vec(x, nbin):
         x_down += x[idx]
 
     return x_down / nbin    
+
+
+
+def downsample_overlap(x, nwin, noverlap):
+    """
+    Say,
+    len(x)=10
+    nwin=5
+    nolverap=3
+    1 2 3 4 5 6 7 8 9 10
+
+    1 2 3 4 5
+        3 4 5 6 7
+            5 6 7 8 9
+
+    :param x:
+    :param nwin:
+    :param noverlap:
+    :return:
+    """
+    nsubwin = nwin-noverlap
+    n_down = int(np.floor((x.shape[0]-noverlap)/nsubwin))
+    x_down = np.zeros((n_down,))
+    j = 0
+    for i in range(0, x.shape[0]-nwin+1, nsubwin):
+        x_down[j] = x[i:i+nwin].mean()
+        j += 1
+
+    return x_down
+
 
 
 def downsample_mx(X, nbin):
@@ -4275,6 +4304,228 @@ def laser_triggered_train_emg(ppath, name, grp, un, pre, post, nbin=1, offs=0, i
     plt.plot(t, emg_pow, color='black')
     plt.ylabel('EMG power')
     sleepy.box_off(ax)
+
+
+
+def bandpass_corr_state(ppath, name, unit, band, fft_win=2.5, perc_overlap=0.8, win=120, state=3, 
+                        tbreak=10, mode='cross', pzscore=True, pnorm_spec=True, pemg=False, pplot=True, sr=0):
+    """
+    correlate band in EEG spectrogram with calcium activity;
+    plot cross-correlation for all intervals of brain state $state.
+    Negative time points in the cross-correlation mean that the calcium activity
+    precedes the EEG.
+
+    see also &bandpass_corr which correlates calcium activity and EEG for the whole recording, irrespective of brain state
+
+    Say we correlate:
+        x = [0,1,0]
+        y = [0,0,1]
+    so y follows x, then the result of cross correlation is
+        cc = [0, 1, 0, 0, 0]
+    The center point is cc[len(x)-1]. So a negative peak means that y follows x
+
+    We correlate DF/F with the power band, so a negative peak means that the power band follows DF/F 
+    (or DF/F precedes the power band)
+
+    :param ppath: base folder
+    :param name: name of recording
+    :param band: 2 element list, lower and upper range for EEG band
+    :parma fft_win: The function recalculates the EEG spectrogram from scratch;
+           it does not use the existing sp_$name.mat file.
+           The window size to calculate the FFT is specific in seconds by fft_win.
+    :param perc_overlap: float ranging from 0 to 1; specifies how much to consecutive
+           FFT windows (specified by fft_win) overlap. For perc_overlap = 0.5 two
+           consecutive FFT windows are half overlapping, the temporal resolution (x-axis)
+           of the EEG specotrogram is then $fft_win/2. By using a larger value (say 0.9)
+           the overlap increases, therefore also the temporal resolutios gets finer (0.1 * $fft_win)
+    :param win: float, time range for cross-correlation, ranging from -$win/2 to $win/2 seconds
+    :param state: correlate calcium activity and EEG power during state $state
+    :param tbreak: maximum interruption of $state
+    :param mode: string, 'cross' or 'auto'; if 'auto' perform autocorrelation of DF/F signal
+    :param pemg: if True, perform analysis with EMG instead of EEG
+    :param pplot: if True, plot figure
+    :return: np.array, cross-correlation for each $state interval
+    """
+    (grp, un) = unit
+    if sr==0:
+        sr = get_snr(ppath, name)
+    nbin = int(np.round(2.5 * sr))
+    nwin = int(np.round(sr * fft_win))
+    if nwin % 2 == 1:
+        nwin += 1
+    noverlap = int(nwin*perc_overlap)
+    #dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dff']
+    dff = unpack_unit(ppath, name, grp, un)[1]
+
+    if pemg:
+        EEG = so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG']
+    else:
+        EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
+
+    M, S = sleepy.load_stateidx(ppath, name)
+
+    # Say perc_overlap = 0.9, then we have 10 sub-windows (= 1 / (1-perc_overlap)
+    # Each subwindow has nwin_sub = nwin * (1 - 0.9) data points
+    # Each subwindow has 10 = timebins_per_fftwin = fft_win - perc_overlap*fft_win = fft_win * (1 - perc_overlap)
+    # Now the fft_win ranges over 10 subwindows.
+    # I downsample dff to time steps of the size of the subwindows. So for one FFT step we have 10 corresponding
+    # dff values, which one to take? I would argue the center point
+
+    #timebins_per_fftwin = int(1 / (1-perc_overlap))
+    #dff_shift = int(timebins_per_fftwin/2)
+
+    # get all bouts of state $state
+    seq = sleepy.get_sequences(np.where(M == state)[0], ibreak=int(tbreak/2.5)+1)
+    # as the cross-correlation should range from -$win to $win, each bout
+    # needs to be at least 2 * $win seconds long
+    seq = [s for s in seq if len(s)*2.5 > 2*win]
+    CC = []
+    for s in seq:
+        i = s[0] * nbin
+        j = s[-1] * nbin + 1
+        EEGcut = EEG[i:j]
+        dffcut = dff[i:j]
+        # to avoid that any time lags in the cross-correlation are due to different
+        # ways of resampling the power band and dff signal, we downsample
+        # the DFF signal in the exactly the same way as the "windowing" for the 
+        # EEG spectrogram calculation: 
+        # We use the same window size, the same amount of overlap to calculate
+        # the average DFF activity for each time point.
+
+        if noverlap==0:
+            dffd = sleepy.downsample_vec(dffcut, nwin)
+        else:
+            dffd = downsample_overlap(dffcut, nwin, noverlap)
+
+        if pzscore:
+            dffd = (dffd-dffd.mean()) / dffd.std()
+
+        #Pow, f, t = sleepy.spectral_density(EEGcut, 2 * nwin, nwin, 1.0 / sr)
+        f, t, Pow = scipy.signal.spectrogram(EEGcut, nperseg=nwin, noverlap=noverlap, fs=sr)
+        if pnorm_spec:
+            sp_mean = Pow.mean(axis=1)
+            Pow = np.divide(Pow, np.tile(sp_mean, (Pow.shape[1], 1)).T)
+
+        ifreq = np.where((f >= band[0]) & (f <= band[1]))[0]
+        dt = t[1] - t[0]
+        iwin = int(win / dt)
+
+        if mode != 'cross':
+            pow_band = dffd
+        else:
+            if not pnorm_spec:
+                pow_band = Pow[ifreq, :].sum(axis=0) * (f[1]-f[0])
+            else:
+                pow_band = Pow[ifreq, :].mean(axis=0)
+
+        pow_band -= pow_band.mean()
+        
+        dffd -= dffd.mean()
+        m = np.min([pow_band.shape[0], dffd.shape[0]])
+        # Say we correlate x and y;
+        # x and y have length m
+        # then the correlation vector cc will have length 2*m - 1
+        # the center element with lag 0 will be cc[m-1]
+        norm = np.nanstd(dffd[0::]) * np.nanstd(pow_band[0::])
+        # for used normalization, see: https://en.wikipedia.org/wiki/Cross-correlation
+        
+        #xx = scipy.signal.correlate(dffd[1:m], pow_band[0:m - 1])/ norm
+        xx = (1/m) * scipy.signal.correlate(dffd[0::], pow_band[0::])/ norm
+        ii = np.arange(len(xx) / 2 - iwin, len(xx) / 2 + iwin + 1)
+        ii = [int(i) for i in ii]
+        
+        ii = np.concatenate((np.arange(m-iwin-1, m), np.arange(m, m+iwin, dtype='int')))
+        # note: point ii[iwin] is the "0", so xx[ii[iwin]] corresponds to the 0-lag correlation point
+        CC.append(xx[ii])
+
+
+    CC = np.array(CC)
+    t = np.arange(-iwin, iwin+1) * dt
+
+    if pplot:
+        plt.ion()
+        plt.figure()
+        ax = plt.subplot(111)
+        #t = np.arange(-iwin, iwin + 1) * dt
+        # note: point t[iwin] is "0"
+        c = np.sqrt(CC.shape[0])
+        a = CC.mean(axis=0) - CC.std(axis=0)/c
+        b = CC.mean(axis=0) + CC.std(axis=0)/c
+        plt.fill_between(t,a,b, color='gray', alpha=0.5)
+        plt.plot(t, np.nanmean(CC, axis=0), color='black')
+        plt.xlabel('Time (s)')
+        plt.ylabel('Corr. FR (spikes/s) vs. EEG')
+        plt.xlim([t[0], t[-1]])
+        sleepy.box_off(ax)
+        plt.show()
+
+    return CC, t
+
+
+
+def bandpass_corr_state_avg(ppath, unit_listing, band, win=120, fft_win=2.5, perc_overlap=0.8, state=3, tbreak=10, mode='cross', pemg=False, backup=''):
+    """
+    Average state-dependent cross-correlation accross different units
+
+    Parameters
+    ----------
+    ppath : TYPE
+        base folder 
+    unit_listing : string or list
+        unit_listing: unit listing, either text file, or dict as returned 
+        by load_units (each value of a list of Recording objects, see class Recording)
+    band : tuple
+        lower and upper band for frequency band in EEG spectrogram
+    win : int, optional
+        The time window of the cross-correlation ranges from -$win to $win
+    fft_win : float, optional
+        Size of the fft window used to calculate the spectrogram. The default is 2.5.
+    perc_overlap : float, optional
+        ranges from 0 to 1, specifies how much two consecutive FFT windows overlap. The default is 0.8.
+    state : int, optional
+        Brain state, typically 1, 2, or 3. The default is 3.
+    tbreak : float, optional
+        maximum allowed interruption of a sequence of state $state. The default is 10.
+    mode : string, optional
+        'auto' for auto-correlation or 'cross' for cross-correlation. The default is 'cross'.
+    pemg : bool, optional
+         if True, perform analysis with EMG instead of EEG. The default is False.
+    backup : string, optional
+        Path of potential backup folder. The default is '', which means no backup folder is used.
+
+    Returns
+    -------
+    dfm : pd.DataFrame
+        DataFrame with columns ['mouse', 'recording', 'unit', 'cc', 'time'].
+
+    """
+    data = []
+    
+    if type(unit_listing) == str:
+        units = load_units(ppath, unit_listing)
+    else:
+        units = unit_listing
+
+    for k in units:
+        for rec in units[k]:
+            rec.set_path(ppath, backup)
+
+    for k in units:
+        for rec in units[k]:
+            idf = re.split('_', rec.name)[0]
+            CC, t = bandpass_corr_state(rec.path, rec.name, (rec.grp,rec.un), band, win=win, state=state, tbreak=tbreak, mode=mode, pemg=pemg, fft_win=fft_win, perc_overlap=perc_overlap, pplot=False, sr=0)
+            ccmean = np.array(CC).mean(axis=0)
+            m = ccmean.shape[0]
+            unit_str = '%s, (%d, %d)' % (rec.name, rec.grp, rec.un)
+            data += zip([idf]*m, [rec.name]*m, [unit_str]*m, list(ccmean), list(t))
+        
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'unit', 'cc', 'time'])
+    
+    plt.figure()
+    dfm = df.groupby(['unit', 'time']).mean().reset_index()
+    sns.lineplot(data=dfm, x='time', y='cc', ci=None)
+
+    return dfm
 
 
 
