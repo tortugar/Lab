@@ -5669,7 +5669,7 @@ def plt_lineplot_byhue(df, subject, xcol, ycol, hue, ax=-1, color='blue', xlabel
 ### TRANSITION ANALYSIS #########################################################
 def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
                         backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1,
-                        bootstrap_mode=0, paired_stats=True, ma_thr=0,
+                        bootstrap_mode=0, paired_stats=True, ma_thr=0, bsl_shading=False,
                         fig_file='', fontsize=12, nboot=1000):
     """
     Transition analysis
@@ -5706,6 +5706,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
            with exactly the same mice.
     :param paired_stats, boolean; if True, perform paired test between baseline and laser interval.
     :param ma_thr: if > 0, set wake periods < ma_thr to NREM.
+    :param bsl_shading: if True, plot error shading for red baseline
 
     :param fig_file, if file name specified, save figure
     :param fontsize, if specified, set fontsize to given value
@@ -5877,7 +5878,10 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
             bb = (basel_mean+Bounds_baseline[1]) * np.ones((nseq,))
 
             ax.bar(t, np.nanmean(P, axis=0), yerr=Bounds, width=large_bin-large_bin*0.05, color='gray')
-            plt.fill_between(t, aa, bb, alpha=0.5, lw=0, color='red', zorder=2)
+            if bsl_shading:
+                plt.fill_between(t, aa, bb, alpha=0.5, lw=0, color='red', zorder=2)
+            else:
+                plt.plot(t, basel_mean * np.ones((nseq,)), 'r')
 
             # set title
             if si == 1 and sj == 1:
@@ -6521,7 +6525,7 @@ def downsample_states(M, nbin, ptie_break=True):
 
 
 def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
-                     band=[10,15], state=3, win=64, pplot=True, pflipx=True, pnorm=False,
+                     band=[10,15], state=3, win=64, pplot=True, pflipx=True, pnorm='mean',
                      spec_norm=True, spec_filt=False, box=[1,4],
                      tstart=0, tend=-1, peeg2=False):
     """
