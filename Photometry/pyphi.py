@@ -1503,7 +1503,7 @@ def bandpass_corr_state_avg(ppath, recordings, band, win=120, fft_win=2.5, perc_
 
 
 
-def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, pplot=True):
+def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, ma_thr=0, pplot=True):
     """
     calculate the Pearson correlation between the power in the given frequency band and the DF/F activity
     :param ppath: base folder
@@ -1515,6 +1515,7 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
     :return: pandas.DataFrame, with mouse, recording, r-value, p-value, signficiance and state as columns
     """
     data = []
+    raw_data = []
     state_map = {1:'REM', 2:'Wake', 3:'NREM'}
     for rec in recordings:
         idf = re.split('_', rec)[0]
@@ -1541,15 +1542,26 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
         ifreq = np.where((freq >= band[0]) & (freq <= band[1]))[0]
         df = freq[1] - freq[0]
 
+
+        sr = sleepy.get_snr(ppath, rec)
+        nbin = int(np.round(sr)*2.5)
+        dt = (1.0/sr)*nbin
+
+
         if pnorm_spec:
             sp_mean = SP.mean(axis=1)
             SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
             pow_band = SP[ifreq, :].mean(axis=0)
         else:
-
             pow_band = SP[ifreq,:].sum(axis=0)*df
 
         M = sleepy.load_stateidx(ppath, rec)[0]
+        seq = sleepy.get_sequences(np.where(M==2)[0])
+        if ma_thr > 0:
+            for s in seq:
+                if np.round(len(s)*dt) <= ma_thr:
+                    M[s] = 3
+        
         for s in [1,2,3]:
             idx = np.where(M==s)[0]
             r,p = scipy.stats.pearsonr(dff[idx], pow_band[idx])
@@ -1558,8 +1570,10 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
             else:
                 sig = 'no'
             data.append([idf, rec, r, p, sig, state_map[s]])
+            raw_data += zip([idf]*len(idx), dff[idx], pow_band[idx], [state_map[s]]*len(idx))
 
     df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'r', 'p', 'sig', 'state'])
+    df_raw = pd.DataFrame(data=raw_data, columns=['mouse', 'dff', 'band', 'state'])
 
     if pplot:
         dfm_sig = df[df.p > 0.05].groupby(['mouse', 'state']).mean().reset_index()
@@ -1568,7 +1582,7 @@ def pearson_state_corr(ppath, recordings, band, pnorm_spec=True, pzscore=True, p
         plt.figure()
         sns.swarmplot(data=dfm_sig, x='state', y='r', hue='sig')
 
-    return df
+    return df, df_raw
 
 
 
@@ -2577,7 +2591,7 @@ def dff_stateseq(ppath, recordings, sequence, nstates, thres, sign=['>','>','>']
 
 
 
-def irem_corr(ppath, recordings, pzscore=True, ma_thr=0, rem_break=0):
+def irem_corr(ppath, recordings, pzscore=True, ma_thr=0, rem_break=0, min_irem=-1, sf=0):
     """
     
 
@@ -2595,6 +2609,9 @@ def irem_corr(ppath, recordings, pzscore=True, ma_thr=0, rem_break=0):
         allow for interruptions in REM periods. That is,
         two REM periods that are separated by less than $rem_break seconds
         are fused to a single REM period
+    min_irem: float, optional
+        inter-REM intervals with duration < $min_irem are excluded from the analysis.
+        The default is -1, i.e. every inter-REM interval is included.
 
     Returns
     -------
@@ -2620,16 +2637,20 @@ def irem_corr(ppath, recordings, pzscore=True, ma_thr=0, rem_break=0):
             print('%s - saving dffd.mat' % rec)
             so.savemat(os.path.join(ddir, 'dffd.mat'), {'dffd':dff})
 
-        dff = dff*100
         if pzscore:
             dff = (dff - dff.mean()) / dff.std()
+        else:
+            dff = dff*100
+
+        if sf > 0:
+            dff = sleepy.smooth_data(dff, sf)
 
 
         M = sleepy.load_stateidx(ppath, rec)[0]
         if ma_thr > 0:
             seq = sleepy.get_sequences(np.where(M == 2)[0])
             for s in seq:
-                if len(s) * dt < ma_thr:
+                if np.round(len(s)*dt) < ma_thr:
                     if (s[0] > 1) and (M[s[0] - 1] != 1):
                         M[s] = 3
 
@@ -2642,6 +2663,11 @@ def irem_corr(ppath, recordings, pzscore=True, ma_thr=0, rem_break=0):
             for (si, sj) in zip(seq[:-1], seq[1:]):
                 # indices of inter-REM period
                 idx = range(si[-1]+1,sj[0])
+                
+                if min_irem > 0 and len(idx)*dt < min_irem:
+                    print('skipping inter-REM period')
+                    continue
+                
                 m_cut = M[idx]
                 dff_cut = dff[idx]
                 
@@ -2866,7 +2892,7 @@ def dff_sleepcycle(ppath, recordings, backup='', nstates_rem=10, nstates_itrem=2
 
 
 def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
-                       pzscore=False, ma_thr=10, sf=0, ylim=[], rem_break=0):
+                       pzscore=False, ma_thr=10, sf=0, ylim=[], rem_break=0, min_irem=-1):
     """
     plot NREM and wake activity for $nsections consecutive sections 
     of the sleep cycle (interval between two consecutive REM periods)
@@ -2882,6 +2908,11 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
     :param ma_thr: threshold for microarousals
     :param sf: smoothing factor for firing rate
     :param ylim: typle, y-limits for y axis
+    :param rem_break: float, two consecutive REM sleep periods that are interrupted
+                      by <= $rem_break seconds are fused to one REM period
+    :param min_len: float, minimum duration for inter-REM period; if inter-REM duration
+                    is < min_irem than discard this interval; default = -1 (no limitation
+                    for inter-REM duration)
     :return:
     """
     if type(recordings) != list:
@@ -2940,7 +2971,6 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
                 if np.round(len(s)*dt) < ma_thr:
                     if (s[0] > 1) and (M[s[0] - 1] != 1):
                         M[s] = 3
-        print(idf)
 
         seq = sleepy.get_sequences(np.where(M == 1)[0], np.round(rem_break/dt).astype('int')+1)
         # We have at least 2 REM periods (i.e. one sleep cycle)
@@ -2948,6 +2978,10 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
             for (si, sj) in zip(seq[:-1], seq[1:]):
                 # indices of inter-REM period
                 idx = range(si[-1]+1,sj[0])
+
+                if min_irem > 0 and len(idx)*dt < min_irem:
+                    print('skipping inter-REM period')
+                    continue
 
                 m = len(idx)
                 M_up = upsample_mx(M[idx], nsections)
@@ -2985,7 +3019,6 @@ def dff_remrem_sections(ppath, recordings, backup='', nsections=5,
         list_mx += list(zip([np.nanmean(np.array(w)) for w in sections_wake], list(range(1, nsections+1)), ['Wake']*nsections, [idf]*nsections))
         list_mx += list(zip([np.nanmean(np.array(w)) for w in sections_nrem], list(range(1, nsections+1)), ['NREM']*nsections, [idf]*nsections))
         
-        print('done')
     df_trials = pd.DataFrame(columns = ['mouse', 'event', 'section', 'dff', 'state', 'idur'], data=data)
     df = pd.DataFrame(columns = ['dff', 'section', 'state', 'idf'], data=list_mx)
     df = df.groupby(['idf', 'state', 'section'], as_index=False).mean()
@@ -3209,7 +3242,6 @@ def dff_infraslow(ppath, recordings, ma_thr=10, min_dur = 160,
             pow_band = SP[ifreq, :].sum(axis=0) * (freq[1]-freq[0])
             nidx = np.where(M==3)[0]
             pow_band = pow_band / pow_band[nidx].mean()
-            print('here')
 
         if not dff_control:
             if os.path.isfile(os.path.join(ppath, rec, 'dffd.mat')):
