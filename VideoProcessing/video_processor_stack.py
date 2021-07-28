@@ -159,7 +159,7 @@ class MainWindow(QtGui.QMainWindow):
         self.len_eeg = 0
     
         # variables for cell activity
-        self.ephys = True
+        self.ephys = False
         # list of firing rates or DFF
         self.act_list = []
     
