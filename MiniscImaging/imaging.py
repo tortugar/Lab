@@ -601,8 +601,6 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
             a = re.split('-', s)
             #roi_list = int(a[0])
             roi_num  = int(a[1])
-            print(row)
-            print(DFF.shape)
             dff = DFF[:,roi_num] * 100
             if pzscore:
                 dff = (dff-dff.mean()) / dff.std()
@@ -625,7 +623,6 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         df = pd.DataFrame(d)
 
         res = pg.anova(data=df, dv='val', between='state')
-        #pdb.set_trace()
         res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
  
         def _get_mean(s):
@@ -636,7 +633,6 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         nmean = _get_mean('N')
         
         if class_mode == 'basic':
-            print(res)
             roi_type = 'X'
             # REM-max
             if (rmean > wmean) and (rmean > nmean):
@@ -670,6 +666,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         else:
             roi_type = 'X'
 
+            print(res)
             # R>N>W
             if (rmean > wmean) and (rmean > nmean) and (nmean  > wmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
@@ -787,6 +784,7 @@ def time_morph(X, nstates):
     return Y
 
 
+
 def downsample_mx(X, nbin):
     """
     y = downsample_vec(x, nbin)
@@ -852,7 +850,7 @@ def upsample_mx(x, nbin):
 
        
 def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold, sj_threshold, xdt=1.0, pzscore=False,
-                        pspec=True, fmax=20, ylim=[], xticks=[], vm=[], cb_ticks=[]):
+                        pspec=True, fmax=20, ylim=[], xticks=[], vm=[], cb_ticks=[], ma_thr=0, ma_rem_exception=True):
     """
     calculate average DF/F activity for ROIs along brain state transitions
     :param ipath: base folder
@@ -878,7 +876,8 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
     :param xticks: list, xticks for DF/F plots
     :param vm: saturation of EEG spectrogram
     :param cb_ticks: ticks for colorbar
-
+    :param ma_thr: wake sequences s with round(len(s)*dt) <= ma_thr are set to NREM
+    :param ma_rem_exception: if True, don't interprete wake periods following REM as MA (i.e. NREM)
 
     Example call:
     mx, df = imaging.brstate_transitions(ppath, df_class[df_class['Type']=='N-max'], [[3,1], [1,2]], 60, 30, [60, 60, 60], [30, 30, 30])
@@ -932,6 +931,17 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
         DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
         # brainstate
         M = sleepy.load_stateidx(ipath, rec)[0]
+
+        # flatten out MAs
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 4
         
         # load imaging timing
         img_time = imaging_timing(ipath, rec)
@@ -1535,6 +1545,160 @@ def pearson_state_corr(ipath, roi_mapping, band, ma_thr=10, min_dur = 20, pnorm_
 
 
 
+def irem_corr(ipath, roi_mapping, pzscore=True, ma_thr=10, ma_rem_exception=True):
+    """
+    collect data to correlate REM_pre with NREM and Wake duration during the
+    following inter-REM interval as well as the DF/F activity for all of these
+    epochs. 
+
+    Parameters
+    ----------
+    ipath : TYPE
+        Imaging base folder.
+    roi_mapping : TYPE
+        pd.DataFrame specificing for each ROI ('ID') the recording in which it was detected.
+    ma_thr : TYPE, fload
+        microarousal [MA] threshold. The default is 10.
+    ma_rem_exception : TYPE, bol
+        If true, don't set wake periods following REM as MA. The default is True.
+
+    Returns
+    -------
+    pd.DataFrame with columns
+    ['mouse', 'recording', 'rem_pre', 'rem_post', 'dur_irem', 'dur_inrem', 
+     'dur_iwake', 'dff_pre', 'dff_post', 'dff_irem', 'dff_inrem', 'dff_iwake']
+
+    """
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
+    
+    data = []
+    for rec in recordings:
+        print(rec)
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+
+        DFF = downsample_dff2bs(ipath, rec, roi_list)
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        # flatten out microarousals
+        if ma_thr > 0:
+            seq = sleepy.get_sequences(np.where(M == 2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) < ma_thr:
+                    #if (s[0] > 1) and (M[s[0] - 1] != 1):
+                    M[s] = 3
+        
+        ######################################################################
+        # go through all ROIs in recording rec
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            roi_num = int(re.split('-', s)[1])
+            dff = DFF[:,roi_num]
+                
+            if pzscore:
+                dff = (dff - dff.mean()) / dff.std()
+                
+            
+            seq = sleepy.get_sequences(np.where(M==1)[0])
+            if len(seq) >= 2:
+                for (si, sj) in zip(seq[:-1], seq[1:]):
+                    # indices of inter-REM period                                
+                    idx = range(si[-1]+1,sj[0])
+    
+                m_cut = M[idx]                
+                dff_cut = dff[idx]
+                
+                rem_pre = len(si)*sdt
+                rem_post = len(sj)*sdt
+                dur_irem = len(idx)*sdt
+                dur_inrem = len(np.where(m_cut==3)[0])*sdt
+                dur_iwake = len(np.where(m_cut==2)[0])*sdt
+                
+                dff_irem = np.mean(dff_cut).mean()
+                dff_inrem = dff_cut[np.where(m_cut==3)[0]].mean()
+                
+                dff_iwake = dff_cut[np.where(m_cut==2)[0]].mean()
+                dff_pre = dff[si].mean()
+                dff_post = dff[sj].mean()
+
+                data.append([idf, rec, rem_pre, rem_post, dur_irem, dur_inrem, dur_iwake, dff_pre, dff_post, dff_irem, dff_inrem, dff_iwake])
+        
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'rem_pre', 'rem_post', 'dur_irem', 'dur_inrem', 'dur_iwake', 'dff_pre', 'dff_post', 'dff_irem', 'dff_inrem', 'dff_iwake'])
+        
+    return df
+        
+
+
+
+def pearson_state_avgcorr(ipath, roi_mapping, bands, ma_thr=10, min_dur=20, pnorm_spec=True, pzscore=True):
+    """
+    For each recording in the ROI mapping, determine first the average activity
+    for each neurons class and then correlated the average activty with different
+    frequency bands in the EEG powerspectrum
+    """
+    
+    
+    df_avg = plot_catraces_avgclasses(ipath, roi_mapping, pplot=False)[0]
+    # columns: mouse      recording   type    time       dff  state
+    recordings = df_avg.recording.unique()
+    data = []
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        dfs = df_avg[df_avg.recording == rec]
+        dfs = dfs.groupby(['mouse', 'type', 'time', 'state']).mean().reset_index()
+    
+        # load EEG spectrogram
+        P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
+        SP = P['SP']
+        freq = P['freq']
+        df = freq[1] - freq[0]
+
+        M = sleepy.load_stateidx(ipath, rec)[0]
+
+        if pnorm_spec:
+            sp_mean = SP.mean(axis=1)
+            SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
+
+    
+        for b in bands:
+            
+            band = bands[b]            
+            ifreq = np.where((freq >= band[0]) & (freq <= band[1]))[0]
+            if pnorm_spec:
+                pow_band = SP[ifreq,:].mean(axis=0)
+            else:
+                pow_band = SP[ifreq,:].sum(axis=0)*df
+
+            print(rec)
+            types = dfs.type.unique()
+            for typ in types:
+                print(typ)
+                dff = dfs[dfs.type==typ]['dff']
+                dff = np.array(dff)
+                for s in [1,2,3]:
+                    idx = np.where(M==s)[0]
+                    r,p = scipy.stats.pearsonr(dff[idx], pow_band[idx])
+                    
+                    data+=[[idf, rec, b, typ, s, r, p]]
+                    
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'band', 'type', 'state', 'r', 'p'])   
+    return df
+            
+
+
 def downsample_dff2bs(ipath, rec, roi_list, psave=False):
 
     sr = sleepy.get_snr(ipath, rec)
@@ -1827,8 +1991,6 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         color_dict[typ] = clrs[i]
         i += 1
 
-    
-        
     recordings = list(roi_mapping.columns)
     recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
     
@@ -1879,14 +2041,15 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             if len(roi_ids) >= 2:
                 rval = []
                 block = DFF[:,roi_ids]
-                for i in range(block.shape[1]):
-                    for j in range(i+1, block.shape[1]):
-                        r, p = scipy.stats.pearsonr(block[:,i], block[:,j])
-                        rval.append(r)
+                for s in [1,2,3]:
+                    idx = np.where(M==s)[0]
+                    for i in range(block.shape[1]):
+                        for j in range(i+1, block.shape[1]):
+                            r, p = scipy.stats.pearsonr(block[idx,i], block[idx,j])
+                            rval.append(r)
                         
-                data_r.append([idf, rec, typ, np.array(rval).mean()])
+                    data_r.append([idf, rec, typ, np.array(rval).mean(), s])
                 
-            
             roi_dict[typ] = roi_ids
 
         nrois = 0
@@ -2038,7 +2201,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             axes_legend.axes.get_xaxis().set_visible(False)
             axes_legend.axes.get_yaxis().set_visible(False)
 
-    dfr = pd.DataFrame(data=data_r, columns=['mouse', 'recording', 'type', 'r'])
+    dfr = pd.DataFrame(data=data_r, columns=['mouse', 'recording', 'type', 'r', 'state'])
     df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'type', 'time', 'dff', 'state'])
 
     return df, dfr
@@ -3093,68 +3256,69 @@ def roi_manual(ppath, name, pdisk=1) :
 ### MOTION CORRECTION #############################################################
 ###################################################################################
 
-def disk_filter(ppath, name, nframes, pfilt=1, nblock=1000, psave=1) :
-    """A = disk_filter(ppath, name, nframes pfilt=1, nblock=1000)
-    $ppath/$name refers to a TIFF stack.
-    """
-    print("performing disk filtering ...")
-    # load disk filter
-    disk = so.loadmat('disk.mat')['h']
-    stack = TIFF.open(os.path.join(ppath, name))
-    (nx, ny) = stack.read_image().shape
+# OLD VERSION
+# def disk_filter(ppath, name, nframes, pfilt=1, nblock=1000, psave=1) :
+#     """A = disk_filter(ppath, name, nframes pfilt=1, nblock=1000)
+#     $ppath/$name refers to a TIFF stack.
+#     """
+#     print("performing disk filtering ...")
+#     # load disk filter
+#     disk = so.loadmat('disk.mat')['h']
+#     stack = TIFF.open(os.path.join(ppath, name))
+#     (nx, ny) = stack.read_image().shape
     
-    # h5f5 file holding the filtered stack:
-    a = re.split('_', name)[0:-1]
-    disk_fname = '_'.join(a) + '_disk.mat'
-    disk_meanfname = '_'.join(a) + '_diskmean.mat'
+#     # h5f5 file holding the filtered stack:
+#     a = re.split('_', name)[0:-1]
+#     disk_fname = '_'.join(a) + '_disk.mat'
+#     disk_meanfname = '_'.join(a) + '_diskmean.mat'
     
-    h5_file = os.path.join(ppath, disk_fname)
+#     h5_file = os.path.join(ppath, disk_fname)
     
-    if os.path.isfile(h5_file) == 1 :
-        # delete file
-        print("deleting file %s..." % h5_file)
-        os.remove(h5_file)
+#     if os.path.isfile(h5_file) == 1 :
+#         # delete file
+#         print("deleting file %s..." % h5_file)
+#         os.remove(h5_file)
 
-    f = h5py.File(h5_file, 'w')
-    # reference to data set holding all frames
-    dset = f.create_dataset('images', (nframes, nx, ny))
+#     f = h5py.File(h5_file, 'w')
+#     # reference to data set holding all frames
+#     dset = f.create_dataset('images', (nframes, nx, ny))
 
-    D = np.zeros((nblock, nx, ny))
-    A = np.zeros((nx, ny)) # average across frames
-    offset = 0
-    k = 0  #absolute counter for all frames in the tiff stack
-    if pfilt == 1 :
-        j = 0   #relative counter for each block
-        for image in stack.iter_images() :
-            tmp = image - scipy.signal.fftconvolve(image.astype('float64'), disk, mode='same')
-            D[j,:,:] = tmp
-            A = A + tmp
-            j = j+1
-            k = k+1
+#     D = np.zeros((nblock, nx, ny))
+#     A = np.zeros((nx, ny)) # average across frames
+#     offset = 0
+#     k = 0  #absolute counter for all frames in the tiff stack
+#     if pfilt == 1 :
+#         j = 0   #relative counter for each block
+#         for image in stack.iter_images() :
+#             tmp = image - scipy.signal.fftconvolve(image.astype('float64'), disk, mode='same')
+#             D[j,:,:] = tmp
+#             A = A + tmp
+#             j = j+1
+#             k = k+1
 
-            if j == nblock or k == nframes:
-                print("writing block...")
-                # write to mat file
-                dset[offset:offset+j,:,:] = D[0:j,:,:]
-                offset = offset + j
-                j = 0
-    else :
-        j = 0
-        for image in stack.iter_images() :
-             dset[j,:,:] = image
-             j = j+1
+#             if j == nblock or k == nframes:
+#                 print("writing block...")
+#                 # write to mat file
+#                 dset[offset:offset+j,:,:] = D[0:j,:,:]
+#                 offset = offset + j
+#                 j = 0
+#     else :
+#         j = 0
+#         for image in stack.iter_images() :
+#              dset[j,:,:] = image
+#              j = j+1
              
-    # make sure to close all files
-    stack.close()
-    f.close()
+#     # make sure to close all files
+#     stack.close()
+#     f.close()
 
-    A = A / (nframes*1.0)
+#     A = A / (nframes*1.0)
 
-    if psave == 1:
-        print("saving mean frame to %s" % disk_meanfname)
-        so.savemat(os.path.join(ppath, disk_meanfname), {'mean' : A})
+#     if psave == 1:
+#         print("saving mean frame to %s" % disk_meanfname)
+#         so.savemat(os.path.join(ppath, disk_meanfname), {'mean' : A})
     
-    return A
+#     return A
 
 
 
