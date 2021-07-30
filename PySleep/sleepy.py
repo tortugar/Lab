@@ -2361,7 +2361,7 @@ def plot_hypnograms(ppath, recordings, tbin=0, unit='h', ma_thr=20, title='', ts
     plt.show()
 
 
-def plot_swa(ppath, name, delta_win, alpha, swa_yrange=[]):
+def plot_swa(ppath, name, delta_win, alpha, band=[0.5, 4.5], swa_yrange=[]):
     """
     plot slow wave (delta) activity during NREM
     The top plot shows the hynogram.
@@ -2381,7 +2381,7 @@ def plot_swa(ppath, name, delta_win, alpha, swa_yrange=[]):
     
     :return df: pd.DataFrame with SWA time points and corresponding median SWA values
     """
-    r_delta = [0.5, 4.5]
+    r_delta = band
 
     sr = get_snr(ppath, name)
     nbin = int(np.round(2.5*sr))
@@ -4898,8 +4898,9 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
         i = 1
         for d in TimeMxExp[2]:            
             c = 1 - 1.0/ndose*i
-            plt.errorbar(t, TimeMxExp[3][d].mean(axis=1), yerr = TimeMxExp[3][d].std(axis=1),  color=[c, c, 1], fmt = 'o', linestyle='-', linewidth=2, elinewidth=2)
+            plt.errorbar(t, TimeMxExp[3][d].mean(axis=1), yerr = TimeMxExp[3][d].std(axis=1),  color=[c, c, 1], fmt = 'o', linestyle='-', linewidth=2, elinewidth=2, label=d)
             i += 1
+        plt.legend()
 
     if len(csv_file) > 0:
         df.to_csv(os.path.join(csv_file), index=False)
