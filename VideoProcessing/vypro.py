@@ -19,6 +19,7 @@ import subprocess
 import spyke
 import matplotlib.patches as patches
 import seaborn as sns
+import pandas as pd
 import pdb
 
 
@@ -163,6 +164,23 @@ def load_behann_file(bfile):
             K.append(int(a[2]))
 
     return annotation, np.array(K)
+
+
+
+def load_behann_df(bfile):
+    """
+    return behavioral annotation from vip_* file as pandas DataFrame
+    :param bfile: behavior annotation file, called vip_.*\.txt
+    :return: pandas DataFrame with time, annotation, and K vector as columns. The K vectors
+             indicates whether a specific time point has been annotated in video_processor_stack.py [1] or no [0]
+    """
+    ann_dict, k = load_behann_file(bfile)
+    timepoints = list(ann_dict.keys())
+    timepoints.sort()
+    ann = [ann_dict[t] for t in timepoints]
+    df_ann = pd.DataFrame({'time':timepoints, 'beh':ann, 'k':k})
+
+    return df_ann
 
 
 
@@ -880,7 +898,7 @@ def fibpho_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_leg
 
 
 def fibpho_videoseq(ppath, name, tsegs, nidle=5, fmax=20, emg_legend=1000, vm=2.0, time_legend=10, dff_legend=10,
-                    ffmpeg_path='ffmpeg', titles=[], color_map='jet', filt_dim=()):
+                    ffmpeg_path='ffmpeg', titles=[], color_map='jet', filt_dim=(), aspect='4:3'):
     """
     Generate a sequence of videos for fiber photometry recordings.
     The function requires that ffmpeg is installed on your system (http://ffmpeg.org).
@@ -906,6 +924,7 @@ def fibpho_videoseq(ppath, name, tsegs, nidle=5, fmax=20, emg_legend=1000, vm=2.
                      the larger filt_dim[0], the more the time axis is smoothed, larger values for filt_dim[1]
                      result in a smoother frequency axis. Previously, I used filt_dim = (2,4).
                      If filt_dim = (), no filtering operation is performed
+    :param aspect: aspect ratio of video (figure). Default is 4:3; otherwise it's 16:9; most journals seem to prefer 16:9
 
     :return: n/a
     """
@@ -916,25 +935,51 @@ def fibpho_videoseq(ppath, name, tsegs, nidle=5, fmax=20, emg_legend=1000, vm=2.
         kdx = np.argmin(d)
         return el, kdx
     ########################################
-    #ts_list = [t[0] for t in tsegs]
-    #te_list = [t[1] for t in tsegs]
 
     # setup figure arrangement
     sleepy.set_fontsize(12)
     sleepy.set_fontarial()
     plt.ion()
     plt.figure()
-    plt.figure(figsize=(8, 6))
 
-    ax_video = plt.axes([0.1, 0.55, 0.8, 0.43])
-    ax_eeg   = plt.axes([0.1, 0.38, 0.8, 0.15])
-    ax_emg   = plt.axes([0.1, 0.25, 0.8, 0.1])
-    ax_emgleg = plt.axes([0.9, 0.25, 0.05, 0.1])
-    ax_bs    = plt.axes([0.1, 0.22, 0.8, 0.02])
-    ax_bs_legend = plt.axes([0.1, 0.24, 0.2, 0.02])
-    ax_dff   = plt.axes([0.1, 0.05, 0.8, 0.15])
-    ax_dff_legend = plt.axes([0.05, 0.05, 0.05, 0.15])
-    ax_time  = plt.axes([0.1, 0.001, 0.8, 0.03])
+    if aspect == '4:3':
+        plt.figure(figsize=(8, 6))
+        #plt.figure(figsize=(16 * 2 / 3, 9 * 2 / 3))
+
+        ax_video = plt.axes([0.1, 0.55, 0.8, 0.43])
+        ax_eeg   = plt.axes([0.1, 0.38, 0.8, 0.15])
+        ax_emg   = plt.axes([0.1, 0.25, 0.8, 0.1])
+        ax_emgleg = plt.axes([0.9, 0.25, 0.05, 0.1])
+        ax_bs    = plt.axes([0.1, 0.22, 0.8, 0.02])
+        ax_bs_legend = plt.axes([0.1, 0.24, 0.2, 0.02])
+        ax_dff   = plt.axes([0.1, 0.05, 0.8, 0.15])
+        ax_dff_legend = plt.axes([0.05, 0.05, 0.05, 0.15])
+        ax_time  = plt.axes([0.1, 0.001, 0.8, 0.03])
+    else:
+        # plt.figure(figsize=(16*2/3, 9*2/3))
+        #
+        # ax_video = plt.axes([0.03, 0.1, 0.5, 0.8])
+        # ax_eeg   = plt.axes([0.55, 0.8, 0.4, 0.15])
+        # ax_emg   = plt.axes([0.55, 0.25, 0.4, 0.1])
+        # ax_emgleg = plt.axes([0.9, 0.25, 0.05, 0.1])
+        # ax_bs    = plt.axes([0.55, 0.22, 0.4, 0.02])
+        # ax_bs_legend = plt.axes([0.1, 0.24, 0.2, 0.02])
+        # ax_dff   = plt.axes([0.55, 0.05, 0.4, 0.15])
+        # ax_dff_legend = plt.axes([0.05, 0.05, 0.05, 0.15])
+        # ax_time  = plt.axes([0.1, 0.001, 0.8, 0.03])
+        dpi = 100
+        plt.figure(figsize=(16 * 2 / 3, 9 * 2 / 3), dpi=dpi)
+
+        ax_video = plt.axes([0.1, 0.55, 0.8, 0.43])
+        ax_eeg   = plt.axes([0.1, 0.38, 0.8, 0.15])
+        ax_emg   = plt.axes([0.1, 0.25, 0.8, 0.1])
+        ax_emgleg = plt.axes([0.9, 0.25, 0.05, 0.1])
+        ax_bs    = plt.axes([0.1, 0.22, 0.8, 0.02])
+        ax_bs_legend = plt.axes([0.1, 0.24, 0.2, 0.02])
+        ax_dff   = plt.axes([0.1, 0.05, 0.8, 0.15])
+        ax_dff_legend = plt.axes([0.05, 0.05, 0.05, 0.15])
+        ax_time  = plt.axes([0.1, 0.001, 0.8, 0.03])
+
 
     movie_stack = os.path.join(ppath, name, 'MStack')
     if not(os.path.isdir(movie_stack)):
@@ -1335,7 +1380,6 @@ def opto_video(ppath, name, ts, te, fmax=20, emg_legend=1000, vm=2.0, time_legen
         ax_bs.set_ylim((0,1))
 
         # plot laser
-        #pdb.set_trace()
         ax_laser.add_patch(patches.Rectangle((tspec[j-1], 0), tspec[j]-tspec[j-1], 1, facecolor=laser_map[int(laser[j])], edgecolor=laser_map[int(laser[j])]))
         ax_laser.set_ylim((0,1))
         ax_laser.set_xlim((tspec[0], tspec[-1]))
