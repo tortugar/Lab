@@ -609,6 +609,7 @@ def pca(data,dims=2) :
     # from all other rows
     data -= data.mean(axis=0)
     # calculate the covariance matrix
+    # Note:  each column represents a variable, while the rows contain observations.
     R = np.cov(data, rowvar=False)
     # calculate eigenvectors & eigenvalues of the covariance matrix
     # use 'eigh' rather than 'eig' since R is symmetric, 
@@ -2044,6 +2045,11 @@ def unpack_unit(ppath, name, grp, un):
         mspike = Spk['mspike'][un]
         idx = Spk['idx'][un]
         ch = Spk['ch'][un]
+        
+        #NEW 07/27/21
+        print('saving %s' % (spk_file))
+        np.savez(spk_file, idx=idx, mspike=mspike, train=train, ch=ch)
+        
     else:
         print("Unit %s (%d, %d) does not seem to exist" % (name, grp, un))
         return
@@ -2071,7 +2077,7 @@ def firing_rate(ppath, name, grp, un):
     NBIN = int(np.round(SR)*2.5)
     train = unpack_unit(ppath, name, grp, un)[1]
     spikesd = downsample_vec(train, NBIN)
-   
+
     # load laser
     plaser = False
     if os.path.isfile(os.path.join(ppath, name, 'laser_' + name + '.mat')):
@@ -2290,7 +2296,8 @@ def write_fr(ppath, name, grp, un):
 
 
 
-def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu = [10, 100], ma_thr=10, ma_mode=False):
+def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu=[10, 100], 
+                   ma_thr=10, ma_mode=False, emg_ampl=True, emg_corr=0):
     """
     plot firing rate along spectrogram, brainstate, EMG amplitude using matplotlib
     For example, spyke.brstate_fr_plt(ppath, name, [(1,3)]) to plot unit 1,3 of recording name, located in ppath
@@ -2304,6 +2311,8 @@ def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu 
     :param r_mu: tuple, frequency used for calculation of EMG amplitude
     :param ma_thr: float, microarousal threshold
     :param ma_mode: bool, if True plot microarousals in different colors
+    :param emg_ampl: bool, if False plot raw EMG
+    :param emg_corr: set EMG values > emg_corr to emg_corr; if 0, don't do anything
     :return: n/a
     """
     # load brainstate
@@ -2337,6 +2346,14 @@ def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu 
     M[M==0] = 3
     t = t[istart:iend]
     t = t-t[0]
+
+    # to plot raw EMG:
+    sr = get_snr(ppath, name)
+    nbin = np.round(2.5 * sr)
+    istart_emg = int(istart*nbin)
+    iend_emg   = int((iend+1)*nbin)
+    ddt = 1.0/sr
+    t_emg = np.arange(0, iend_emg-istart_emg)*ddt
 
     if ma_thr > 0:
         seq = sleepy.get_sequences(np.where(M==2)[0])
@@ -2384,13 +2401,21 @@ def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu 
     plt.xlim([t[0], t[-1]])
 
     # EMG amplitude
-    i_mu = np.where((freq >= r_mu[0]) & (freq <= r_mu[1]))[0]
-    p_mu = np.sqrt(SPEMG[i_mu, :].sum(axis=0) * (freq[1]-freq[0]))
     axes3 = plt.axes([0.1, 0.61, 0.8, 0.1], sharex=axes2)
-    axes3.plot(t, p_mu[istart:iend], color='black')
-    plt.ylabel('EMG $\mathrm{(\mu V)}$')
-    plt.xlim((t[0], t[-1]+1))
-    sleepy.box_off(axes3)
+    if emg_ampl:
+        i_mu = np.where((freq >= r_mu[0]) & (freq <= r_mu[1]))[0]
+        p_mu = np.sqrt(SPEMG[i_mu, :].sum(axis=0) * (freq[1]-freq[0]))
+        axes3.plot(t, p_mu[istart:iend], color='black')
+        plt.ylabel('EMG $\mathrm{(\mu V)}$')
+        plt.xlim((t[0], t[-1]+1))
+        sleepy.box_off(axes3)
+    else:
+        emg = so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG']
+        if emg_corr>0:
+            emg[np.where(np.abs(emg)>emg_corr)] = 0
+        axes3.plot(t_emg, emg[istart_emg:iend_emg], color='black', lw=0.2)
+        plt.xlim((t_emg[0], t_emg[-1] + 1))
+
 
     # plot firing rate
     clrs = [[0,0,1], [0.5, 0, 1], [0.6, 0.6, 1], [0, 1, 1]]
@@ -4083,7 +4108,7 @@ def laser_reliability(ppath, name, grp, un, win=10, offs=1, iter=1):
     M[np.where(M > 0)] = 1.0
 
     return M.mean()
-
+    
 
 
 def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters=1, istate=-1):
@@ -4132,7 +4157,9 @@ def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters
 
     laser_dur = np.mean(idxe[offs::iters] - idxs[offs::iters] + 1)*dt
     print ('laser duration: ', laser_dur)
+
     train = unpack_unit(ppath, name, grp, un)[1]
+    
     len_train = train.shape[0]
     raster = []
     fr_pre = []
