@@ -2459,7 +2459,7 @@ def plot_swa(ppath, name, delta_win, alpha, band=[0.5, 4.5], swa_yrange=[]):
 
 
 def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psave=False, tstart=0, tend=-1,
-                        peeg2=False, vm=2.5, prune_trials=True, mu=[10, 200], trig_state=0):
+                        peeg2=False, vm=2.5, prune_trials=True, mu=[10, 200], trig_state=0, harmcs=0):
     """
     calculate laser triggered, averaged EEG and EMG spectrum
     :param ppath: base folder containing mouse recordings
@@ -2482,7 +2482,15 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     :param mu: tuple; range used for EMG amplitude calculation
     :param trig_state: int; if > 0, only use trials where brain is at laser onset in brainstate trig_state
            1=REM, 2=Wake, 3=NREM
+    :param harmcs: if >0, interpolate all frequencies corresponding to multiples of harmcs by the average power
+           of the two neighboring frequencies. 
     """
+    def _interpolate_harmonics(SP, freq, f_max, harmcs):
+        for h in np.arange(harmcs, f_max, harmcs):
+            i = np.where(freq==h)[0][0]
+            SP[i,:] = (SP[i-1,:] + SP[i+1,:]) * 0.5
+        return SP
+    
     SR = get_snr(ppath, name)
     NBIN = np.round(2.5*SR)
     lsr = load_laser(ppath, name)
@@ -2513,6 +2521,11 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     speeg_mean = SPEEG.mean(axis=1)
     spemg_mean = SPEMG.mean(axis=1)
 
+    # interpolate frequencies corresponding to harmonics of $harmcs
+    if harmcs > 0:
+        SPEEG = _interpolate_harmonics(SPEEG, freq, f_max, harmcs)
+        SPEMG = _interpolate_harmonics(SPEMG, freq, f_max, harmcs)
+        
     if tend > -1:
         i = np.where((np.array(idxs)*dt >= tstart) & (np.array(idxs)*dt <= tend))[0]
     else:
@@ -2555,7 +2568,6 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
         idxs = idxs_new
         idxe = idxe_new
 
-
     # Spectrogram for EEG and EMG normalized by average power in each frequency band
     if pnorm == 1:
         SPEEG = np.divide(SPEEG, np.repeat(speeg_mean, len(t)).reshape(len(speeg_mean), len(t)))
@@ -2571,7 +2583,6 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
             spemg_parts.append(SPEMG[ifreq,i-ipre:i+ipost+1])
 
     EEGLsr = np.array(speeg_parts).mean(axis=0)
-    #EEGLsr = np.nanmean(np.array(speeg_parts), axis=0)
     EMGLsr = np.array(spemg_parts).mean(axis=0)
     
     # smooth spectrogram
@@ -2616,7 +2627,6 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
             cbar.set_label('Power uV^2s')
         
         ax = plt.axes([0.62, 0.55, 0.35, 0.35])
-        #ipre = np.where(t<0)[0]
         ilsr = np.where((t>=0) & (t<=120))[0]        
         plt.plot(f,EEGLsr[:,0:ipre].mean(axis=1), color='gray', label='baseline', lw=2)
         plt.plot(f,EEGLsr[:,ilsr].mean(axis=1), color='blue', label='laser', lw=2)
@@ -2696,9 +2706,11 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     :param trig_state: if > 0, only use trials where brain is at laser onset in brainstate trig_state
            1=REM, 2=Wake, 3=NREM
     :param peeg2: if True, use EEG2 instead of EEG
+    :param harmcs: if >0, interpolate all frequencies corresponding to multiples of harmcs by the average power
+           of the two neighboring frequencies. 
     :param fig_file: if specified, save figure to given file
     :return: n/a
-    """
+    """    
     EEGSpec = {}
     EMGSpec = {}
     mice = []
@@ -2712,7 +2724,8 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     for rec in recordings:
         idf = re.split('_', rec)[0]
         EEG, EMG, f, t = laser_triggered_eeg(ppath, rec, pre, post, f_max, mu=mu, pnorm=pnorm, pplot=False,
-                                             psave=False, tstart=tstart, tend=tend, trig_state=trig_state, peeg2=peeg2)
+                                             psave=False, tstart=tstart, tend=tend, trig_state=trig_state, peeg2=peeg2, harmcs=harmcs)
+
         EEGSpec[idf].append(EEG)
         EMGSpec[idf].append(EMG)
     
