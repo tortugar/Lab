@@ -2484,6 +2484,8 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
            1=REM, 2=Wake, 3=NREM
     :param harmcs: if >0, interpolate all frequencies corresponding to multiples of harmcs by the average power
            of the two neighboring frequencies. 
+   :param iplt_level: options - 1 or 2. If 1 only take one neighboring frequency above and below the harmonic; 
+           If 2, take 2 neighbors above and below, respectively
     """
     def _interpolate_harmonics(SP, freq, f_max, harmcs):
         df = freq[2]-freq[1]
@@ -2715,6 +2717,8 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     :param peeg2: if True, use EEG2 instead of EEG
     :param harmcs: if >0, interpolate all frequencies corresponding to multiples of harmcs by the average power
            of the two neighboring frequencies. 
+    :param iplt_level: options - 1 or 2. If 1 only take one neighboring frequency above and below the harmonic; 
+           If 2, take 2 neighbors above and below, respectively
     :param fig_file: if specified, save figure to given file
     :return: n/a
     """    
