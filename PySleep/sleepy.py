@@ -2876,6 +2876,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
 
     if len(fig_file) > 0:
         save_figure(fig_file)
+    return t, f, EEGSpec, EMGSpec, EEGLsr
 
 
 
