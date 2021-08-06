@@ -1552,6 +1552,11 @@ def bandpass_corr_state(ipath, roi_mapping, band, fft_win=2.5, perc_overlap=0.8,
     calculate cross-correlcation between each single ROI in the given ROI_mapping and
     the the power in the given frequency band
 
+    We correlate(DF/F, power)
+    So, a negative peak means that 'DFF' precedes 'power'.
+    A positive peak in turn means that 'DFF' follows 'power'.
+
+
     Parameters
     ----------
     ipath : string
@@ -1668,17 +1673,21 @@ def bandpass_corr_state(ipath, roi_mapping, band, fft_win=2.5, perc_overlap=0.8,
                 pow_band -= pow_band.mean()
 
             DFFd = downsample_overlap(DFF, bs_time_cut, img_time, nwin, noverlap)
-            #pdb.set_trace()
-            
+
+                        
             # go through all ROIs in recording rec
             for index, row in rec_map.iterrows():
                 s=row[rec]
+                ROI_ID = row['ID']
                 roi_num = int(re.split('-', s)[1])
                 dffd = DFFd[:,roi_num]
-                    
+                if 'Type' in row.index:
+                    typ = row['Type']
+                else:
+                    typ = 'X'
+                
                 if pzscore:
                     dffd = (dffd - dffd.mean()) / dffd.std()
-
     
                 # to avoid that any time lags in the cross-correlation are due to different
                 # ways of resampling the power band and dff signal, we downsample
@@ -1710,21 +1719,227 @@ def bandpass_corr_state(ipath, roi_mapping, band, fft_win=2.5, perc_overlap=0.8,
                 #CC.append(xx[ii])
 
                 #pdb.set_trace()
-                CC += zip([idf]*len(ii), [rec]*len(ii), [roi_num]*len(ii), 
+                CC += zip([idf]*len(ii), [rec]*len(ii), [ROI_ID]*len(ii), [typ]*len(ii),
                           cc_time, xx[ii], [seq_num]*len(ii))
         
             seq_num += 1
-    df = pd.DataFrame(data=CC, columns=['mouse', 'recording', 'ID', 'time', 'cc', 'seq'])
-    df = df.groupby(['mouse', 'recording', 'ID', 'time']).mean().reset_index()
-    df = df[['mouse', 'recording', 'ID', 'time', 'cc']]
+    df = pd.DataFrame(data=CC, columns=['mouse', 'recording', 'ID', 'Type', 'time', 'cc', 'seq'])
+    df = df.groupby(['mouse', 'ID', 'Type', 'time']).mean().reset_index()
+    df = df[['mouse', 'ID', 'Type', 'time', 'cc']]
     
     return df
 
 
 
+def bandpass_avgcorr_state(ipath, roi_mapping, band, fft_win=2.5, perc_overlap=0.8, win=120, state=3, 
+                        tbreak=0, pzscore=True, ma_thr=10, ma_rem_exception=True, pnorm_spec=True,
+                        mode='cross'):
+    """
+    Calculate the cross-correlation for each type (class) of ROIs per mouse.
+    That is, for each recording and class average the DF/F activity and then calculate
+    the cross-correlation.
+
+    See also banpass_corr_state    
+
+    Parameters
+    ----------
+    ipath : TYPE
+        DESCRIPTION.
+    roi_mapping : TYPE
+        DESCRIPTION.
+    band : TYPE
+        DESCRIPTION.
+    fft_win : TYPE, optional
+        DESCRIPTION. The default is 2.5.
+    perc_overlap : TYPE, optional
+        DESCRIPTION. The default is 0.8.
+    win : TYPE, optional
+        DESCRIPTION. The default is 120.
+    state : TYPE, optional
+        DESCRIPTION. The default is 3.
+    tbreak : TYPE, optional
+        DESCRIPTION. The default is 0.
+    pzscore : TYPE, optional
+        DESCRIPTION. The default is True.
+    ma_thr : TYPE, optional
+        DESCRIPTION. The default is 10.
+    ma_rem_exception : TYPE, optional
+        DESCRIPTION. The default is True.
+    pnorm_spec : TYPE, optional
+        DESCRIPTION. The default is True.
+    mode : TYPE, optional
+        DESCRIPTION. The default is 'cross'.
+
+    Returns
+    -------
+    None.
+
+    """
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    
+    CC = []
+    for rec in recordings:
+        print(rec)
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        
+        
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        types = rec_map.Type.unique()
+        types.sort()
+        print(types)
+
+        nwin = int(np.round(sr * fft_win))
+        if nwin % 2 == 1:
+            nwin += 1
+        noverlap = int(nwin*perc_overlap)
+    
+        EEG = so.loadmat(os.path.join(ipath, rec, 'EEG.mat'), squeeze_me=True)['EEG']
+        bs_time = np.arange(0, EEG.shape[0])*(1/sr)
+        
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        img_time = imaging_timing(ipath, rec)
+        
+        # get all bouts of state $state
+        seq = sleepy.get_sequences(np.where(M == state)[0], ibreak=int(tbreak/2.5)+1)
+        # as the cross-correlation should range from -$win to $win, each bout
+        # needs to be at least 2 * $win seconds long
+        seq = [s for s in seq if len(s)*2.5 > 2*win]
+        
+
+        roi_dict = {typ:[] for typ in types}
+        ######################################################################
+        # go through all ROIs in recording rec
+        for typ in types:
+            dfs = rec_map[rec_map.Type == typ]
+            roi_ids = []
+            for index, row in dfs.iterrows():
+                s=row[rec]
+                roi_num = int(re.split('-', s)[1])
+                roi_ids.append(roi_num)
+
+        roi_dict[typ] = roi_ids
+
+        nrois = 0
+        for typ in roi_dict:
+            nrois += len(roi_dict[typ])
+
+        seq_num = 0
+        for s in seq:
+            i = s[0] * nbin
+            j = s[-1] * nbin + 1
+            EEGcut = EEG[i:j]
+            bs_time_cut = bs_time[i:j]            
+
+            f, t, Pow = scipy.signal.spectrogram(EEGcut, nperseg=nwin, noverlap=noverlap, fs=sr)
+            if pnorm_spec:
+                sp_mean = Pow.mean(axis=1)
+                Pow = np.divide(Pow, np.tile(sp_mean, (Pow.shape[1], 1)).T)
+    
+            ifreq = np.where((f >= band[0]) & (f <= band[1]))[0]
+            dt = t[1] - t[0]
+            iwin = int(win / dt)
+            cc_time = np.arange(-iwin, iwin+1) * dt
+
+    
+            if mode == 'cross':
+                if not pnorm_spec:
+                    pow_band = Pow[ifreq, :].sum(axis=0) * (f[1]-f[0])
+                else:
+                    pow_band = Pow[ifreq, :].mean(axis=0)
+    
+                pow_band -= pow_band.mean()
+
+            DFFd = downsample_overlap(DFF, bs_time_cut, img_time, nwin, noverlap)
+
+            if pzscore:
+                for i in range(DFFd.shape[1]):
+                    DFFd[:,i] = (DFFd[:,i] - DFFd[:,i].mean()) / DFFd[:,i].std()
+            
+            for typ in types:
+                roi_ids = roi_dict[typ]
+
+                dffd = DFFd[:,roi_ids].mean(axis=1)
+    
+                # to avoid that any time lags in the cross-correlation are due to different
+                # ways of resampling the power band and dff signal, we downsample
+                # the DFF signal in the exactly the same way as the "windowing" for the 
+                # EEG spectrogram calculation: 
+                # We use the same window size, the same amount of overlap to calculate
+                # the average DFF activity for each time point.
+        
+                dffd -= dffd.mean()
+
+                if mode != 'cross':
+                    pow_band = dffd
+    
+                m = np.min([pow_band.shape[0], dffd.shape[0]])
+                # Say we correlate x and y;
+                # x and y have length m
+                # then the correlation vector cc will have length 2*m - 1
+                # the center element with lag 0 will be cc[m-1]
+                norm = np.nanstd(dffd[0::]) * np.nanstd(pow_band[0::])
+                # for used normalization, see: https://en.wikipedia.org/wiki/Cross-correlation
+                
+                #xx = scipy.signal.correlate(dffd[1:m], pow_band[0:m - 1])/ norm
+                xx = (1/m) * scipy.signal.correlate(dffd[0::], pow_band[0::])/ norm
+                ii = np.arange(len(xx) / 2 - iwin, len(xx) / 2 + iwin + 1)
+                ii = [int(i) for i in ii]
+                
+                ii = np.concatenate((np.arange(m-iwin-1, m), np.arange(m, m+iwin, dtype='int')))
+                # note: point ii[iwin] is the "0", so xx[ii[iwin]] corresponds to the 0-lag correlation point
+                #CC.append(xx[ii])
+
+                #pdb.set_trace()
+                CC += zip([idf]*len(ii), [rec]*len(ii), [typ]*len(ii),
+                          cc_time, xx[ii], [seq_num]*len(ii))
+
+        
+            seq_num += 1
+
+    df = pd.DataFrame(data=CC, columns=['mouse', 'recording', 'Type', 'time', 'cc', 'seq'])
+    df = df.groupby(['mouse', 'Type', 'time']).mean().reset_index()
+    df = df[['mouse', 'Type', 'time', 'cc']]
+    return df
+     
+
+
 def downsample_overlap(x, tcut, img_time, nwin, noverlap):
     """
-    
+    downsample DF/F activity the same way as done for EEG spectrogram
+    calculating using shifting, overlapping windows; the "difficulty" is
+    that EEG and imaging time are not perfectly aligned with each other.
 
     Parameters
     ----------
@@ -1752,19 +1967,15 @@ def downsample_overlap(x, tcut, img_time, nwin, noverlap):
     n_down = int(np.floor((n-noverlap)/nsubwin))
     x_down = np.zeros((n_down,x.shape[1]))
 
-    
     j = 0
     for i in range(0, n-nwin+1, nsubwin):
         twin = tcut[i:i+nwin]
         idx = eeg2img_time(twin[[0, -1]], img_time)
-    
-        #pdb.set_trace()
-        x_down[j,:] = x[idx[0]:idx[-1],:].mean(axis=0)
+        x_down[j,:] = x[idx[0]:idx[-1]+1,:].mean(axis=0)
         j += 1
 
     return np.array(x_down)
     
-
 
 
 def irem_corr(ipath, roi_mapping, pzscore=True, ma_thr=10, ma_rem_exception=True):
@@ -1864,7 +2075,6 @@ def irem_corr(ipath, roi_mapping, pzscore=True, ma_thr=10, ma_rem_exception=True
         
 
 
-
 def pearson_state_avgcorr(ipath, roi_mapping, bands, ma_thr=10, min_dur=20, pnorm_spec=True, pzscore=True):
     """
     For each recording in the ROI mapping, determine first the average activity
@@ -1919,6 +2129,188 @@ def pearson_state_avgcorr(ipath, roi_mapping, bands, ma_thr=10, min_dur=20, pnor
     df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'band', 'type', 'state', 'r', 'p'])   
     return df
             
+
+
+def peak_correlation(ipath, roi_mapping, win=10, ma_thr=10, ma_rem_exception=True, 
+                     pnorm_spec=True, fmax=(0,100), states=[1,2,3], spec_type='sp_mat'):
+    """
+    calculate ca-peak triggered EEG spectrogram for all given ROIs.
+
+    Parameters
+    ----------
+    ipath : TYPE
+        DESCRIPTION.
+    roi_mapping : TYPE
+        DESCRIPTION.
+    win : int, optional
+        The ca-peak triggered spectrogram ranges from -win to +win seconds centered on each peak. 
+        The default is 10.
+    ma_thr : TYPE, optional
+        DESCRIPTION. The default is 10.
+    ma_rem_exception : TYPE, optional
+        DESCRIPTION. The default is True.
+    pnorm_spec : TYPE, optional
+        DESCRIPTION. The default is True.
+    fmax : tuple, optional
+        Frequency range for ca-peak triggered spectrogram. The default is (0,100).
+    states : list, optional
+        Only calculat the ca-peak triggered spectrogram for ca peaks occuring during 
+        the brain states specified in @stages; 1-REM, 2-Wake, 3-NREM. The default is [1,2,3].
+    spec_type : string, optional
+        Values: sp_mat or recalc. If 'sp_mat', use the existing EEG spectrogram
+        saved in sp_*.mat; otherwise recalculate the EEG spectrogram using a refined
+        frequency axis. The default is 'sp_mat'.
+
+    Returns
+    -------
+    roi_spec : dict
+        dict: ROI Type --> 2D array (ROI ID x frequency x time).
+    time : TYPE
+        np.array; time axis of the ca peak-triggered spectrogram.
+    TYPE
+        np.array; frequency axis of the ca peak-triggered spectrogram.
+
+    """
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    
+    # dict: type -> ID -> peak spectrograms
+    roi_spec = {}
+    for rec in recordings:
+        print(rec)
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+                
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        types = rec_map.Type.unique()
+        types.sort()
+
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        img_time = imaging_timing(ipath, rec)
+        
+        # get all peaks in DF/F signal
+        nroi = DFF.shape[1]        
+        Peaks = {}
+        for i in range(nroi):
+            dff = DFF[:,i]
+            dff = sleepy.my_lpfilter(dff, 0.1)
+            
+            prom = np.percentile(dff, 80)
+            idx = scipy.signal.find_peaks(dff, prominence=prom)[0]
+            Peaks[i] = idx
+
+        # load spectrogram
+        # load EEG and EMG spectrogram
+        if spec_type == 'sp_mat':
+            P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
+            SPEEG = P['SP'] 
+            if pnorm_spec == True:
+                sp_mean = SPEEG.mean(axis=1)
+                SPEEG = np.divide(SPEEG, np.tile(sp_mean, (SPEEG.shape[1], 1)).T)
+            freq = P['freq']
+            ifreq = np.where((freq>=fmax[0]) & (freq <= fmax[1]))[0]
+            iwin = int(win/sdt)
+            time = np.arange(-iwin, iwin+1)*sdt
+
+        else:
+            nsr_seg = 4
+            perc_overlap = 0.8
+            nfilt = [3,2]
+            EEG = so.loadmat(os.path.join(ipath, rec, 'EEG.mat'), squeeze_me=True)['EEG']
+            freq, tspec, SPEEG = scipy.signal.spectrogram(EEG, fs=sr, window='hanning', nperseg=int(nsr_seg * sr), noverlap=int(nsr_seg * sr * perc_overlap))
+            filt = np.ones(nfilt)
+            filt = filt / filt.sum()
+            SPEEG = scipy.signal.convolve2d(SPEEG, filt, boundary='symm', mode='same')
+
+            if pnorm_spec == True:
+                sp_mean = SPEEG.mean(axis=1)
+                SPEEG = np.divide(SPEEG, np.tile(sp_mean, (SPEEG.shape[1], 1)).T)
+
+            dt = tspec[2]-tspec[1]
+            iwin = int(win/dt)
+            time = np.arange(-iwin, iwin+1)*dt
+            ifreq = np.where((freq>=fmax[0]) & (freq <= fmax[1]))[0]
+
+        
+        ######################################################################
+        # collect all ROIs for each ROI Type
+        roi_dict = {typ:[] for typ in types}
+        # go through all ROIs in recording rec
+        for typ in types:
+            dfs = rec_map[rec_map.Type == typ]
+            roi_ids = []
+            for index, row in dfs.iterrows():
+                s=row[rec]
+                ID = row['ID']
+                roi_num = int(re.split('-', s)[1])
+                roi_ids.append((roi_num,ID))                
+            roi_dict[typ] = roi_ids        
+        
+        # dict: typ -> 3D array (rois x frequency x time)
+        for typ in types:
+            for (roi_j,ID) in roi_dict[typ]:
+
+                curr_roi_spec = []
+                for i in Peaks[roi_j]:
+                    ibs = int(np.round(img_time[i]/sdt))
+                    
+                    if spec_type == 'sp_mat':
+                        ispec = ibs
+                    else:
+                        ispec = np.argmin(np.abs(tspec - img_time[i]))
+                    
+                    if not (M[ibs] in states):
+                        continue
+                    
+                    if ispec>=iwin and ispec < len(M)-iwin:
+                        tmp = SPEEG[ifreq, ispec-iwin:ispec+iwin+1]
+                        curr_roi_spec.append(tmp)
+
+                # now we went through all peaks for roi_j
+                if not typ in roi_spec:
+                    roi_spec[typ] = {}
+                if not ID in roi_spec[typ]:
+                    roi_spec[typ][ID] = []
+                roi_spec[typ][ID] += curr_roi_spec
+                    
+    for typ in roi_spec:
+        for ID in roi_spec[typ]:
+            tmp = roi_spec[typ][ID]
+            #pdb.set_trace()
+            if len(tmp) > 0:
+                roi_spec[typ][ID] = np.array(tmp).mean(axis=0)
+    
+    for typ in roi_spec:
+        tmp = list(roi_spec[typ].values())
+        val = [v for v in tmp if len(v)>0]
+        roi_spec[typ] = np.array(val)
+    
+    return roi_spec, time, freq[ifreq]
+
 
 
 def downsample_dff2bs(ipath, rec, roi_list, psave=False):
@@ -2169,14 +2561,14 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq
 
 
 def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, tend=-1, 
-                             emg_ticks=[], cb_ticks=[], show_avgs=True, pnorm_spec=False, fmax=20):
+                             emg_ticks=[], cb_ticks=[], show_avgs=True, pnorm_spec=False, fmax=20, show_peaks=False):
     """
     For each mouse in the given ROI mapping, plot all ROIs sorted by different classes. If $show_avgs = True, 
     plot for each class the average across all ROIs.
 
     Parameters
     ----------
-    ipath : TYPE
+    ipath : string
         DESCRIPTION.
     roi_mapping : TYPE
         DESCRIPTION.
@@ -2347,7 +2739,6 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             plt.xlim([t[0], t[-1]])
             plt.title(rec)
             
-            
             # colorbar for EEG spectrogram
             cb = plt.colorbar(im, ax=axes_cbar, pad=0.0, aspect=10.0)
             cb.set_label('Power ($\mathrm{\mu}$V$^2$s)')
@@ -2360,7 +2751,6 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             axes_cbar.spines["left"].set_visible(False)
             axes_cbar.axes.get_xaxis().set_visible(False)
             axes_cbar.axes.get_yaxis().set_visible(False)
-
             
             # show EMG
             i_mu = np.where((freq >= r_mu[0]) & (freq <= r_mu[1]))[0]
@@ -2387,14 +2777,27 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
             img_time = imaging_timing(ipath, rec) 
             nframes = DFF.shape[0]
+            nroi    = DFF.shape[1]
             dffmax = DFF.max()
             
-            if not show_avgs:
+            if not show_avgs:                
+                # get calcium peaks
+                Peaks = {}
+                for i in range(nroi):
+                    dff = DFF[:,i]
+                    dff = sleepy.my_lpfilter(dff, 0.1)
+                    
+                    prom = np.percentile(dff, 80)
+                    idx = scipy.signal.find_peaks(dff, prominence=prom)[0]
+                    Peaks[i] = idx
+                
                 i = 0
                 for typ in types:
                     roi_ids = roi_dict[typ]
                     for j in roi_ids:
                         plt.plot(img_time[0:nframes], DFF[0:nframes,j]+i*dffmax, color=color_dict[typ])
+                        if show_peaks:
+                            plt.plot(img_time[Peaks[j]],  DFF[Peaks[j],j]+i*dffmax, 'r.', markersize=4)
                         plt.text(100, i*dffmax+dffmax/4, str(j) + ' ' + typ, fontsize=12, color=color_dict[typ],bbox=dict(facecolor='w', alpha=0.))
                         i += 1
     
