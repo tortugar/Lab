@@ -2131,6 +2131,130 @@ def pearson_state_avgcorr(ipath, roi_mapping, bands, ma_thr=10, min_dur=20, pnor
             
 
 
+def find_capeaks(DFF, prom=0.8, f_cutoff=1.0, isr=20):
+
+    nroi = DFF.shape[1]        
+    Peaks = np.zeros(DFF.shape)
+    w0 = f_cutoff / (isr*0.5)
+    
+    Peaks = {}
+    for i in range(nroi):
+        dff = DFF[:,i]
+        
+        dff = sleepy.my_lpfilter(dff, w0)
+        DFF[:,i] = dff
+        
+        prom = np.percentile(dff, 80)
+        idx = scipy.signal.find_peaks(dff, prominence=prom)[0]
+                
+        Peaks[i] = idx
+
+    return Peaks, DFF
+
+
+
+def peak_avgs(ipath, roi_mapping,ma_thr=10, ma_rem_exception=True):
+    """
+    Detect peaks in the calcium signal and calculate for each ROI the mean frequency 
+    of speaks during each brain state (quantified as peaks per second)
+
+    Parameters
+    ----------
+    ipath : string
+        imaging folder.
+    roi_mapping : TYPE
+        DESCRIPTION.
+    ma_thr : TYPE, optional
+        DESCRIPTION. The default is 10.
+    ma_rem_exception : TYPE, optional
+        DESCRIPTION. The default is True.
+
+    Returns
+    -------
+    df : TYPE
+        DESCRIPTION.
+
+    """
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    state_map = {1:'REM', 2:'Wake', 3:'NREM'}
+    
+    # dict: type -> ID -> peak spectrograms
+    data = []
+    for rec in recordings:
+        print(rec)
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+                
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        types = rec_map.Type.unique()
+        types.sort()
+
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        # get all peaks in DF/F signal
+        nroi = DFF.shape[1]        
+        # Peaks = np.zeros(DFF.shape)
+        # for i in range(nroi):
+        #     dff = DFF[:,i]
+        #     dff = sleepy.my_lpfilter(dff, 0.1)
+        #     DFF[:,i] = dff
+            
+        #     prom = np.percentile(dff, 80)
+        #     idx = scipy.signal.find_peaks(dff, prominence=prom)[0]
+                    
+        #     Peaks[idx,i] = 1
+        Peaks = np.zeros(DFF.shape)
+        peak_idx, DFF = find_capeaks(DFF)
+        for i in peak_idx:
+            idx = peak_idx[i]
+            Peaks[idx,i] = 1
+        
+        
+        dffd = downsample_dff2bs(ipath, rec, roi_list, peaks=True, dff_data=Peaks)
+    
+    
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            ID = row['ID']
+            roi_num = int(re.split('-', s)[1])
+            typ = row['Type']
+            
+            for state in [1,2,3]:
+                state_idx = np.where(M==state)[0]
+                
+                mstate = dffd[state_idx,roi_num].mean()
+                
+                data += [[idf, rec, ID, s, typ, mstate, state_map[state]]]
+                
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'ID', 'ROI', 'Type', 'peaks', 'state'])
+    return df
+                
+            
+    
 def peak_correlation(ipath, roi_mapping, win=10, ma_thr=10, ma_rem_exception=True, 
                      pnorm_spec=True, fmax=(0,100), states=[1,2,3], spec_type='sp_mat'):
     """
@@ -2217,8 +2341,8 @@ def peak_correlation(ipath, roi_mapping, win=10, ma_thr=10, ma_rem_exception=Tru
         Peaks = {}
         for i in range(nroi):
             dff = DFF[:,i]
-            dff = sleepy.my_lpfilter(dff, 0.1)
-            
+            dff = sleepy.my_lpfilter(dff, 0.05)
+            DFF[:,i] = dff
             prom = np.percentile(dff, 80)
             idx = scipy.signal.find_peaks(dff, prominence=prom)[0]
             Peaks[i] = idx
@@ -2256,6 +2380,8 @@ def peak_correlation(ipath, roi_mapping, win=10, ma_thr=10, ma_rem_exception=Tru
             ifreq = np.where((freq>=fmax[0]) & (freq <= fmax[1]))[0]
 
         
+
+
         ######################################################################
         # collect all ROIs for each ROI Type
         roi_dict = {typ:[] for typ in types}
@@ -2313,7 +2439,7 @@ def peak_correlation(ipath, roi_mapping, win=10, ma_thr=10, ma_rem_exception=Tru
 
 
 
-def downsample_dff2bs(ipath, rec, roi_list, psave=False):
+def downsample_dff2bs(ipath, rec, roi_list, psave=False, peaks=False, dff_data = []):
 
     sr = sleepy.get_snr(ipath, rec)
     nbin = int(np.round(sr)*2.5)
@@ -2322,12 +2448,17 @@ def downsample_dff2bs(ipath, rec, roi_list, psave=False):
     P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
     bs_time = P['t'] + sdt
     bs_time = np.concatenate(([0], bs_time))
-    
-    # load DF/F for recording rec 
+
     dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
-    if not(os.path.isfile(dff_file)):
-        calculate_dff(ipath, rec, roi_list)
-    DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+    
+    # load DF/F for recording rec
+    if len(dff_data) == 0:
+        #dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+    else:
+        DFF = dff_data
     
     # load imaging timing
     img_time = imaging_timing(ipath, rec)
@@ -2335,14 +2466,21 @@ def downsample_dff2bs(ipath, rec, roi_list, psave=False):
     # indices of the imaging frames that are closest to given time points
     idx = eeg2img_time(bs_time, img_time)    
     
-    data = []
-    for (a,b) in zip(idx[0:-1], idx[1:]):
-        data.append(DFF[a:b,:].mean(axis=0))        
-    dffd = np.array(data)
-
-    if psave:
-        so.savemat(dff_file, {'dff':DFF, 'dffd':dffd})
-
+    if not peaks:
+        data = []
+        for (a,b) in zip(idx[0:-1], idx[1:]):
+            data.append(DFF[a:b,:].mean(axis=0))        
+        dffd = np.array(data)
+    
+        if psave:
+            so.savemat(dff_file, {'dff':DFF, 'dffd':dffd})
+    else:
+        data = []
+        for (a,b) in zip(idx[0:-1], idx[1:]):
+            dt = img_time[b]-img_time[a]
+            data.append(dff_data[a:b,:].sum(axis=0) / dt)        
+        dffd = np.array(data)
+        
     return dffd
 
 
