@@ -2459,7 +2459,7 @@ def plot_swa(ppath, name, delta_win, alpha, band=[0.5, 4.5], swa_yrange=[]):
 
 
 def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psave=False, tstart=0, tend=-1,
-                        peeg2=False, vm=2.5, prune_trials=True, mu=[10, 200], trig_state=0, harmcs=0):
+                        peeg2=False, vm=2.5, prune_trials=True, mu=[10, 200], trig_state=0, harmcs=0, iplt_level=1):
     """
     calculate laser triggered, averaged EEG and EMG spectrum
     :param ppath: base folder containing mouse recordings
@@ -2486,9 +2486,16 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
            of the two neighboring frequencies. 
     """
     def _interpolate_harmonics(SP, freq, f_max, harmcs):
+        df = freq[2]-freq[1]
         for h in np.arange(harmcs, f_max, harmcs):
-            i = np.where(freq==h)[0][0]
-            SP[i,:] = (SP[i-1,:] + SP[i+1,:]) * 0.5
+            #pdb.set_trace()
+            #i = np.where(freq==h)[0][0]
+            i = np.argmin(np.abs(freq - h))
+            if np.abs(freq[i] - h) < df and h != 60: 
+                if iplt_level == 2:
+                    SP[i,:] = (SP[i-2:i,:] + SP[i+1:i+3,:]).mean(axis=0) * 0.5
+                else:
+                    SP[i,:] = (SP[i-1,:] + SP[i+1,:]) * 0.5
         return SP
     
     SR = get_snr(ppath, name)
@@ -2678,7 +2685,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
 
 
 def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnorm=1, pplot=1, tstart=0, tend=-1,
-                            vm=[], cb_ticks=[], mu=[10, 100], trig_state=0, harmcs=0, peeg2=False, fig_file=''):
+                            vm=[], cb_ticks=[], mu=[10, 100], trig_state=0, harmcs=0, iplt_level=1, peeg2=False, fig_file=''):
     """
     calculate average spectrogram for all recordings listed in @recordings; for averaging take
     mouse identity into account
@@ -2724,7 +2731,8 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     for rec in recordings:
         idf = re.split('_', rec)[0]
         EEG, EMG, f, t = laser_triggered_eeg(ppath, rec, pre, post, f_max, mu=mu, pnorm=pnorm, pplot=False,
-                                             psave=False, tstart=tstart, tend=tend, trig_state=trig_state, peeg2=peeg2, harmcs=harmcs)
+                                             psave=False, tstart=tstart, tend=tend, trig_state=trig_state, 
+                                             peeg2=peeg2, harmcs=harmcs, iplt_level=iplt_level)
 
         EEGSpec[idf].append(EEG)
         EMGSpec[idf].append(EMG)
