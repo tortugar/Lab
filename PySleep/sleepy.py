@@ -1920,7 +1920,8 @@ def box_off(ax):
 
 
 
-def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=0, pplot=True, pemg=True, vmax=2.5, pspec_norm=False, use_idx=[]):
+def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=0, 
+                pplot=True, pemg=True, vmax=2.5, pspec_norm=False, use_idx=[]):
     """
     automatic sleep state detection based on
     delta, theta, sigma, gamma and EMG power.
@@ -1990,8 +1991,7 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     if pemg:
         Q = so.loadmat(os.path.join(ppath, name, 'msp_' + name + '.mat'))
     else:
-        #Q = so.loadmat(os.path.join(ppath, name, 'sp_' + name + '.mat'))
-        pass
+        Q = so.loadmat(os.path.join(ppath, name, 'sp_' + name + '.mat'))
     
     SPEEG = np.squeeze(P['SP'])
     if pemg == 1:
@@ -2237,7 +2237,6 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
         box_off(axes7)
         plt.show()
 
-        
         # 2nd figure showing distribution of different bands
         plt.figure(figsize=(20,3))
         axes1 = plt.axes([0.05, 0.1, 0.13, 0.8])
@@ -2276,6 +2275,7 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     
     return M,S
     
+
 
 def plot_hypnograms(ppath, recordings, tbin=0, unit='h', ma_thr=20, title='', tstart=0, tend=-1):
     """
@@ -6475,11 +6475,12 @@ def _whole_mx(ppath, name, pre, post, tdown, ptie_break=True, tstart=0, tend=-1,
     if ma_thr > 0:
         wake_seq = get_sequences(np.where(M==2)[0])
         for seq in wake_seq:
-            if ma_rem_exception:
-                if (seq[0]>1) and (M[seq[0] - 1] != 1):
+             if np.round(len(seq)*dt) <= ma_thr:
+                if ma_rem_exception:
+                    if (seq[0]>1) and (M[seq[0] - 1] != 1):
+                        M[seq] = 3
+                else:
                     M[seq] = 3
-            else:
-                M[seq] = 3
 
     if tend == -1:
         iend = M.shape[0] - 1
