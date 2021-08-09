@@ -2313,7 +2313,7 @@ def plot_hypnograms(ppath, recordings, tbin=0, unit='h', ma_thr=20, title='', ts
     axes = []
     for rec in recordings:
         M,K = load_stateidx(ppath, rec)
-        kcut = np.where(K<0)[0]
+        #kcut = np.where(K<0)[0]
         #M = M[kcut]
         #M[kcut] = 0
 
@@ -2484,8 +2484,8 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
            1=REM, 2=Wake, 3=NREM
     :param harmcs: if >0, interpolate all frequencies corresponding to multiples of harmcs by the average power
            of the two neighboring frequencies. 
-   :param iplt_level: options - 1 or 2. If 1 only take one neighboring frequency above and below the harmonic; 
-           If 2, take 2 neighbors above and below, respectively
+    :param iplt_level: options - 1 or 2. If 1 only take one neighboring frequency above and below the harmonic; 
+           if 2, take 2 neighbors above and below, respectively
     """
     def _interpolate_harmonics(SP, freq, f_max, harmcs):
         df = freq[2]-freq[1]
@@ -2718,9 +2718,16 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     :param harmcs: if >0, interpolate all frequencies corresponding to multiples of harmcs by the average power
            of the two neighboring frequencies. 
     :param iplt_level: options - 1 or 2. If 1 only take one neighboring frequency above and below the harmonic; 
-           If 2, take 2 neighbors above and below, respectively
+           if 2, take 2 neighbors above and below, respectively
     :param fig_file: if specified, save figure to given file
-    :return: n/a
+
+    :return: 
+        t, f, EEGSpec, EMGSpec, EEGLsr
+        t - time axis
+        f - frequency axis
+        EEGSpec - dict with mouse id -> 2D np.array(frequency x time)
+        EMGSpec - dict with mouse id -> 2D np.array(frequency x time)
+        EEGLsr - 2D np.array(frequency x time)
     """    
     EEGSpec = {}
     EMGSpec = {}
@@ -5642,7 +5649,6 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
 
 
 def plt_lineplot(df, subject, xcol, ycol, ax=-1, color='blue', xlabel='', ylabel='', lw=1):
-    import pdb
     subjects = list(df[subject].unique())
 
     data = []
@@ -5668,7 +5674,6 @@ def plt_lineplot(df, subject, xcol, ycol, ax=-1, color='blue', xlabel='', ylabel
 
 
 def plt_lineplot_byhue(df, subject, xcol, ycol, hue, ax=-1, color='blue', xlabel='', ylabel='', lw=1):
-    import pdb
     subjects = list(df[subject].unique())
 
     data = []
@@ -5696,8 +5701,8 @@ def plt_lineplot_byhue(df, subject, xcol, ycol, hue, ax=-1, color='blue', xlabel
 ### TRANSITION ANALYSIS #########################################################
 def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
                         backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1,
-                        bootstrap_mode=0, paired_stats=True, ma_thr=0, bsl_shading=False,
-                        fig_file='', fontsize=12, nboot=1000):
+                        bootstrap_mode=0, paired_stats=True, ma_thr=0,  ma_rem_exception=True, 
+                        bsl_shading=False, fig_file='', fontsize=12, nboot=1000):
     """
     Transition analysis
 
@@ -5733,6 +5738,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
            with exactly the same mice.
     :param paired_stats, boolean; if True, perform paired test between baseline and laser interval.
     :param ma_thr: if > 0, set wake periods < ma_thr to NREM.
+    :param ma_rem_exception: if True, leave a MA after REM as wake.
     :param bsl_shading: if True, plot error shading for red baseline
 
     :param fig_file, if file name specified, save figure
@@ -5766,7 +5772,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
     MouseMx = {idf:[] for idf in mouse_ids}
 
     for m in E:
-        trials = _whole_mx(rec_paths[m], m, pre, post, tdown, tstart=tstart, tend=tend, ma_thr=ma_thr)
+        trials = _whole_mx(rec_paths[m], m, pre, post, tdown, tstart=tstart, tend=tend, ma_thr=ma_thr, ma_rem_exception=True)
         idf = re.split('_', m)[0]
         MouseMx[idf] += trials
     ntdown = len(trials[0])
@@ -6436,7 +6442,8 @@ def complete_transition_matrix(MX, idx):
 
 
 
-def _whole_mx(ppath, name, pre, post, tdown, ptie_break=True, tstart=0, tend=-1, ma_thr=0):
+def _whole_mx(ppath, name, pre, post, tdown, ptie_break=True, tstart=0, tend=-1, 
+              ma_thr=0, ma_rem_exception=True):
     """
     get all laser trials (brain state sequences) discretized in $tdown second bins
 
@@ -6464,11 +6471,15 @@ def _whole_mx(ppath, name, pre, post, tdown, ptie_break=True, tstart=0, tend=-1,
     # load brain state
     M = load_stateidx(ppath, name)[0]
 
-    # NEED CORRECTION!!
+    # NEED CORRECTION!! - corrected on 8/9/21
     if ma_thr > 0:
-        seq = get_sequences(np.where(M==2)[0])
-        if len(seq)*dt <= ma_thr:
-            M[seq] = 3
+        wake_seq = get_sequences(np.where(M==2)[0])
+        for seq in wake_seq:
+            if ma_rem_exception:
+                if (seq[0]>1) and (M[seq[0] - 1] != 1):
+                    M[seq] = 3
+            else:
+                M[seq] = 3
 
     if tend == -1:
         iend = M.shape[0] - 1
