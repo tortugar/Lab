@@ -3,45 +3,6 @@
 """
 Created on Sat Oct 14 21:31:56 2017
 
-Note:
-Matplotlib constantly changes how to plot figures interactively.
-In case, if there are no figures plotted, there might be three options to try out:
-(1) First, start python interpreter using "ipython --matplotlib"
-(2) Replace plt.plot(block=False) with plt.plot()
-(3) Or, try to turn on interactive mode before any plotting (plt.show()) happens, 
-    using plt.ion()
-
-DATE 3/27/18:
-added algorithm for NREM closed-loop detection (recursive_sleepstate_nrem)
-
-DATE 3/28/18:
-fixed bug in recursive_sleepstate_rem
-fixed bug in sleep_spectrum
-
-DATE 4/13/18
-added function rem_online_analysis
-
-DATE 5/9/18
-nicer representation of data by sleep_timecourse_list
-
-DATE 5/26/18
-sleep_stats and sleep_timecourse_list: exclude states where K < 0
-
-DATE 6/02/18
-sleep_stats and sleep_timecourse_list: order mice the same way
-
-DATE 3/04/19
-sleep_spectrum; implemented that brain states, where K < 0 (the white line
-in sleep annotation), are discarded
-
-DATE 3/29/19
-sleep_spectrum, sleep_timecourse_list: allowed for recording names including more than final directory:
-E.g. my_files/M1_020219, instead of just M1_020219
-ma_timecourse_list: added support for pandas DataFrames
-
-DATE 5/1/19
-Upgraded to py3
-
 @author: Franz
 """
 import scipy.signal
@@ -271,7 +232,6 @@ def laser_start_end(laser, SR=1525.88, intval=5):
     """
     idx = np.where(laser > 0.5)[0]
     if len(idx) == 0 :
-        #return (None, None)
         return ([], [])
     
     idx2 = np.nonzero(np.diff(idx)*(1./SR) > intval)[0]
@@ -2487,11 +2447,9 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     :param iplt_level: options - 1 or 2. If 1 only take one neighboring frequency above and below the harmonic; 
            if 2, take 2 neighbors above and below, respectively
     """
-    def _interpolate_harmonics(SP, freq, f_max, harmcs):
+    def _interpolate_harmonics(SP, freq, f_max, harmcs, iplt_level):
         df = freq[2]-freq[1]
         for h in np.arange(harmcs, f_max, harmcs):
-            #pdb.set_trace()
-            #i = np.where(freq==h)[0][0]
             i = np.argmin(np.abs(freq - h))
             if np.abs(freq[i] - h) < df and h != 60: 
                 if iplt_level == 2:
@@ -5404,7 +5362,8 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
 
 def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, 
                           mu=[10,100], ci='sd', pmode=1, pnorm = False, pplot=True, 
-                          harmcs=0, peeg2=False, pemg2=False, exclusive_mode=False, csv_files=[]):
+                          harmcs=0, harmcs_mode='iplt', iplt_level=0, peeg2=False, 
+                          pemg2=False, exclusive_mode=False, csv_files=[]):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -5420,8 +5379,17 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                   pmode == 1, compare state during laser with baseline outside laser interval
     :param pnorm: if True, normalize spectrogram by dividing each frequency band by its average power
     :param pplot: if True, plot figure
-    :param harmcs: if > 0, remove all harmonics of base frequency $harm, from the frequencies used
-    for EMG amplitude calculation
+
+    # interpolating/discarding harmonics
+    :param harmcs, harmcs_mode, iplt_level: if $harmcs > 0 and $harmcs_mode == 'emg', 
+                  remove all harmonics of base frequency $harmcs, from the frequencies used
+                  for EMG amplitude calculation; do nothing for harmonics in EEG
+                  if $harmcs > 0 and $harmcs_mode == 'iplt', interpolate all harmonics by substituting the power 
+                  at the harmonic by a sum of the neighboring frequencies. If $iplt_level == 1, only
+                  take one neighboring frequency below and above the harmonic, 
+                  if $iplt_level == 2, use the two neighboring frequencies above and below for the
+                  interpolation
+                  
     :parm peeg2: if True, use EEG2.mat instead of EEG.mat for EEG powerspectrum calculation
     :param pemg2: if True, use EMG2 for EMG amplitude calcuation
     :param csv_files: if two file names are provided, the results for EEG power spectrum
@@ -5434,6 +5402,19 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     df: DataFrame with EEG powerspectrum; columns: 'Idf', 'Freq', 'Pow', 'Lsr'
     df_amp: DataFrame with EMG amplitude; columns: 'Idf', 'Amp', 'Lsr'
     """
+    def _interpolate_harmonics(SP, freq, f_max, harmcs, iplt_level):
+        df = freq[2]-freq[1]
+        for h in np.arange(harmcs, f_max, harmcs):
+            i = np.argmin(np.abs(freq - h))
+            if np.abs(freq[i] - h) < df and h != 60: 
+                if iplt_level == 2:
+                    SP[i,:] = (SP[i-2:i,:] + SP[i+1:i+3,:]).mean(axis=0) * 0.5
+                elif iplt_level == 1:
+                    SP[i,:] = (SP[i-1,:] + SP[i+1,:]) * 0.5
+                else:
+                    pass
+        return SP
+    ##########################################################################
     
     mice = []
     for rec in recordings:
@@ -5502,8 +5483,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                         drm = np.setdiff1d(s, d)
                         rm_idx.append(drm)
                         idx_nolsr = np.setdiff1d(idx_nolsr, drm)
-                        idx_lsr = np.union1d(idx_lsr, drm)
-            
+                        idx_lsr = np.union1d(idx_lsr, drm)   
         ###################################################
 
         # load EEG spectrogram
@@ -5532,14 +5512,18 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
             freq_emg = tmp['freq']
         imu = np.where((freq_emg>=mu[0]) & (freq_emg<=mu[-1]))[0]
         
-        if harmcs > 0:
+        if harmcs > 0 and harmcs_mode == 'iplt':
+            SP  = _interpolate_harmonics(SP, freq, fmax, harmcs, iplt_level)
+            MSP = _interpolate_harmonics(MSP, freq, fmax, harmcs, iplt_level)
+        
+        if harmcs > 0 and harmcs_mode == 'emg':
             harm_freq = np.arange(0, freq_emg.max(), harmcs)
             for h in harm_freq:
                 imu = np.setdiff1d(imu, imu[np.where(np.round(freq_emg[imu], decimals=1)==h)[0]])
             tmp = 0
             for i in imu:
                 tmp += MSP[i,:] * (freq_emg[i]-freq_emg[i-1])
-            emg_ampl = np.sqrt(tmp)            
+            emg_ampl = np.sqrt(tmp) 
         else:
             emg_ampl = np.sqrt(MSP[imu,:].sum(axis=0)*df)
         ###################################################
