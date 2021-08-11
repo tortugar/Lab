@@ -5246,7 +5246,6 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
                 tmp = [s[ifreq] for s in Spectra[m][1]]
                 Pow[1][i,:] = np.array(tmp).mean(axis=0)                
             i += 1
-
     
     if pplot:
         plt.ion()
@@ -5363,7 +5362,7 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
 def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, 
                           mu=[10,100], ci='sd', pmode=1, pnorm = False, pplot=True, 
                           harmcs=0, harmcs_mode='iplt', iplt_level=0, peeg2=False, 
-                          pemg2=False, exclusive_mode=False, csv_files=[]):
+                          pemg2=False, exclusive_mode=0, csv_files=[]):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -5379,6 +5378,17 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                   pmode == 1, compare state during laser with baseline outside laser interval
     :param pnorm: if True, normalize spectrogram by dividing each frequency band by its average power
     :param pplot: if True, plot figure
+    
+    # What do to with episodes partially overlapping with laser
+    :param exclusive_mode: if > 0, apply some exception for episodes of state $istate,
+                  that overlap with laser. Say there's a REM period that only partially overlaps with laser.
+                  If $exclusive_mode == 1, then do not use the part w/o laser for the 'no laser' condition;
+                  This can be relevant for closed-loop stimulation: The laser turns on after the 
+                  spontaneous onset of REM sleep. So, the initial part of REM sleep would be interpreted
+                  as 'no laser', potentially inducing a bias, because at the very beginning the REM spectrum
+                  looks different than later on.
+                  If $exclusive_mode == 2, then add the part w/o laser to the 'with laser' condition.
+                  If $exclusive_mode == 0, then interprete the part w/o laser as 'w/o laser'.
 
     # interpolating/discarding harmonics
     :param harmcs, harmcs_mode, iplt_level: if $harmcs > 0 and $harmcs_mode == 'emg', 
@@ -5453,7 +5463,6 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
             idx = np.array([], dtype='int')
             for s in istate:
                 idx = np.concatenate((idx, np.where(M==s)[0]))
-            #idx = idx.astype('int')
 
         # load laser
         if pmode == 1:
@@ -5472,8 +5481,8 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
             idx_lsr   = np.intersect1d(idx, laser_idx)
             idx_nolsr = np.setdiff1d(idx, laser_idx)
             
-            if exclusive_mode == True:
-                rm_idx = []
+            if exclusive_mode > 0:
+                #rm_idx = []
                 rem_seq = get_sequences(np.where(M==1)[0])
                 for s in rem_seq:
                     d = np.intersect1d(s, idx_lsr)
@@ -5481,9 +5490,10 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                         # that's the part of the REM period with laser
                         # that does not overlap with laser
                         drm = np.setdiff1d(s, d)
-                        rm_idx.append(drm)
+                        #rm_idx.append(drm)
                         idx_nolsr = np.setdiff1d(idx_nolsr, drm)
-                        idx_lsr = np.union1d(idx_lsr, drm)   
+                        if exclusive_mode == 2:
+                            idx_lsr = np.union1d(idx_lsr, drm) 
         ###################################################
 
         # load EEG spectrogram
