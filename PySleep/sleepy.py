@@ -5359,6 +5359,19 @@ def sleep_spectrum(ppath, recordings, istate=1, pmode=1, fres=1/3, ma_thr=20.0, 
 
 
 
+def set_awake(M, MSP, freq, mu=[10, 100]):
+    imu = np.where((freq>=mu[0]) & (freq<=mu[1]))[0]
+    df = freq[1]-freq[0]    
+    widx = np.where(M==2)[0]
+    ampl = np.sqrt(MSP[imu, :].sum(axis=0)*df)
+    wampl = ampl[widx]
+    thr = wampl.mean() + 1*wampl.std()
+    awk_idx = widx[np.where(wampl>thr)[0]]
+    #qwk_idx = np.setdiff1d(widx, awk_idx)
+    M[awk_idx] = 5
+    return M
+
+
 def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, 
                           mu=[10,100], ci='sd', pmode=1, pnorm = False, pplot=True, 
                           harmcs=0, harmcs_mode='iplt', iplt_level=0, peeg2=False, 
@@ -5368,7 +5381,9 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     
     :param ppath: base folder
     :param recordings: list of recordings
-    :param istate: brain state for which power spectrum is computed
+    :param istate: brain state for which power spectrum is computed. 
+                  1-REM, 2-Wake, 3-NREM, 5-"active wake"
+                  
     :param tstart: use EEG/EMG starting from time point tstart [seconds]
     :param tend: use EEG/EMG up to time point tend [seconds]; if tend=-1, use EEG/EMG till the end
     :param fmax: maximum frequency shown on x-axis
@@ -5437,6 +5452,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     count_mice = {0: {m:0 for m in mice}, 1: {m:0 for m in mice}}
     data = []
     for rec in recordings:
+        emg_loaded = False
         print(rec)
         # load brain state
         idf = re.split('_', rec)[0]
@@ -5457,6 +5473,18 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
         iend_eeg   = iend*nbin
         
         M = M[istart:iend]    
+        if istate == 5:
+            tmp = so.loadmat(os.path.join(ppath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
+            if not pemg2:
+                MSP = tmp['mSP'][:,istart:iend]
+                freq_emg = tmp['freq']
+            else:
+                MSP = tmp['mSP2'][:,istart:iend]
+                freq_emg = tmp['freq']
+            emg_loaded = True
+                
+            M = set_awake(M[istart:iend], MSP[istart:iend], freq_emg)
+        
         if type(istate) == int:
             idx = np.where(M==istate)[0]
         else:
@@ -5481,7 +5509,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
             idx_lsr   = np.intersect1d(idx, laser_idx)
             idx_nolsr = np.setdiff1d(idx, laser_idx)
             
-            if exclusive_mode > 0:
+            if exclusive_mode > 0 and exclusive_mode < 3:
                 #rm_idx = []
                 rem_seq = get_sequences(np.where(M==1)[0])
                 for s in rem_seq:
@@ -5490,12 +5518,21 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                         # that's the part of the REM period with laser
                         # that does not overlap with laser
                         drm = np.setdiff1d(s, d)
-                        #rm_idx.append(drm)
                         idx_nolsr = np.setdiff1d(idx_nolsr, drm)
                         if exclusive_mode == 2:
                             idx_lsr = np.union1d(idx_lsr, drm) 
-        ###################################################
+            if exclusive_mode == 3:
+                rem_trig = so.loadmat(os.path.join(ppath, rec, 'rem_trig_%s.mat'%rec), squeeze_me=True)['rem_trig']
 
+                rem_trig = downsample_vec(rem_trig, nbin)
+                rem_trig[np.where(rem_trig>0)] = 1
+        
+                trig_idx = np.where(rem_trig==1)[0]
+                
+                idx_lsr   = np.intersect1d(trig_idx, idx_lsr)
+                idx_nolsr = np.intersect1d(trig_idx, idx_nolsr)
+                                
+        ######################################################################
         # load EEG spectrogram
         tmp = so.loadmat(os.path.join(ppath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
         if not peeg2:
@@ -5513,14 +5550,17 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
             SP = SP[ifreq,:]
             
         # load EMG spectrogram
-        tmp = so.loadmat(os.path.join(ppath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
-        if not pemg2:
-            MSP = tmp['mSP'][:,istart:iend]
-            freq_emg = tmp['freq']
-        else:
-            MSP = tmp['mSP2'][:,istart:iend]
-            freq_emg = tmp['freq']
+        if not emg_loaded:
+            tmp = so.loadmat(os.path.join(ppath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
+            if not pemg2:
+                MSP = tmp['mSP'][:,istart:iend]
+                freq_emg = tmp['freq']
+            else:
+                MSP = tmp['mSP2'][:,istart:iend]
+                freq_emg = tmp['freq']
         imu = np.where((freq_emg>=mu[0]) & (freq_emg<=mu[-1]))[0]
+
+            
         
         if harmcs > 0 and harmcs_mode == 'iplt':
             SP  = _interpolate_harmonics(SP, freq, fmax, harmcs, iplt_level)
