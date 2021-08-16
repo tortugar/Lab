@@ -5452,8 +5452,10 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     count_mice = {0: {m:0 for m in mice}, 1: {m:0 for m in mice}}
     data = []
     for rec in recordings:
-        emg_loaded = False
         print(rec)
+
+        emg_loaded = False
+
         # load brain state
         idf = re.split('_', rec)[0]
         M = load_stateidx(ppath, rec)[0]
@@ -5482,8 +5484,7 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                 MSP = tmp['mSP2'][:,istart:iend]
                 freq_emg = tmp['freq']
             emg_loaded = True
-                
-            M = set_awake(M[istart:iend], MSP[istart:iend], freq_emg)
+            M = set_awake(M[istart:iend], MSP[istart:iend], freq_emg, mu=mu)
         
         if type(istate) == int:
             idx = np.where(M==istate)[0]
@@ -5736,7 +5737,7 @@ def plt_lineplot_byhue(df, subject, xcol, ycol, hue, ax=-1, color='blue', xlabel
 def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
                         backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1,
                         bootstrap_mode=0, paired_stats=True, ma_thr=0,  ma_rem_exception=True, 
-                        bsl_shading=False, fig_file='', fontsize=12, nboot=1000):
+                        bsl_shading=False,  overlap_mode=False, fig_file='', fontsize=12, nboot=1000):
     """
     Transition analysis
 
@@ -5775,8 +5776,20 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
     :param ma_rem_exception: if True, leave a MA after REM as wake.
     :param bsl_shading: if True, plot error shading for red baseline
 
+
+    :param overlap_mode, if True alo include the last fine bin within a large bin for
+           the transition probability calculation. Say 1 large bin contains 3 time bins:
+               |b1 b2 b3 | b4 b5 b6
+           Then if overlap_mode == False, the transition probability for the first
+           large bin will only include pairs of time bin b1 to b2, b2 to b3, but not b3 to b4. 
+           If overlap_mode == True, then transition probability for the first bin 
+           will include also the 3rd fine bin, so
+           b1 to b2, b2 to b3, and b3 to b4.
+
     :param fig_file, if file name specified, save figure
     :param fontsize, if specified, set fontsize to given value
+    
+    :param nboot, number of bootstrap iterations
 
     :return: dict, transitions id --> 3 x 3 x time bins np.array
     """
@@ -5895,7 +5908,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
 
         # caluclate actual transition probilities
         if not int(large_bin/tdown) == 1:
-            MXb = build_markov_matrix_blocks(MXsel, tdown, large_bin)
+            MXb = build_markov_matrix_blocks(MXsel, tdown, large_bin, overlap_mode=overlap_mode)
         else:
             MXb = build_markov_matrix_seq(MXsel)
 
@@ -6048,7 +6061,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
 
 
 
-def build_markov_matrix_blocks(MX, tdown, large_bin):
+def build_markov_matrix_blocks(MX, tdown, large_bin, overlap_mode=False):
     """
     pMX = build_markov_matrix_blocks(MX, down, large_bin)
     build sequence of Markov matrices; build one Matrix for each large bin (block) of
@@ -6057,6 +6070,8 @@ def build_markov_matrix_blocks(MX, tdown, large_bin):
     :param MX, np.array, with time bins on fine (tdown) time scale
     :param tdown: fine time scale
     :param large_bin: coarse time scale
+    :param overlap_mode: if True, include the last fine time, bordering the next large bin
+    
     :return: pMX, 3x3xtime np.array, series of markov matrices; time is the third dimension
     """
     nbins = MX.shape[1]              # number of time bins on fine time scale
@@ -6066,13 +6081,19 @@ def build_markov_matrix_blocks(MX, tdown, large_bin):
 
     pMX = np.zeros((3, 3, nstep))
     for s in range(0, nstep):
-        mx = MX[:, s*ndown:(s+1)*ndown]
+        if not overlap_mode:
+            mx = MX[:, s*ndown:(s+1)*ndown]
+        else:
+            mx = MX[:, s*ndown:((s+1)*ndown+1)]
+            
         pmx = np.zeros((3,3))
         c = np.zeros((3,))
 
         for i in range(0, nrows):
             seq = mx[i,:]
-            for j in range(0, ndown-1):
+            
+            m = mx.shape[1]
+            for j in range(0, m-1):
                 pmx[int(seq[j])-1, int(seq[j+1])-1] += 1
                 c[int(seq[j])-1] += 1
 
