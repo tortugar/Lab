@@ -3132,7 +3132,6 @@ def laser_brainstate_bootstrap(ppath, recordings, pre, post, edge=0, sf=0, nboot
     :return: P   - p-values for NREM, REM, Wake
              Mod - by how much the percentage of NREM, REM, Wake is increased compared to baseline
     """
-
     pre += edge
     post += edge
 
@@ -5737,7 +5736,7 @@ def plt_lineplot_byhue(df, subject, xcol, ycol, hue, ax=-1, color='blue', xlabel
 def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
                         backup='', stats_mode=0, after_laser=0, tstart=0, tend=-1,
                         bootstrap_mode=0, paired_stats=True, ma_thr=0,  ma_rem_exception=True, 
-                        bsl_shading=False,  overlap_mode=False, fig_file='', fontsize=12, nboot=1000):
+                        bsl_shading=False,  overlap_mode=False, fig_file='', fontsize=12, nboot=1000, seed=-1):
     """
     Transition analysis
 
@@ -5790,9 +5789,16 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
     :param fontsize, if specified, set fontsize to given value
     
     :param nboot, number of bootstrap iterations
+    :param seed, if >-1 re-set the random generator using the given seed
 
     :return: dict, transitions id --> 3 x 3 x time bins np.array
     """
+    if seed > -1:
+        rand = np.random.RandomState(seed)
+        print('set seed')
+    else:
+        import numpy.random as rand
+    
     if type(rec_file) == str:
         E = load_recordings(ppath, rec_file)[1]
     else:
@@ -6007,7 +6013,7 @@ def transition_analysis(ppath, rec_file, pre, laser_tend, tdown, large_bin,
             basel = Base[id]
             Mod[si-1, sj-1] = np.nanmean(laser) / np.nanmean(basel)
 
-            if not paired_stats:
+            if paired_stats:
                 d = laser - basel
             else:
                 irand = random.sample(range(laser.shape[0]), laser.shape[0])
