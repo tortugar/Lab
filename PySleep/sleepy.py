@@ -5946,7 +5946,20 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
     :param laser_tend: duration of laser stimulation
     :param tdown: downsample brainstate sequence to $tdown time bins
     :param dur: list/vector with cumulative (=increasing) time intervals for each the cum. probabilities are computed
-    :param bootstrap_mode: 
+    :param bootstrap_mode:         
+           bootstrap_mode == 0: Take inter-mouse variance and inter-trial variance (of each mouse) into account.
+           That is, bootstrapping re-models the variance expected when re-doing the same
+           experimental design (same mouse number and total trial number).
+           To account for potentially different number of trials per mouse, resample the data
+           during each iteration the following way: Assume that there are n laser trials from m mice;
+           randomly select (with replacment) ntrial mice; then select from each mouse randomly one trial.
+
+           bootstrap_mode == 1: Only take inter-trial variance (of each mouse) into account; That is,
+           bootstrapping models the variance expected when redoing the experiment
+           with exactly the same mice.
+           
+           If unsure, use bootstrap_mode = 0
+        
     :param backup: if a recording is not located in $ppath, the function looks for it in folder $backup
     :param pstationary: if True, we assume that the laser induced changes in transition probabilities
             are stationary; i.e. they are constant acorss the laser stimulation interval.
@@ -6054,7 +6067,7 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
         k=0
         for d in dur:
             base_boot[:,:,k] = quantify_transition(MXsel.astype('int'), pre, laser_tend, tdown, False, d, pstationary=pstationary)
-            lsr_boot[:,:,k]  = quantify_transition(MXsel.astype('int'), pre, laser_tend, tdown, True, d, pstationary=pstationary)
+            lsr_boot[:,:,k]  = quantify_transition(MXsel.astype('int'), pre, laser_tend, tdown, True,  d, pstationary=pstationary)
             k+=1
 
         for si in states:
@@ -6118,50 +6131,55 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
     irand = random.sample(range(nboot), nboot)
     for si in states:
         for sj in states:
-            id = states[si] + states[sj]
+            id_trans = states[si] + states[sj]
             # old version
-            #d = cum_base[id].mean(axis=1) - cum_laser[id].mean(axis=1)
+            #d = cum_base[id_trans].mean(axis=1) - cum_laser[id_trans].mean(axis=1)
             #d = d.mean(axis=1)
 
             if stats_lastpoint:
-                # here, we test whether the probability to observe transition id during a time interval of duration
+                # here, we test whether the probability to observe transition id_trans during a time interval of duration
                 # $laster_tend was significantly changed by laser.
-                a = cum_base[id][:,-1]
-                b = cum_laser[id][:,-1]
+                a = cum_base[id_trans][:,-1]
+                b = cum_laser[id_trans][:,-1]
             else:
-                a = np.nanmean(cum_base[id], axis=1)
-                b = np.nanmean(cum_laser[id], axis=1)
+                a = np.nanmean(cum_base[id_trans], axis=1)
+                b = np.nanmean(cum_laser[id_trans], axis=1)
 
             if not paired_stats:
                 d = a[irand] - b
             else:
                 d = a-b
 
-            if np.mean(d) >= 0:
-                # now we want all values be larger than 0
-                p = len(np.where(d>0)[0]) / (1.0*nboot)
-                sig = 1 - p
-                if sig == 0:
-                    sig = 1.0/nboot
+            p = 2 * np.min([len(np.where(d > 0)[0]) / (1.0 * len(d)), len(np.where(d <= 0)[0]) / (1.0 * len(d))])                
+
+            # if np.mean(d) >= 0:
+            #     # now we want all values be larger than 0
+            #     p = len(np.where(d>0)[0]) / (1.0*nboot)
+            #     sig = 1 - p
+            #     if sig == 0:
+            #         sig = 1.0/nboot
+            # else:
+            #     p = len(np.where(d<0)[0]) / (1.0*nboot)
+            #     sig = 1 - p
+            #     if sig == 0:
+            #         sig = 1.0/nboot
+                    
+            if p == 1 or p == 0:
+                p = 1.0 / nboot                
+            P[id_trans] = p
+
+            if p < alpha:
+                S[id_trans] = 'yes'
             else:
-                p = len(np.where(d<0)[0]) / (1.0*nboot)
-                sig = 1 - p
-                if sig == 0:
-                    sig = 1.0/nboot
-            P[id] = sig
+                S[id_trans] = 'no'
 
-            # Division by 2 to make it a two sided test
-            if sig < alpha/2.0:
-                S[id] = 'yes'
-            else:
-                S[id] = 'no'
+            Mod[id_trans] = np.nanmean(b) / np.nanmean(a)
+            print('Transition %s was changed by a factor of %f' % (id_trans, Mod[id_trans]))
 
-            Mod[id] = np.nanmean(b) / np.nanmean(a)
-            print('Transition %s was changed by a factor of %f' % (id, Mod[id]))
-
-            data.append([id, P[id], Mod[id], S[id]])
+            data.append([id_trans, P[id_trans], Mod[id_trans], S[id_trans]])
 
     df = pd.DataFrame(data=data, columns=['trans', 'p-value', 'change', 'sig'])
+    print(df)
 
     return df
 
