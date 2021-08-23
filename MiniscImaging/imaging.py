@@ -13,15 +13,14 @@ import re
 import scipy.io as so
 from roipoly import roipoly
 import shutil
-import pdb
 import sleepy
 import pandas as pd
 import seaborn as sns
 from scipy import linalg as LA
 import scipy.stats as stats
-
 ### DEBUGGER
-#import pdb
+import pdb
+
 
 
 class TIFFStack:
@@ -291,7 +290,6 @@ def save_catraces(ipath, name, n, ROI, bROI, F=0, cf=0) :
 
     so.savemat(os.path.join(ddir, fname), {'ROI': ROI, 'bROI': bROI, 'F' : F, 'cf' : cf})
     return fname
-
 
 
 
@@ -2132,7 +2130,28 @@ def pearson_state_avgcorr(ipath, roi_mapping, bands, ma_thr=10, min_dur=20, pnor
 
 
 def find_capeaks(DFF, prom=0.8, f_cutoff=1.0, isr=20):
+    """
+    
 
+    Parameters
+    ----------
+    DFF : TYPE
+        DESCRIPTION.
+    prom : TYPE, optional
+        DESCRIPTION. The default is 0.8.
+    f_cutoff : TYPE, optional
+        DESCRIPTION. The default is 1.0.
+    isr : TYPE, optional
+        DESCRIPTION. The default is 20.
+
+    Returns
+    -------
+    Peaks : dict
+        dict: ROI --> indices of imaging frames with ca peaks.
+    DFF : TYPE
+        2D np.array with lowpass filtered calcium signals.
+
+    """
     nroi = DFF.shape[1]        
     Peaks = np.zeros(DFF.shape)
     w0 = f_cutoff / (isr*0.5)
@@ -2162,17 +2181,18 @@ def peak_avgs(ipath, roi_mapping,ma_thr=10, ma_rem_exception=True):
     ----------
     ipath : string
         imaging folder.
-    roi_mapping : TYPE
-        DESCRIPTION.
-    ma_thr : TYPE, optional
-        DESCRIPTION. The default is 10.
-    ma_rem_exception : TYPE, optional
-        DESCRIPTION. The default is True.
+    roi_mapping : pd.DataFrame
+        ROI mapping.
+    ma_thr : float, optional
+        MA threshold. The default is 10.
+    ma_rem_exception : float, optional
+        If True, MAs following REM stay as "Wake". The default is True.
 
     Returns
     -------
-    df : TYPE
-        DESCRIPTION.
+    df : pd.DataFrame
+        with columns ['mouse', 'recording', 'ID', 'ROI', 'Type', 'peaks', 'state'].
+        'peaks' measure the average frequency of ca-peaks per second
 
     """
     recordings = list(roi_mapping.columns)
@@ -2216,7 +2236,7 @@ def peak_avgs(ipath, roi_mapping,ma_thr=10, ma_rem_exception=True):
                         M[s] = 3
         
         # get all peaks in DF/F signal
-        nroi = DFF.shape[1]        
+        # nroi = DFF.shape[1]        
         # Peaks = np.zeros(DFF.shape)
         # for i in range(nroi):
         #     dff = DFF[:,i]
@@ -2302,7 +2322,7 @@ def peak_correlation(ipath, roi_mapping, win=10, ma_thr=10, ma_rem_exception=Tru
     roi_spec = {}
     for rec in recordings:
         print(rec)
-        idf = re.split('_', rec)[0]
+        #idf = re.split('_', rec)[0]
         sr = sleepy.get_snr(ipath, rec)
         nbin = int(np.round(sr)*2.5)
         sdt = nbin * (1.0/sr)
@@ -2379,9 +2399,6 @@ def peak_correlation(ipath, roi_mapping, win=10, ma_thr=10, ma_rem_exception=Tru
             time = np.arange(-iwin, iwin+1)*dt
             ifreq = np.where((freq>=fmax[0]) & (freq <= fmax[1]))[0]
 
-        
-
-
         ######################################################################
         # collect all ROIs for each ROI Type
         roi_dict = {typ:[] for typ in types}
@@ -2436,6 +2453,281 @@ def peak_correlation(ipath, roi_mapping, win=10, ma_thr=10, ma_rem_exception=Tru
         roi_spec[typ] = np.array(val)
     
     return roi_spec, time, freq[ifreq]
+
+
+
+def detect_spindles(ppath, name, M=[], pplot=False, std_thr=1.5, sigma=[7,15]):
+    """
+    Detect spindles during NREM (only) using the algorithm described in Niethard et al. 2018.
+    
+
+    Parameters
+    ----------
+    ppath : string
+        Imaging base folder.
+    name : string
+        Name of recording.
+    M : np.array as returned by sleepy.load_stateidx[0], optional
+        Brain state sequence. If M == [], reload brain state sequence in function. The default is [].
+    pplot : bool, optional
+        If True, plot figures labeling detected spindles in raw EEG along with hynogram. The default is False.
+
+    Returns
+    -------
+    spindle : list
+        for each spindle the list contains a list with time point of 
+        [spindle_onset, spindle_center, spindle_offset].
+    t : np.array
+        time vector of raw EEG.
+
+    """
+    
+    
+    from scipy.signal import hilbert
+
+    EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
+    sr = sleepy.get_snr(ppath, name)
+    nbin = 2500
+    
+    # before 10 to 16
+    w0 = sigma[0] / (sr/2)
+    w1 = sigma[1] / (sr/2)
+    
+    EEGbp = sleepy.my_bpfilter(EEG, w0, w1)
+    res = hilbert(EEGbp)
+
+    amplitude_envelope = np.abs(res)
+
+    if len(M) == 0:
+        M = sleepy.load_stateidx(ppath, name)[0]
+    
+    seq = sleepy.get_sequences(np.where(M==3)[0])
+    
+    nrem_idx = []
+    for s in seq:
+        si = s[0]
+        sj = s[-1]
+        
+        nrem_idx += list(range(si*nbin, sj*nbin))
+        
+        
+    std = np.std(amplitude_envelope[nrem_idx])
+    thr = std * std_thr
+    
+    seq = sleepy.get_sequences(np.where(amplitude_envelope > thr)[0])
+    
+    spindle = []
+    spindle_idx = []
+    for s in seq:
+        if 0.5 <= len(s)*(1/sr) <= 3:
+            onset = s[0]
+            ctr = (s[-1] - s[0]) * 0.5 + s[0]
+            offset = s[-1]
+
+            if M[int(onset/nbin)] == 3:
+                spindle.append([onset, ctr, offset])   
+                spindle_idx += list(range(s[0], s[-1]+1))
+            
+    ctr = [int(s[1]) for s in spindle]
+    
+    t = np.arange(0, EEG.shape[0])*(1/sr)
+
+    if pplot:
+        plt.figure()
+        plt.title(name)
+    
+        st = np.arange(0, len(M)) * (nbin*(1/sr))   
+        ax = plt.subplot(211)
+        plt.plot(st, M)
+        
+        ax = plt.subplot(212, sharex=ax)
+        plt.plot(t, EEG)
+        plt.plot(t, EEGbp)
+        plt.plot(t, amplitude_envelope)    
+        plt.plot(t[spindle_idx], amplitude_envelope[spindle_idx], 'r.')
+    
+    return spindle, t
+
+
+
+def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True, 
+                        pzscore=True, pre=3, post=5, xdt=0.1, std_thr=1.5, pplot_spindles=False):
+    """
+    Correlate the onset, center (midpoint) and offset of sleep spindles with activity of single ROIs. 
+    Spindles are detected using the algorithm described in Niethard et al. 2021, J Neurosc.
+
+    Parameters
+    ----------
+    ipath : string
+        DESCRIPTION.
+    roi_mapping : pd.DataFrame
+        ROI mapping.
+    ma_thr : float, optional
+        Microarousal threshold. The default is 10.
+    ma_rem_exception : bool, optional
+        If True, leave wake perids < $ma_thr as wake if they directly follow REM. The default is True.
+    pzscore : bool, optional
+        If True, . The default is True.
+    pre : float, optional
+        Time [in seconds] before (onset, center, offset) of spindle. The default is 3.
+    post : float, optional
+        Time [in seconds] before (onset, center, offset) of spindle. The default is 5.
+    xdt : float, optional
+        Temporal resultion of plotted results. 
+        If xdt == 0, plot a fixed number of imaging frames before (pre / (1/20)) and after spindle (post / (1/20));
+        assuming that the imaging sampling rate is 20 Hz.
+        The default is 0.1.
+        
+    std_thr : fload, optional
+        Parameter for the threshold for spindle detection. The default is 1.5.
+    pplot_spindles : bool, optional
+        If True, plot for each recording in $roi_mapping a plot showing the raw EEG along with labeled spindles. 
+        The default is False.
+
+    Returns
+    -------
+    dfm : pd.DataFrame
+        ... with columns 
+        ['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset' 'time'].
+        'dff_onset' is the spindle triggered DF/F activity relative to the onset of each spindle.
+        'dff_offset' is the activity relative to the offset of each spindle.
+        'dff_center' is the activity relative to the center midpoint of each spindle
+    """
+    IFR = 20
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    
+    # dict: type -> ID -> peak spectrograms
+    data = []
+    for rec in recordings:
+        print(rec)
+        img_time = imaging_timing(ipath, rec)
+        idt = np.diff(img_time).mean()
+        if xdt == 0:
+            idt = 1/IFR
+        ipre = int(pre/idt)
+        ipost = int(post/idt)
+
+
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+                
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        types = rec_map.Type.unique()
+        types.sort()
+
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        spindles, t_eeg = detect_spindles(ipath, rec, M=M, pplot=pplot_spindles, std_thr=std_thr)
+        spindles_ctr    = [int(s[1]) for s in spindles]
+        spindles_onset  = [int(s[0]) for s in spindles]
+        spindles_offset = [int(s[2]) for s in spindles]
+        
+        ######################################################################
+        # collect all ROIs for each ROI Type
+        roi_dict = {typ:[] for typ in types}
+        # go through all ROIs in recording rec
+        for typ in types:
+            dfs = rec_map[rec_map.Type == typ]
+            roi_ids = []
+            for index, row in dfs.iterrows():
+                s=row[rec]
+                ID = row['ID']
+                roi_num = int(re.split('-', s)[1])
+                roi_list = int(re.split('-', s)[0])
+                roi_ids.append((roi_num,ID))                
+            roi_dict[typ] = roi_ids        
+        
+        # dict: typ -> 3D array (rois x frequency x time)
+        for typ in types:
+            for (roi_j,ID) in roi_dict[typ]:
+
+                dff = DFF[:,roi_j]
+                if pzscore:
+                    dff = (dff-dff.mean()) / dff.std()
+                else:
+                    dff *= 100
+
+                for ctr, onset, offset in zip(spindles_ctr, spindles_onset, spindles_offset):
+
+                    if xdt == 0:                    
+                        onset = eeg2img_time([t_eeg[onset]], img_time)[0]
+                        dff_onset = dff[onset-ipre:onset+ipost]
+
+                        ctr = eeg2img_time([t_eeg[ctr]], img_time)[0]                        
+                        dff_ctr =   dff[ctr-ipre:ctr+ipost]
+                        
+                        t_spindle = np.arange(-ipre, ipost) * idt
+
+                        m = len(dff_ctr)
+                        data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, dff_ctr, dff_onset, t_spindle)
+                        
+                    else:                        
+                        # onset
+                        ti = t_eeg[onset]
+                        tj = t_eeg[ctr]
+                        tk = t_eeg[offset]
+                        if ti-ipre > 0 and tk+ipost < img_time[-1]:
+
+                            idx_pre = eeg2img_time([ti-pre, ti], img_time)                        
+                            dff_pre  = time_morph(dff[idx_pre[0] : idx_pre[1]], int(pre/xdt))
+                            
+                            idx_post = eeg2img_time([ti, ti+post], img_time)                        
+                            dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
+                            dff_onset = np.concatenate((dff_pre, dff_post))
+                        
+                            # center of spindle
+                            idx_pre = eeg2img_time([tj-pre, tj], img_time)                        
+                            dff_pre  = time_morph(dff[idx_pre[0] : idx_pre[1]], int(pre/xdt))
+                            
+                            idx_post = eeg2img_time([tj, tj+post], img_time)                        
+                            dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
+                            dff_ctr = np.concatenate((dff_pre, dff_post))
+
+                            # offset of spindle
+                            idx_pre = eeg2img_time([tk-pre, tk], img_time)                        
+                            dff_pre  = time_morph(dff[idx_pre[0] : idx_pre[1]], int(pre/xdt))
+                            
+                            idx_post = eeg2img_time([tk, tk+post], img_time)                        
+                            dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
+                            dff_offset = np.concatenate((dff_pre, dff_post))
+
+
+                            t_spindle = np.arange(-int(pre/xdt), int(post/xdt))*xdt
+                                                    
+                            
+                            m = len(dff_onset)
+                            data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, dff_ctr, dff_onset, dff_offset, t_spindle)
+                                                                        
+    df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time'])        
+    
+    # average across ROIs
+    dfm = df.groupby(['mouse', 'Type', 'ID', 'ROI', 'time']).mean().reset_index()
+    
+    return dfm
 
 
 
@@ -2724,6 +3016,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         DESCRIPTION. The default is [].
     show_avgs : TYPE, bool
         If true, plot for each 'Type' of ROIs the average DF/F activity. The default is True.
+        If show_peaks == True, then plot the avearge frequency of Peaks for each ROI 'Type'
 
     Returns
     -------
@@ -2765,7 +3058,6 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         types.sort()
         print(types)
         
-        # 
         M = sleepy.load_stateidx(ipath, rec)[0]
         
         # load DF/F for recording rec 
@@ -2773,10 +3065,30 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         if not(os.path.isfile(dff_file)):
             calculate_dff(ipath, rec, roi_list)
 
-        DFF = downsample_dff2bs(ipath, rec, roi_list)
-        t = np.arange(0, DFF.shape[0])*sdt
+        #pdb.set_trace()
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+
+        if show_avgs and show_peaks:
+            Peaks = find_capeaks(DFF)[0]
+            DFF2 = np.zeros(DFF.shape)
+            for i in range(DFF.shape[1]):
+                DFF2[Peaks[i],i] = 1
+            Peaks = DFF2        
+            Peaks = downsample_dff2bs(ipath, rec, roi_list, peaks=True, dff_data=Peaks)
+            
+            for i in range(DFF.shape[1]):
+                Peaks[:,i] = sleepy.smooth_data(Peaks[:,i],1)
+        elif not show_avgs and show_peaks:
+            Peaks = find_capeaks(DFF)[0]
+
+            
+        #pdb.set_trace()
+        #DFF = downsample_dff2bs(ipath, rec, roi_list)
+
+        t = np.arange(0, len(M))*sdt
         m = len(t)
-    
+
+        
         roi_dict = {typ:[] for typ in types}
         ######################################################################
         # go through all ROIs in recording rec
@@ -2909,10 +3221,10 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             
             # DF/F signals
             axes_dff = plt.axes([0.1, .05, 0.8, 0.5], sharex=axes_spec)
-            dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
-            if not(os.path.isfile(dff_file)):
-                calculate_dff(ipath, rec, roi_list)
-            DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+            #dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+            #if not(os.path.isfile(dff_file)):
+            #    calculate_dff(ipath, rec, roi_list)
+            #DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
             img_time = imaging_timing(ipath, rec) 
             nframes = DFF.shape[0]
             nroi    = DFF.shape[1]
@@ -2920,14 +3232,13 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             
             if not show_avgs:                
                 # get calcium peaks
-                Peaks = {}
-                for i in range(nroi):
-                    dff = DFF[:,i]
-                    dff = sleepy.my_lpfilter(dff, 0.1)
-                    
-                    prom = np.percentile(dff, 80)
-                    idx = scipy.signal.find_peaks(dff, prominence=prom)[0]
-                    Peaks[i] = idx
+                # Peaks = {}
+                # for i in range(nroi):
+                #     dff = DFF[:,i]
+                #     dff = sleepy.my_lpfilter(dff, 0.1)                    
+                #     prom = np.percentile(dff, 80)
+                #     idx = scipy.signal.find_peaks(dff, prominence=prom)[0]
+                #     Peaks[i] = idx
                 
                 i = 0
                 for typ in types:
@@ -2940,22 +3251,51 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
                         i += 1
     
                 plt.ylim([-dffmax, dffmax*nrois])
-            else:
-                dmax = []
-                for typ in types:
-                    roi_ids = roi_dict[typ]
-                    dmax.append(DFF[:,roi_ids].mean(axis=1).max())
-                dffmax = np.max(np.array(dmax))
-
-                                
-                ntypes = len(types)
-                i = 0
-                for typ in types:
-                    roi_ids = roi_dict[typ]
-                    plt.plot(img_time[0:nframes], DFF[0:nframes,roi_ids].mean(axis=1)+i*dffmax, color=color_dict[typ])
-                    plt.text(100, i*dffmax+dffmax/4, 'avg' + ' ' + typ, fontsize=12, color=color_dict[typ],bbox=dict(facecolor='w', alpha=0.))
-                    i += 1
-                plt.ylim([-dffmax, dffmax*(ntypes)])
+            else: 
+                # plot averages of Calcium traces for each class
+                #if show_peaks:
+                #    DFF2 = np.zeros(DFF.shape)
+                #    for i in range(DFF.shape[1]):
+                #        DFF2[Peaks[i],i] = 1
+                #    DFF = DFF2
+                #pdb.set_trace()
+                
+                if not show_peaks:
+                    dmax = []
+                    for typ in types:
+                        roi_ids = roi_dict[typ]
+                        dmax.append(DFF[:,roi_ids].mean(axis=1).max())
+                    dffmax = np.max(np.array(dmax))
+    
+                    ntypes = len(types)
+                    i = 0
+                    
+                    for typ in types:
+                        roi_ids = roi_dict[typ]
+                        plt.plot(img_time[0:nframes], DFF[0:nframes,roi_ids].mean(axis=1)+i*dffmax, color=color_dict[typ])
+                        plt.text(100, i*dffmax+dffmax/4, 'avg' + ' ' + typ, fontsize=12, color=color_dict[typ],bbox=dict(facecolor='w', alpha=0.))
+                        i += 1
+                    plt.ylim([-dffmax, dffmax*(ntypes)])
+                else:
+                    dmax = []
+                    for typ in types:
+                        roi_ids = roi_dict[typ]
+                        dmax.append(Peaks[:,roi_ids].mean(axis=1).max())
+                    dffmax = np.max(np.array(dmax))
+    
+                    ntypes = len(types)
+                    i = 0
+                    t = np.arange(0, Peaks.shape[0]) * sdt
+                    for typ in types:
+                        roi_ids = roi_dict[typ]
+                        
+                        plt.plot(t, Peaks[:,roi_ids].mean(axis=1)+i*dffmax, color=color_dict[typ])
+                        plt.text(100, i*dffmax+dffmax/4, 'avg' + ' ' + typ, fontsize=12, color=color_dict[typ],bbox=dict(facecolor='w', alpha=0.))
+                        i += 1
+                    plt.ylim([-dffmax, dffmax*(ntypes)])
+                    
+                    
+                    
             plt.title('Time (s)')
 
             # AXES TIME LEGEND
