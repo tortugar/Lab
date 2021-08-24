@@ -339,7 +339,7 @@ def calc_brstates(ipath, name, roi_id, cf=0, bcorr=1) :
     # collect brainstate information
     sdt = 2.5
     M = sleepy.load_stateidx(ipath, name)[0]
-    sp_time = np.arange(0, sdt*M.shape[0], sdt)
+    #sp_time = np.arange(0, sdt*M.shape[0], sdt)
     # assigns to each frame a time point:
     img_time = imaging_timing(ipath, name)
 
@@ -728,7 +728,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
     plt.figure()
     for typ in types:
         mouse_shown = {m:0 for m in mice}
-        plt.subplot('1%d%d' % (len(types), j))
+        plt.subplot(int('1%d%d' % (len(types), j)))
         df = df_class[df_class['Type']==typ][['mouse', 'R', 'N', 'W']]
         #df = pd.melt(df, var_name='state', value_name='dff')  
         
@@ -1227,7 +1227,6 @@ def dff_interrem(ipath, roi_mapping, nstates_rem=10, nstates_irem=20, pspec=True
                 2    2  J361           1-2
                 3    3  J361           1-3
 
-            
     nstates_rem : int, optional
         Number of normalized time bins
     nstates_irem : int, optional
@@ -1387,7 +1386,6 @@ def dff_remrem_sections(ipath, roi_mapping, nsections=5, pzscore=False, ma_thr=1
             roi_num = int(re.split('-', s)[1])
             dff = DFF[:,roi_num]
             if pzscore:
-                print('here')
                 dff = (dff-dff.mean())/dff.std()
             
             # All REM sleep sequences
@@ -1400,7 +1398,6 @@ def dff_remrem_sections(ipath, roi_mapping, nsections=5, pzscore=False, ma_thr=1
                     
                     M_up = upsample_mx( M[irem_idx], nsections )
                     M_up = np.round(M_up)
-                    #pdb.set_trace()
                     dff_up = upsample_mx(dff[irem_idx], nsections)
 
                     single_event_nrem = []
@@ -1434,7 +1431,123 @@ def dff_remrem_sections(ipath, roi_mapping, nsections=5, pzscore=False, ma_thr=1
 
 
 
-def pearson_state_corr(ipath, roi_mapping, band, ma_thr=10, min_dur = 20, pnorm_spec=True, pzscore=True):
+def bout_timecourse(ipath, roi_mapping, states, min_dur={}, nsections=4, ma_thr=10, ma_rem_exception=True, pzscore=True):
+    """
+    Caluculate timecourse of DF/F activity throughout single episodes.
+        
+
+    Parameters
+    ----------
+    ipath : str
+        imaging base folder.
+    roi_mapping : str
+        ROI mapping.
+    states : list
+        List with possible element 'REM', 'Wake', or 'NREM'.
+    min_dur : dict, optional
+        Minimal duration for each state, specified as dictionary of the form {'REM':x, 'Wake':y, 'NREM':z}. The default is {}.
+    nsections : int, optional
+        Number of bins for normalized time. The default is 4.
+    ma_thr : float, optional
+        Microarousal threshold. The default is 10.
+    ma_rem_exception : bool, optional
+        If True, leave wake periods directly following REM as wake, even if they're shorter than $ma_thr. The default is True.
+    pzscore : bool, optional
+        If True, z-score DF/F activity. The default is True.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        with columns ['mouse', 'ID', 'Type', 'section', 'state', 'dff'].
+
+    """
+    
+    if len(min_dur) == 0:
+        min_dur['REM'] = 0
+        min_dur['Wake'] = ma_thr
+        min_dur['NREM'] = 0
+    
+    state_map = {'REM':1, 'Wake':2, 'NREM':3}
+
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
+    
+    data = []
+    for rec in recordings:
+        print(rec)
+        img_time = imaging_timing(ipath, rec)
+
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        if pzscore:
+            for j in range(DFF.shape[1]):
+                DFF[:,j] = (DFF[:,j]-DFF[:,j].mean()) / DFF[:,j].std()
+
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        # flatten out microarousals
+        if ma_thr > 0:
+            seq = sleepy.get_sequences(np.where(M == 2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) < ma_thr:
+                    if (s[0] > 1) and (M[s[0] - 1] != 1):
+                        M[s] = 3
+        
+        teeg = np.arange(0, len(M)*nbin) * (1/sr)
+        for state in states:
+            seq = sleepy.get_sequences(np.where(M==state_map[state])[0])
+            seq = [s for s in seq if len(s)*sdt >= min_dur[state]]
+        
+            for s in seq:
+                si = s[0]*nbin
+                sj = s[-1]*nbin-1
+                
+                ti = teeg[si]
+                tj = teeg[sj]
+                
+                dur = tj - ti
+                dur_section = dur/nsections
+                
+                for i in range(nsections):
+                    a = ti+i*dur_section
+                    b = ti+(i+1)*dur_section
+                    
+                    idx = eeg2img_time([a,b], img_time)
+                    
+                    dff_cut = DFF[idx[0]:idx[-1]+1].mean(axis=0)
+                    
+                    for (index, row) in rec_map.iterrows():
+                        ID = row['ID']
+                        Type = row['Type']
+                        
+                        s=row[rec]
+                        roi_num = int(re.split('-', s)[1])
+                        roi_list = int(re.split('-', s)[0])
+                        
+                        data += [[idf, ID, s, Type, i, state, dff_cut[roi_num]]]
+                                                
+    df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'ROI', 'Type', 'section', 'state', 'dff'])
+    df = df.groupby(['mouse', 'ID', 'Type', 'section', 'state']).mean().reset_index()
+    
+    return df
+
+
+
+def pearson_state_corr(ipath, roi_mapping, band, ma_thr=10, min_dur=20, pnorm_spec=True, pzscore=True):
     """
     calculate brain state dependent pearson correlation for given list of ROIs
 
@@ -1443,7 +1556,8 @@ def pearson_state_corr(ipath, roi_mapping, band, ma_thr=10, min_dur = 20, pnorm_
     ipath : TYPE
         DESCRIPTION.
     roi_mapping : pd.DataFrame
-        ROI mapping
+        ROI mapping: pd.DataFrame with columns:
+        ['mouse', 'ID', 'recording1', 'recording2', ...]
     band : tuple
         Frequency band, specified as [f_low, f_high]
     ma_thr : float, optional
@@ -1460,8 +1574,6 @@ def pearson_state_corr(ipath, roi_mapping, band, ma_thr=10, min_dur = 20, pnorm_
         'p' the p-value of the correlation
         'sig': yes or no, depending on whether the correlation is significant or not
         'state': REM, Wake, or NREM 
-
-
     """
     
     recordings = list(roi_mapping.columns)
@@ -2725,7 +2837,7 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
     df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time'])        
     
     # average across ROIs
-    dfm = df.groupby(['mouse', 'Type', 'ID', 'ROI', 'time']).mean().reset_index()
+    dfm = df.groupby(['mouse', 'Type', 'ID', 'time']).mean().reset_index()
     
     return dfm
 
