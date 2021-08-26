@@ -5243,7 +5243,14 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
                 else:
                     pass
         return SP
-    ##########################################################################
+    
+    # def _interpolate_harmonics(SP, freq, f_max, harmcs, iplt_level):
+    #     df = freq[2]-freq[1]
+    #     for h in np.arange(harmcs, f_max, harmcs):
+    #         i = np.argmin(np.abs(freq - h))
+    #         if np.abs(freq[i] - h) < df and h != 60: 
+    #             SP[i,:] = (SP[i-iplt_level:i,:] + SP[i+1:i+1+iplt_level,:]).mean(axis=0) * 0.5
+    #     return SP
     
     mice = []
     for rec in recordings:
@@ -5487,6 +5494,132 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
 
 
 
+def _detect_troughs(signal, thr):
+    lidx  = np.where(signal[0:-2] > signal[1:-1])[0]
+    ridx  = np.where(signal[1:-1] <= signal[2:])[0]
+    thidx = np.where(signal[1:-1] < thr)[0]
+    sidx = np.intersect1d(lidx, np.intersect1d(ridx, thidx))+1
+    return sidx
+
+
+
+def phasic_rem(ppath, name, min_dur=2.5):
+    """
+    
+
+    Parameters
+    ----------
+    ppath : TYPE
+        DESCRIPTION.
+    name : TYPE
+        DESCRIPTION.
+    min_dur : TYPE, optional
+        DESCRIPTION. The default is 5.
+
+    Returns
+    -------
+    phrem : dict
+        dict: start index of each REM episode in hypnogram --> all sequences of phasic REM episodes;
+        not that phREM sequences are represented as indices in the raw EEG
+
+    """
+    from scipy.signal import hilbert
+
+    M = load_stateidx(ppath, name)[0]
+    EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
+    seq = get_sequences(np.where(M == 1)[0])
+    rem_idx = []
+    for s in seq:
+        rem_idx += list(s)
+    
+    sr = get_snr(ppath, name)
+    nbin = int(np.round(2.5*sr))
+    sdt = nbin*(1/sr)
+    
+    w1 = 5.0  / (sr/2)
+    w2 = 12.0 / (sr/2)
+    
+    filt = np.ones((11,))
+    filt = filt / filt.sum()
+    
+    trdiff_list = []
+    rem_eeg = np.array([])
+    eeg_seq = {}
+    sdiff_seq = {}
+    tridx_seq = {}
+    
+    seq = [s for s in seq if len(s)*sdt>=min_dur]
+    for s in seq:
+        ta = s[0]*nbin
+        tb = s[-1]*(nbin+1)
+        
+        eeg = EEG[ta:tb]
+        
+        eegh = my_bpfilter(eeg, w1, w2)
+
+        res = hilbert(eegh)
+        instantaneous_phase = np.angle(res)
+    
+        # trough indices
+        tridx = _detect_troughs(instantaneous_phase, -3)
+        # differences between troughs
+        trdiff = np.diff(tridx)
+        
+        trdiff_list += list(trdiff)
+       
+        rem_eeg = np.concatenate((rem_eeg, eegh)) 
+       
+        # smoothed trough differences
+        sdiff_seq[s[0]] = np.convolve(trdiff, filt, 'same')
+        # dict of trough differences for each REM period
+        tridx_seq[s[0]] = tridx
+        
+        eeg_seq[s[0]] = eegh
+       
+    trdiff = np.array(trdiff_list)
+
+    trdiff_sm = np.convolve(trdiff, filt, 'same')
+
+    # potential candidates for phasic REM:
+    # the smoothed difference between troughs is less than
+    # the 10th percentile:
+    thr1 = np.percentile(trdiff_sm, 10)
+    # the minimum difference in the candidate phREM is less than
+    # the 5th percentile
+    thr2 = np.percentile(trdiff_sm, 5)
+    # the peak amplitude is larger than the mean of the amplitude
+    # of the REM EEG.
+    thr3 = np.abs(rem_eeg).mean()
+
+    phrem = {}
+    for si in tridx_seq:
+        offset = nbin*si
+        
+        tridx = tridx_seq[si]
+        sdiff = sdiff_seq[si]
+        eegh = eeg_seq[si]
+        
+        idx = np.where(sdiff < thr1)[0]
+        cand = get_sequences(idx)
+        
+        for q in cand:
+            dur = ( (tridx[q[-1]]-tridx[q[0]]+1)/sr ) * 1000
+            
+            if dur > 900 and min(sdiff[q]) < thr2 and max(np.abs(eegh[q[0]:q[-1]+1])) > thr3:
+                a = tridx[q[0]]   + offset
+                b = tridx[q[-1]]  + offset
+                idx = range(a,b+1)
+    
+                if si in phrem:
+                    phrem[si].append(idx)
+                else:
+                    phrem[si] = [idx]
+        
+    return phrem
+                    
+        
+
+# PLOTTING FUNCTIONALITY #####################################################
 def plt_lineplot(df, subject, xcol, ycol, ax=-1, color='blue', xlabel='', ylabel='', lw=1):
     subjects = list(df[subject].unique())
 
@@ -5507,8 +5640,15 @@ def plt_lineplot(df, subject, xcol, ycol, ax=-1, color='blue', xlabel='', ylabel
     s = np.nanstd(data, axis=0)/np.sqrt(len(subjects))
     ax.plot(x, m, color=color, lw=lw)
     ax.fill_between(x, m+s, m-s, color=color, alpha=0.2)
-    plt.ylabel(ylabel)
-    plt.xlabel(xlabel)
+    if len(ylabel) > 0:
+        plt.ylabel(ylabel)
+    else:
+        plt.ylabel(str(ycol))
+    if len(xlabel) > 0:
+        plt.xlabel(xlabel)
+    else:
+        plt.xlabel(str(xcol))
+
 
 
 
@@ -5944,7 +6084,7 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
     :param rec_file: file OR list of recordings
     :param pre: time before laser onset [s]
     :param laser_tend: duration of laser stimulation
-    :param tdown: downsample brainstate sequence to $tdown time bins
+    :param tdown: downsample brainstate sequence to $tdown time bins; same as parameter tdown in sleepy.transition_analysis()
     :param dur: list/vector with cumulative (=increasing) time intervals for each the cum. probabilities are computed
     :param bootstrap_mode:         
            bootstrap_mode == 0: Take inter-mouse variance and inter-trial variance (of each mouse) into account.
@@ -6415,7 +6555,6 @@ def downsample_states(M, nbin, ptie_break=True):
             Mds[i] = ii+1
     
     return Mds
-
 ### END Transition Analysis ####################################
 
 
