@@ -5503,9 +5503,10 @@ def _detect_troughs(signal, thr):
 
 
 
-def phasic_rem(ppath, name, min_dur=2.5):
+def phasic_rem(ppath, name, min_dur=2.5, pplot=False):
     """
-    
+    Detect phasic REM episodes using the algorithm described in 
+    Daniel Gomes de Almeida‐Filho et al. 2021
 
     Parameters
     ----------
@@ -5514,7 +5515,7 @@ def phasic_rem(ppath, name, min_dur=2.5):
     name : TYPE
         DESCRIPTION.
     min_dur : TYPE, optional
-        DESCRIPTION. The default is 5.
+        DESCRIPTION. The default is 2.5.
 
     Returns
     -------
@@ -5576,8 +5577,8 @@ def phasic_rem(ppath, name, min_dur=2.5):
         
         eeg_seq[s[0]] = eegh
        
+    
     trdiff = np.array(trdiff_list)
-
     trdiff_sm = np.convolve(trdiff, filt, 'same')
 
     # potential candidates for phasic REM:
@@ -5614,7 +5615,53 @@ def phasic_rem(ppath, name, min_dur=2.5):
                     phrem[si].append(idx)
                 else:
                     phrem[si] = [idx]
+    
+    
+    # make plot:
+    if pplot:
+        plt.figure()
+
+        tbs = np.arange(0, len(M))*sdt + sdt
         
+        # plot spectrogram
+        ax = plt.subplot(312)
+        tmp = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
+        SP = tmp['SP']
+        freq = tmp['freq']
+        ifreq = np.where(freq <= 20)[0]
+        ax.pcolorfast(tbs, freq[ifreq], SP[ifreq,:], vmin=0, vmax=5000, cmap='jet')
+        
+
+        
+        # plot hypnogram
+        axes_brs = plt.subplot(311, sharex=ax)
+        cmap = plt.cm.jet
+        my_map = cmap.from_list('brs', [[0, 0, 0], [0, 1, 1], [0.6, 0, 1], [0.8, 0.8, 0.8]], 4)
+    
+        tmp = axes_brs.pcolorfast(tbs, [0, 1], np.array([M]), vmin=0, vmax=3)
+        tmp.set_cmap(my_map)
+        axes_brs.axis('tight')
+        _despine_axes(axes_brs)
+        plt.xlim([tbs[0], tbs[-1]])
+
+    
+        # plot EEG along with phasic REM events
+        plt.subplot(313, sharex=axes_brs)
+        teeg = np.arange(0, len(EEG)) * (1/sr)
+        plt.plot(teeg, EEG, 'k')
+        plt.xlim([0, teeg[-1]])
+        
+        for si in phrem:
+            ta =  si*nbin
+            
+            idx_list = phrem[si]
+            
+            for idx in idx_list:
+                a = idx[0]
+                b = idx[-1]
+                plt.plot(teeg[range(a,b+1)], EEG[a:b+1], 'r')
+    
+    
     return phrem
                     
         
