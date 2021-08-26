@@ -40,7 +40,7 @@ class Mouse :
 
 
 
-### FILE PROCESSING OF RECORDING DATA #################################################
+### PROCESSING OF RECORDING DATA ##############################################
 def load_stateidx(ppath, name, ann_name=''):
     """ load the sleep state file of recording (folder) $ppath/$name
     @Return:
@@ -1590,8 +1590,14 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
                  mode == 2, only calculate duration of wake in inter REM periods
                  mode == 3, only calculate duration of NREM in inter REM periods
     :param single_mode: consider each single recording, instead of mice
+    :param overlap: percentage (number between 0 and 100). Defines the percentage
+            how much a true (offline annotated) REM period should overlap with laser
+            to be considered as REM sleep with laser.
+            Of note, REM periods w/o laser have to have 0 overlap with laser.
+            All remaining REM periods are discarded.
     :param pplot: if True, plot figure; errorbars show 95% confidence intervals,
            calculated using bootstrapping
+    :param ma:
 
     :return: df, if single_mode == True $df is a pandas DataFrame:
              REM    iREM   laser
@@ -1605,6 +1611,9 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
     """
     if type(recordings) != list:
         recordings = [recordings]
+
+    if overlap > 0:
+        overlap = overlap / 100
 
     paths = dict()
     for rec in recordings:
@@ -1655,10 +1664,10 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
         # "ground truth"
         seq = get_sequences(np.where(M==1)[0])
         for (p,q) in zip(seq[0:-1], seq[1:]):
-            # check true REM sequences overlapping with online detected sequences
+            # check if true REM sequences do overlap with online detected sequences
+            # and only continue working with those:
             if len(np.intersect1d(p, rem_idx)) > 0:
                 drn = (p[-1]-p[0]+1)*dt
-                #it_drn = (q[0]-p[-1])*dt
 
                 it_M = M[p[-1]+1:q[0]]
                 if mode == 0:
@@ -1668,18 +1677,18 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
                 else:
                     it_drn = len(np.where(it_M == 3)[0]) * dt
 
-                #it_idx = range(p[-1]+1, q[0])
-                #it_drn = len(np.where(M[it_idx] == 3)[0])*dt
-                # does the sequence overlap with laser?
-                if len(np.intersect1d(p, laser_idx))>overlap:
+                # does the true REM sequence overlap with laser?
+                # by setting overlap to a value > 0, you can
+                # set a percentage how much the REM period should overlap with laser
+                # NEW 08/26/21
+                if len(np.intersect1d(p, laser_idx)) / len(p) > overlap:
                     remdur_exp[idf].append(drn)
                     itdur_exp[idf].append(it_drn)
-                elif len(np.intersect1d(p, laser_idx))<=overlap:
+                elif len(np.intersect1d(p, laser_idx)) == 0:
                     remdur_ctr[idf].append(drn)
                     itdur_ctr[idf].append(it_drn)
                 else:
                     pass
-
 
     # if single_mode put all REM periods together,
     # otherwise average across REM periods for each mouse
