@@ -5512,10 +5512,12 @@ def _detect_troughs(signal, thr):
 
 
 
-def phasic_rem(ppath, name, min_dur=2.5, pplot=False):
+def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
     """
     Detect phasic REM episodes using the algorithm described in 
-    Daniel Gomes de Almeida‐Filho et al. 2021
+    Daniel Gomes de Almeida‐Filho et al. 2021, which comes from
+    https://www.nature.com/articles/nn.2894 Mizuseki et al. 2011
+    
 
     Parameters
     ----------
@@ -5525,6 +5527,8 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False):
         DESCRIPTION.
     min_dur : TYPE, optional
         DESCRIPTION. The default is 2.5.
+    plaser : bool, optional
+        if True, only use REM states w/o laser to set thresholds for the algorithm
 
     Returns
     -------
@@ -5545,6 +5549,17 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False):
     sr = get_snr(ppath, name)
     nbin = int(np.round(2.5*sr))
     sdt = nbin*(1/sr)
+
+    laser_idx_bs = []    
+    if plaser:
+        # get laser indices as list
+        lsr = load_laser(ppath, name)
+        idxs, idxe = laser_start_end(lsr)
+        
+        idxs = [int(i/nbin) for i in idxs]
+        idxe = [int(i/nbin) for i in idxe]
+        for (si,sj) in zip(idxs, idxe):
+            laser_idx_bs += list(range(si,sj+1))
     
     w1 = 5.0  / (sr/2)
     w2 = 12.0 / (sr/2)
@@ -5562,30 +5577,56 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False):
     for s in seq:
         ta = s[0]*nbin
         tb = s[-1]*(nbin+1)
-        
-        eeg = EEG[ta:tb]
-        
+                
+        eeg_idx = np.arange(ta, tb)        
+        eeg = EEG[eeg_idx]        
         eegh = my_bpfilter(eeg, w1, w2)
-
         res = hilbert(eegh)
         instantaneous_phase = np.angle(res)
+        amp = np.abs(res)
     
         # trough indices
         tridx = _detect_troughs(instantaneous_phase, -3)
+
         # differences between troughs
         trdiff = np.diff(tridx)
-        
-        trdiff_list += list(trdiff)
-       
-        rem_eeg = np.concatenate((rem_eeg, eegh)) 
        
         # smoothed trough differences
         sdiff_seq[s[0]] = np.convolve(trdiff, filt, 'same')
+
         # dict of trough differences for each REM period
         tridx_seq[s[0]] = tridx
         
-        eeg_seq[s[0]] = eegh
+        eeg_seq[s[0]] = amp
+    
+    
+    rem_idx = []    
+    for s in seq:
+        rem_idx += list(s)
+    
+    if plaser:    
+        rem_idx = np.setdiff1d(rem_idx, laser_idx_bs)
+        seq = get_sequences(rem_idx)    
+
+    for s in seq:
+        ta = s[0]*nbin
+        tb = s[-1]*(nbin+1)
+        
+        eeg_idx = np.arange(ta, tb)
+        eeg = EEG[eeg_idx]            
+        eegh = my_bpfilter(eeg, w1, w2)
+        res = hilbert(eegh)
+        instantaneous_phase = np.angle(res)
+        amp = np.abs(res)
+    
+        # trough indices
+        tridx = _detect_troughs(instantaneous_phase, -3)
+
+        # differences between troughs
+        trdiff = np.diff(tridx)
+        trdiff_list += list(trdiff)
        
+        rem_eeg = np.concatenate((rem_eeg, amp)) 
     
     trdiff = np.array(trdiff_list)
     trdiff_sm = np.convolve(trdiff, filt, 'same')
@@ -5615,7 +5656,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False):
         for q in cand:
             dur = ( (tridx[q[-1]]-tridx[q[0]]+1)/sr ) * 1000
             
-            if dur > 900 and min(sdiff[q]) < thr2 and max(np.abs(eegh[q[0]:q[-1]+1])) > thr3:
+            if dur > 900 and min(sdiff[q]) < thr2 and np.mean(eegh[q[0]:q[-1]+1]) > thr3:
                 a = tridx[q[0]]   + offset
                 b = tridx[q[-1]]  + offset
                 idx = range(a,b+1)
