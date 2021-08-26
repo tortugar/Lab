@@ -5541,6 +5541,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
 
     M = load_stateidx(ppath, name)[0]
     EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
+    neeg = EEG.shape[0]
     seq = get_sequences(np.where(M == 1)[0])
     rem_idx = []
     for s in seq:
@@ -5577,9 +5578,13 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
     for s in seq:
         ta = s[0]*nbin
         tb = s[-1]*(nbin+1)
+        tb = np.min((tb, neeg))
                 
         eeg_idx = np.arange(ta, tb)        
-        eeg = EEG[eeg_idx]        
+        eeg = EEG[eeg_idx]    
+        if len(eeg)*(1/sr) <= min_dur:
+            continue
+
         eegh = my_bpfilter(eeg, w1, w2)
         res = hilbert(eegh)
         instantaneous_phase = np.angle(res)
@@ -5587,6 +5592,8 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
     
         # trough indices
         tridx = _detect_troughs(instantaneous_phase, -3)
+        #tridx = np.where(np.diff(np.sign(np.diff(amp))))[0]+2
+
 
         # differences between troughs
         trdiff = np.diff(tridx)
@@ -5607,13 +5614,19 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
     if plaser:    
         rem_idx = np.setdiff1d(rem_idx, laser_idx_bs)
         seq = get_sequences(rem_idx)    
+        seq = [s for s in seq if len(s)*sdt>=min_dur]
 
     for s in seq:
         ta = s[0]*nbin
         tb = s[-1]*(nbin+1)
-        
+        tb = np.min((tb, neeg))
+
         eeg_idx = np.arange(ta, tb)
         eeg = EEG[eeg_idx]            
+        if len(eeg)*(1/sr) <= min_dur:
+            continue
+        
+        
         eegh = my_bpfilter(eeg, w1, w2)
         res = hilbert(eegh)
         instantaneous_phase = np.angle(res)
@@ -5621,6 +5634,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
     
         # trough indices
         tridx = _detect_troughs(instantaneous_phase, -3)
+        #tridx = np.where(np.diff(np.sign(np.diff(amp))))[0]+1
 
         # differences between troughs
         trdiff = np.diff(tridx)
