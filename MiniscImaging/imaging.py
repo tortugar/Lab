@@ -1459,9 +1459,7 @@ def bout_timecourse(ipath, roi_mapping, states, min_dur={}, nsections=4, ma_thr=
     -------
     df : pd.DataFrame
         with columns ['mouse', 'ID', 'Type', 'section', 'state', 'dff'].
-
     """
-    
     if len(min_dur) == 0:
         min_dur['REM'] = 0
         min_dur['Wake'] = ma_thr
@@ -2833,6 +2831,164 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
                             
                             m = len(dff_onset)
                             data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, dff_ctr, dff_onset, dff_offset, t_spindle)
+                                                                        
+    df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time'])        
+    
+    # average across ROIs
+    dfm = df.groupby(['mouse', 'Type', 'ID', 'time']).mean().reset_index()
+    
+    return dfm
+
+
+
+def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore=True, ma_rem_exception=False):
+
+    IFR = 20
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    
+    # dict: type -> ID -> peak spectrograms
+    data = []
+    for rec in recordings:
+        print(rec)
+        img_time = imaging_timing(ipath, rec)
+        idt = np.diff(img_time).mean()
+        if xdt == 0:
+            idt = 1/IFR
+        ipre = int(pre/idt)
+        ipost = int(post/idt)
+
+
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+                
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        types = rec_map.Type.unique()
+        types.sort()
+
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        #spindles, t_eeg = detect_spindles(ipath, rec, M=M, pplot=pplot_spindles, std_thr=std_thr)
+        #spindles_ctr    = [int(s[1]) for s in spindles]
+        #spindles_onset  = [int(s[0]) for s in spindles]
+        #spindles_offset = [int(s[2]) for s in spindles]
+        
+        phrem = sleepy.phasic_rem(ipath, rec)
+        phrem_list = []
+        for p in phrem:
+            ph_list = phrem[p]
+            
+            for ph in ph_list:
+                onset = ph[0]*(1/sr)
+                offset = ph[-1]*(1/sr)
+                ctr = onset + (offset-onset)/2
+                phrem_list.append([onset, ctr, offset])
+        
+        phrem_ctr = [p[1] for p in phrem_list]
+        phrem_onset = [p[0] for p in phrem_list]
+        phrem_offset = [p[-1] for p in phrem_list]
+        
+    
+        ######################################################################
+        # collect all ROIs for each ROI Type
+        roi_dict = {typ:[] for typ in types}
+        # go through all ROIs in recording rec
+        for typ in types:
+            dfs = rec_map[rec_map.Type == typ]
+            roi_ids = []
+            for index, row in dfs.iterrows():
+                s=row[rec]
+                ID = row['ID']
+                roi_num = int(re.split('-', s)[1])
+                roi_list = int(re.split('-', s)[0])
+                roi_ids.append((roi_num,ID))                
+            roi_dict[typ] = roi_ids        
+        
+        # dict: typ -> 3D array (rois x frequency x time)
+        for typ in types:
+            for (roi_j,ID) in roi_dict[typ]:
+
+                dff = DFF[:,roi_j]
+                if pzscore:
+                    dff = (dff-dff.mean()) / dff.std()
+                else:
+                    dff *= 100
+
+                for t_ctr, t_onset, t_offset in zip(phrem_ctr, phrem_onset, phrem_offset):
+
+                    if xdt == 0:                    
+                        onset = eeg2img_time([t_onset], img_time)[0]
+                        dff_onset = dff[onset-ipre:onset+ipost]
+
+                        ctr = eeg2img_time([t_ctr], img_time)[0]                        
+                        dff_ctr =   dff[ctr-ipre:ctr+ipost]
+                        
+                        t_phrem = np.arange(-ipre, ipost) * idt
+
+                        m = len(dff_ctr)
+                        data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, dff_ctr, dff_onset, t_phrem)
+                        
+                    else:                        
+                        # onset
+                        ti = t_onset
+                        tj = t_ctr
+                        tk = t_offset
+                        if ti-ipre > 0 and tk+ipost < img_time[-1]:
+
+                            idx_pre = eeg2img_time([ti-pre, ti], img_time)                        
+                            dff_pre  = time_morph(dff[idx_pre[0] : idx_pre[1]], int(pre/xdt))
+                            
+                            idx_post = eeg2img_time([ti, ti+post], img_time)                        
+                            dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
+                            dff_onset = np.concatenate((dff_pre, dff_post))
+                            dff_onset -= dff_onset.mean()
+                        
+                            # center of spindle
+                            idx_pre = eeg2img_time([tj-pre, tj], img_time)                        
+                            dff_pre  = time_morph(dff[idx_pre[0] : idx_pre[1]], int(pre/xdt))
+                            
+                            idx_post = eeg2img_time([tj, tj+post], img_time)                        
+                            dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
+                            dff_ctr = np.concatenate((dff_pre, dff_post))
+
+                            # offset of spindle
+                            idx_pre = eeg2img_time([tk-pre, tk], img_time)                        
+                            dff_pre  = time_morph(dff[idx_pre[0] : idx_pre[1]], int(pre/xdt))
+                            
+                            idx_post = eeg2img_time([tk, tk+post], img_time)                        
+                            dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
+                            dff_offset = np.concatenate((dff_pre, dff_post))
+                            
+
+
+                            t_phrem = np.arange(-int(pre/xdt), int(post/xdt))*xdt
+                                                    
+                            
+                            m = len(dff_onset)
+                            data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, dff_ctr, dff_onset, dff_offset, t_phrem)
                                                                         
     df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time'])        
     
