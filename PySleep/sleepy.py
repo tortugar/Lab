@@ -5512,7 +5512,7 @@ def _detect_troughs(signal, thr):
 
 
 
-def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
+def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
     """
     Detect phasic REM episodes using the algorithm described in 
     Daniel Gomes de Almeida‐Filho et al. 2021, which comes from
@@ -5565,15 +5565,18 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
     w1 = 5.0  / (sr/2)
     w2 = 12.0 / (sr/2)
     
-    filt = np.ones((11,))
+    filt = np.ones((nfilt,))
     filt = filt / filt.sum()
     
     trdiff_list = []
+    tridx_list = []
     rem_eeg = np.array([])
     eeg_seq = {}
     sdiff_seq = {}
     tridx_seq = {}
     
+    # Collect for each REM sequence the smoothed inter-trough intervals
+    # and EEG amplitudes as well as the indices of the troughs.
     seq = [s for s in seq if len(s)*sdt>=min_dur]
     for s in seq:
         ta = s[0]*nbin
@@ -5592,9 +5595,9 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
     
         # trough indices
         tridx = _detect_troughs(instantaneous_phase, -3)
-        #tridx = np.where(np.diff(np.sign(np.diff(amp))))[0]+2
-
-
+        # Alternative that does not seems to work that well:        
+        #tridx = np.where(np.diff(np.sign(np.diff(eegh))))[0]+1
+        
         # differences between troughs
         trdiff = np.diff(tridx)
        
@@ -5606,7 +5609,6 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
         
         eeg_seq[s[0]] = amp
     
-    
     rem_idx = []    
     for s in seq:
         rem_idx += list(s)
@@ -5616,6 +5618,8 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
         seq = get_sequences(rem_idx)    
         seq = [s for s in seq if len(s)*sdt>=min_dur]
 
+    # collect again smoothed inter-trough differences and amplitude;
+    # but this time concat the data to one long vector each (@trdiff_sm and rem_eeg)
     for s in seq:
         ta = s[0]*nbin
         tb = s[-1]*(nbin+1)
@@ -5626,7 +5630,6 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
         if len(eeg)*(1/sr) <= min_dur:
             continue
         
-        
         eegh = my_bpfilter(eeg, w1, w2)
         res = hilbert(eegh)
         instantaneous_phase = np.angle(res)
@@ -5634,9 +5637,11 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
     
         # trough indices
         tridx = _detect_troughs(instantaneous_phase, -3)
-        #tridx = np.where(np.diff(np.sign(np.diff(amp))))[0]+1
+        # alternative version:
+        #tridx = np.where(np.diff(np.sign(np.diff(eegh))))[0]+1
 
         # differences between troughs
+        tridx_list.append(tridx+ta)
         trdiff = np.diff(tridx)
         trdiff_list += list(trdiff)
        
@@ -5654,7 +5659,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
     thr2 = np.percentile(trdiff_sm, 5)
     # the peak amplitude is larger than the mean of the amplitude
     # of the REM EEG.
-    thr3 = np.abs(rem_eeg).mean()
+    thr3 = rem_eeg.mean()
 
     phrem = {}
     for si in tridx_seq:
@@ -5664,13 +5669,17 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
         sdiff = sdiff_seq[si]
         eegh = eeg_seq[si]
         
-        idx = np.where(sdiff < thr1)[0]
+        idx = np.where(sdiff <= thr1)[0]
         cand = get_sequences(idx)
-        
+    
+        #thr4 = np.mean(eegh)    
         for q in cand:
             dur = ( (tridx[q[-1]]-tridx[q[0]]+1)/sr ) * 1000
-            
-            if dur > 900 and min(sdiff[q]) < thr2 and np.mean(eegh[q[0]:q[-1]+1]) > thr3:
+            #if 16250 > si*nbin * (1/sr) > 16100:
+            #    print((tridx[q[0]]+si*nbin) * (1/sr))
+
+            if dur > 900 and np.min(sdiff[q]) < thr2 and np.mean(eegh[tridx[q[0]]:tridx[q[-1]]+1]) > thr3:
+                
                 a = tridx[q[0]]   + offset
                 b = tridx[q[-1]]  + offset
                 idx = range(a,b+1)
@@ -5680,25 +5689,38 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
                 else:
                     phrem[si] = [idx]
     
-    
     # make plot:
     if pplot:
-        plt.figure()
-
-        tbs = np.arange(0, len(M))*sdt + sdt
+        nsr_seg = 1 # before 1
+        # overlap of consecutive FFT windows
+        perc_overlap = 0.8
         
-        # plot spectrogram
-        ax = plt.subplot(312)
-        tmp = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
-        SP = tmp['SP']
+        file_sp  = os.path.join(ppath, name, 'sp_fine_%s.mat' % name)
+
+        if (not os.path.isfile(file_sp)):
+            freq, t, SP = scipy.signal.spectrogram(EEG, fs=sr, window='hanning', nperseg=int(nsr_seg * sr),
+                                                   noverlap=int(nsr_seg * sr * perc_overlap))
+            # for nsr_seg=1 and perc_overlap = 0.9,
+            # t = [0.5, 0.6, 0.7 ...]
+            dt = t[1]-t[0]
+            # Note: sp_name.mat includes keys: SP, SP2, freq, dt, t
+            so.savemat(file_sp, {'SP':SP, 'SP2':[], 'dt':dt, 'freq':freq, 't':t})
+    
+        tmp  = so.loadmat(file_sp, squeeze_me=True)
+        SP   = tmp['SP']
         freq = tmp['freq']
+        tbs    = tmp['t']
+        dt   = tmp['dt']
+        
+        plt.figure()
+        # plot spectrogram
+        ax = plt.subplot(512)
         ifreq = np.where(freq <= 20)[0]
         ax.pcolorfast(tbs, freq[ifreq], SP[ifreq,:], vmin=0, vmax=5000, cmap='jet')
-        
-
+        plt.ylabel('Freq. (Hz)')
         
         # plot hypnogram
-        axes_brs = plt.subplot(311, sharex=ax)
+        axes_brs = plt.subplot(511, sharex=ax)
         cmap = plt.cm.jet
         my_map = cmap.from_list('brs', [[0, 0, 0], [0, 1, 1], [0.6, 0, 1], [0.8, 0.8, 0.8]], 4)
     
@@ -5709,23 +5731,74 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False):
         plt.xlim([tbs[0], tbs[-1]])
 
     
-        # plot EEG along with phasic REM events
-        plt.subplot(313, sharex=axes_brs)
+        # plot gamma power
+        plt.subplot(513, sharex=ax)
+        gamma = [50, 90]
+        df = freq[1] - freq[0]
+        igamma = np.where((freq >= gamma[0]) & (freq <= gamma[1]))[0]
+        pow_gamma = SP[igamma,:].sum(axis=0) * df
+        plt.plot(tbs, pow_gamma)
+        plt.xlim([tbs[0], tbs[-1]])
+        plt.ylabel(r'$\gamma$')
+
+        # plot theta/delta
+        #plt.subplot(514, sharex=ax)
+        # theta = [6, 12]
+        # delta = [0.5, 4.5]
+        # itheta = np.where((freq >= theta[0]) & (freq <= theta[1]))[0]
+        # idelta = np.where((freq >= delta[0]) & (freq <= delta[1]))[0]
+        # pow_theta = SP[itheta,:].sum(axis=0) * df
+        # pow_delta = SP[idelta,:].sum(axis=0) * df        
+        # plt.plot(tbs, np.divide(pow_theta, pow_delta))
+        # plt.xlim([tbs[0], tbs[-1]])
+        
+        # plot raw EEG; downsample for faster plotting
+        plt.subplot(515, sharex=axes_brs)
+        EEGdn = downsample_vec(EEG, 4)
         teeg = np.arange(0, len(EEG)) * (1/sr)
-        plt.plot(teeg, EEG, 'k')
+        teeg_dn = np.arange(0, len(EEGdn)) * ((1/sr)*4)
+
+        for tr in tridx_list:            
+            idx = range(tr[0], tr[-1]+1)
+            idx_dn = [int(i/4) for i in idx]
+            
+            eeg = EEGdn[idx_dn]                        
+            plt.plot(teeg_dn[idx_dn], eeg, 'k')        
         plt.xlim([0, teeg[-1]])
         
         for si in phrem:
             ta =  si*nbin
             
             idx_list = phrem[si]
-            
+            eegh = eeg_seq[si]
+            sdiff = sdiff_seq[si]
+
+            # plot amplitude
+            plt.plot(teeg[ta:ta+len(eegh)], eegh, 'g')
+            # plot threshold for amplitude
+            plt.plot([teeg[ta], teeg[ta+len(eegh)-1]], [thr3, thr3], 'r--')
+
             for idx in idx_list:
                 a = idx[0]
                 b = idx[-1]
-                plt.plot(teeg[range(a,b+1)], EEG[a:b+1], 'r')
-    
-    
+                a = int(a/4)
+                b = int(b/4)
+                
+                plt.plot(teeg_dn[range(a,b+1)], EEGdn[a:b+1], 'r')
+        plt.ylabel('EEG')
+                
+        # plot smoothed inter-through intervals
+        plt.subplot(514, sharex=ax)
+        for si in phrem:
+            ta = si*nbin
+
+            tridx = tridx_seq[si] + ta                        
+            sdiff = sdiff_seq[si]
+            plt.plot(teeg[tridx[:-1]], sdiff, 'k')
+            plt.plot(teeg[[tridx[0], tridx[-1]]], [thr2, thr2], 'r')
+            plt.plot(teeg[[tridx[0], tridx[-1]]], [thr1, thr1], 'b')
+        plt.ylabel('ITIs')
+        
     return phrem
                     
         
