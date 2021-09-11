@@ -2841,7 +2841,7 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
 
 
 
-def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore=True, ma_rem_exception=False):
+def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore=True, ma_rem_exception=False, local_mean=False, roi_avg=True):
 
     IFR = 20
     recordings = list(roi_mapping.columns)
@@ -2849,6 +2849,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
     
     # dict: type -> ID -> peak spectrograms
     data = []
+    phrem_ID = 0
     for rec in recordings:
         print(rec)
         img_time = imaging_timing(ipath, rec)
@@ -2964,7 +2965,8 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
                             idx_post = eeg2img_time([ti, ti+post], img_time)                        
                             dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
                             dff_onset = np.concatenate((dff_pre, dff_post))
-                            dff_onset -= dff_onset.mean()
+                            if local_mean: 
+                                dff_onset -= dff_onset.mean()
                         
                             # center of spindle
                             idx_pre = eeg2img_time([tj-pre, tj], img_time)                        
@@ -2973,6 +2975,9 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
                             idx_post = eeg2img_time([tj, tj+post], img_time)                        
                             dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
                             dff_ctr = np.concatenate((dff_pre, dff_post))
+                            if local_mean: 
+                                dff_ctr -= dff_ctr.mean()
+
 
                             # offset of spindle
                             idx_pre = eeg2img_time([tk-pre, tk], img_time)                        
@@ -2981,21 +2986,23 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
                             idx_post = eeg2img_time([tk, tk+post], img_time)                        
                             dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
                             dff_offset = np.concatenate((dff_pre, dff_post))
+                            if local_mean: 
+                                dff_offset -= dff_offset.mean()
                             
 
-
-                            t_phrem = np.arange(-int(pre/xdt), int(post/xdt))*xdt
-                                                    
-                            
+                            t_phrem = np.arange(-int(pre/xdt), int(post/xdt))*xdt                                                                                
                             m = len(dff_onset)
-                            data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, dff_ctr, dff_onset, dff_offset, t_phrem)
+                            data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, 
+                                        dff_ctr, dff_onset, dff_offset, t_phrem, [phrem_ID]*m)
+                            phrem_ID += 1
                                                                         
-    df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time'])        
+    df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time', 'phrem_ID'])        
     
     # average across ROIs
-    dfm = df.groupby(['mouse', 'Type', 'ID', 'time']).mean().reset_index()
+    if roi_avg:
+        df = df.groupby(['mouse', 'Type', 'ID', 'time']).mean().reset_index()
     
-    return dfm
+    return df
 
 
 
