@@ -886,6 +886,8 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
              only only average 'dff' for transition 'trans' exists.
 
     """
+    ishift = 1
+    
     rois = list(roi_mapping['ID'])
     states = {1:'R', 2:'W', 3:'N'}
 
@@ -984,12 +986,12 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
 
                         # search for the index in img_time that's closest to the timepoint of transition
                         # according to brain state time:
-                        jstart_dff   = eeg2img_time([(s[-1]+1)*sdt], img_time)[0]
+                        jstart_dff   = eeg2img_time([(s[-1]+ishift)*sdt], img_time)[0]
 
                         if ipre <= jstart_dff < len(dff)-ipost and len(s)*sdt >= si_threshold[si-1] and len(sj_idx)*sdt >= sj_threshold[sj-1]:
                             # get start and end time points for transition sequence:
-                            istart_dff = eeg2img_time([(s[-1]+1)*sdt - pre],  img_time)[0]
-                            jend_dff   = eeg2img_time([(s[-1]+1)*sdt + post], img_time)[0]
+                            istart_dff = eeg2img_time([(s[-1]+1+ishift)*sdt - pre],  img_time)[0]
+                            jend_dff   = eeg2img_time([(s[-1]+1+ishift)*sdt + post], img_time)[0]
                             
                             act_si = dff[istart_dff:jstart_dff]
                             act_sj = dff[jstart_dff:jend_dff]
@@ -1019,7 +1021,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
 
             if len(tmp_si) > 0:                
                 tmp_si = np.vstack([time_morph(t,int(pre/xdt)) for t in tmp_si])
-                tmp_sj = np.vstack([time_morph(t,int(post/xdt)) for t in tmp_sj])
+                tmp_sj = np.vstack([time_morph(t,1+int(post/xdt)) for t in tmp_sj])
                 roi_transact_si[sid][row['ID']] = tmp_si
                 roi_transact_sj[sid][row['ID']] = tmp_sj
                 ntime = tmp_si.shape[1] + tmp_sj.shape[1]
@@ -1037,7 +1039,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
             print('Done with ROI %d' % row['ID'])
 
     ti = np.linspace(-pre, -xdt, int(pre/xdt))
-    tj = np.linspace(0, post-xdt, int(post/xdt))
+    tj = np.linspace(0, post-xdt+xdt, 1+int(post/xdt))
     xtime = np.concatenate((ti,tj))
     stime = np.concatenate((np.arange(-2.5*ntime_spe[0], -0.1, 2.5), np.arange(0, sdt*(ntime_spe[1]-1)+0.1, sdt)))
 
@@ -2833,15 +2835,49 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
                             data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, dff_ctr, dff_onset, dff_offset, t_spindle)
                                                                         
     df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time'])        
-    
     # average across ROIs
     dfm = df.groupby(['mouse', 'Type', 'ID', 'time']).mean().reset_index()
-    
     return dfm
 
 
 
-def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore=True, ma_rem_exception=False, local_mean=False, roi_avg=True):
+def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore=True, ma_rem_exception=False, local_mean='pre', roi_avg=True):
+    """
+    Calculate phasic REM-triggered for all ROIs
+
+    Parameters
+    ----------
+    ipath : string
+        base folder.
+    roi_mapping : pd.DataFrame
+        ROI mapping
+    pre : float
+        Time [in seconds] before phREM onset.
+    post : float
+        Time [in seconds] after phREM onset.
+    xdt : float, optional
+        Binning of DF/F signals [in seconds]. The default is 0.1.
+    ma_thr : float, optional
+        Microarousal threshold. The default is 10.
+    pzscore : bool, optional
+        If true, z-score DF/F signals (across whole recording session). The default is True.
+    ma_rem_exception : bool, optional
+        If true, MAs after REM, stay Wake. The default is False.
+    local_mean : string, optional
+        Two options: 'pre' or 'prepost'. 
+        If 'pre', substract from each phREM-triggered DF/F signals, the mean calculated
+        over the time window from -pre to 0s (= onset of phREM).
+        If 'prepost', subtract mean calculated for window from -pre to post.
+        The default is 'pre'.
+    roi_avg : bool, optional
+        If true, calculate for each ROI, average across all phREM events. The default is True.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        with columns ['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time', 'phrem_ID'].
+
+    """
 
     IFR = 20
     recordings = list(roi_mapping.columns)
@@ -2891,11 +2927,6 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
                             M[s] = 3
                     else:
                         M[s] = 3
-        
-        #spindles, t_eeg = detect_spindles(ipath, rec, M=M, pplot=pplot_spindles, std_thr=std_thr)
-        #spindles_ctr    = [int(s[1]) for s in spindles]
-        #spindles_onset  = [int(s[0]) for s in spindles]
-        #spindles_offset = [int(s[2]) for s in spindles]
         
         phrem = sleepy.phasic_rem(ipath, rec)
         phrem_list = []
@@ -2958,15 +2989,18 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
                         tj = t_ctr
                         tk = t_offset
                         if ti-ipre > 0 and tk+ipost < img_time[-1]:
-
+                            t_phrem = np.arange(-int(pre/xdt), int(post/xdt))*xdt   
+                            
                             idx_pre = eeg2img_time([ti-pre, ti], img_time)                        
                             dff_pre  = time_morph(dff[idx_pre[0] : idx_pre[1]], int(pre/xdt))
                             
                             idx_post = eeg2img_time([ti, ti+post], img_time)                        
                             dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
                             dff_onset = np.concatenate((dff_pre, dff_post))
-                            if local_mean: 
-                                dff_onset -= dff_onset.mean()
+                            if local_mean=='pre':
+                                dff_onset = dff_onset - dff_onset[np.where(t_phrem<0)].mean() 
+                            elif local_mean=='prepost':
+                                dff_onset = dff_onset - dff_onset.mean() 
                         
                             # center of spindle
                             idx_pre = eeg2img_time([tj-pre, tj], img_time)                        
@@ -2975,7 +3009,9 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
                             idx_post = eeg2img_time([tj, tj+post], img_time)                        
                             dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
                             dff_ctr = np.concatenate((dff_pre, dff_post))
-                            if local_mean: 
+                            if local_mean=='pre':
+                                dff_ctr -= dff_ctr[np.where(t_phrem<0)].mean()
+                            elif local_mean=='prepost':
                                 dff_ctr -= dff_ctr.mean()
 
 
@@ -2986,11 +3022,11 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
                             idx_post = eeg2img_time([tk, tk+post], img_time)                        
                             dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
                             dff_offset = np.concatenate((dff_pre, dff_post))
-                            if local_mean: 
+                            if local_mean=='pre':
+                                dff_offset -= dff_offset[np.where(t_phrem<0)].mean()
+                            elif local_mean == 'prepost':
                                 dff_offset -= dff_offset.mean()
                             
-
-                            t_phrem = np.arange(-int(pre/xdt), int(post/xdt))*xdt                                                                                
                             m = len(dff_onset)
                             data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, 
                                         dff_ctr, dff_onset, dff_offset, t_phrem, [phrem_ID]*m)
