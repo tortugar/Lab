@@ -1155,7 +1155,266 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
             i += 1
 
     return mx_transact, df
+
+
+
+def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_threshold, sj_threshold, pzscore=False,
+                        pspec=True, fmax=20, ylim=[], xticks=[], vm=[], cb_ticks=[], ma_thr=0, ma_rem_exception=True):
+    """
+    calculate average DF/F activity for ROIs along brain state transitions. The DF/F activity is binned like the hypnogram,
+    using the function &downsample_dff2bs(...)
+    See also brstate_transitions
+    
+    :param ipath: base folder
+    :param roi_mapping: pandas DataFrame with columns specificing ROI 'ID', recordings ('MouseID_dateni')
+    :param transitions: list of tuples to denote transitions to be considered;
+           1 - REM, 2 - Wake, 3 - NREM; For example to calculate NREM to REM and REM to wake transitions,
+           type [(3,1), (1,2)]
+    :param pre: time before transition in s
+    :param post: time after transition;
+           NOTE: Ideally pre and post are integer multiples of the brain state time bin,
+                 which is typically 2.5 s
+    :param si_threshold: list of floats, thresholds how long REM, Wake, NREM should be at least before the transition.
+           So, if there's a REM to Wake transition, but the duration of REM is shorter then si_threshold[0], then this
+           transition if discarded.
+    :param sj_threshold: list of floats, thresholds how long REM, Wake, NREM should be at least after the transition
+    :param pzscore: bool, if True zscore DF/F signals
+    :param pspec: bool, if True also calculate normalized EEG spectrum as the transition; if True, also a figure is
+           plotting summarizing the results
+    :param fmax: maximum frequency shown for EEG spectrogram
+    :param ylim: list, specifying y-limits for y axis of DF/F plots, for example ylim=[0, 10] will limit the yrange
+           from 0 to 10
+    :param xticks: list, xticks for DF/F plots
+    :param vm: saturation of EEG spectrogram
+    :param cb_ticks: ticks for colorbar
+    :param ma_thr: wake sequences s with round(len(s)*dt) <= ma_thr are set to NREM
+    :param ma_rem_exception: if True, don't interprete wake periods following REM as MA (i.e. NREM)
+
+    Example call:
+    mx, df = imaging.brstate_transitions(ppath, df_class[df_class['Type']=='N-max'], [[3,1], [1,2]], 60, 30, [60, 60, 60], [30, 30, 30])
+
+    :return: mx: dict; Transition type --> np.array of size 'number ROIs' x number of time bins
+             df: pd.DataFrame with columns 'ID', 'mouse', 'time', 'dff', 'trans'
+             Note: For each ROI all transitions of type 'trans' are averaged. So for a given timepoint 'time'
+             only only average 'dff' for transition 'trans' exists.
+
+    """    
+    rois = list(roi_mapping['ID'])
+    states = {1:'R', 2:'W', 3:'N'}
+
+    if pspec:
+        roi_transspe = dict()
+
+    for (si,sj) in transitions:
+        sid = states[si] + states[sj]
+        roi_transspe[sid] = {r:[] for r in rois}
+
+    roi_stateval = {}
+    for r in rois:
+        roi_stateval[r] = {1:[], 2:[], 3:[]}
+    
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    data = []
+    for rec in recordings:
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        DFF = downsample_dff2bs(ipath, rec, roi_list, psave=False, peaks=False, dff_data = DFF)
+        
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+
+        # flatten out MAs
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        # set time variables
+        ipre  = int(np.round(pre/sdt))
+        ipost = int(np.round(post/sdt))+1
+        tdff = np.arange(-ipre*sdt, ipost*sdt-sdt + sdt/2, sdt)
+        m = len(tdff)
+
+        # load spectrogram and normalize
+        if pspec:
+            P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
+            SP = P['SP']
+            freq = P['freq']
+            ifreq = np.where(freq <= fmax)[0]
+            f = freq[ifreq]
+            sp_mean = SP.mean(axis=1)
+            SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
+
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            a = re.split('-', s)
+            roi_num  = int(a[1])
+            dff = DFF[:,roi_num]
+            ID = row['ID']
+            if pzscore:
+                dff = (dff-dff.mean())/dff.std()
+
+            for (si,sj) in transitions:
+                sid = states[si] + states[sj]
+                seq = sleepy.get_sequences(np.where(M==si)[0])
+                for s in seq:
+                    ti = s[-1]
+    
+                    # check if next state is sj; only then continue
+                    if ti < len(M)-1 and M[ti+1] == sj:
+                        # go into future
+                        p = ti+1
+                        while p<len(M)-1 and M[p] == sj:
+                            p += 1
+                        p -= 1
+                        sj_idx = list(range(ti+1, p+1))
+                        # so the indices of state si are seq
+                        # the indices of state sj are sj_idx
+
+                        # search for the index in img_time that's closest to the timepoint of transition
+                        # according to brain state time:
+                        if ipre <= ti < len(M)-ipost and len(s)*sdt >= si_threshold[si-1] and len(sj_idx)*sdt >= sj_threshold[sj-1]:
+
+                            act_si = dff[ti-ipre+1:ti+1]
+                            act_sj = dff[ti+1:ti+ipost+1]
+                            act = np.concatenate((act_si, act_sj))
+
+                            data += zip([ID]*m, [idf]*m, [rec]*m, [sid]*m, act, tdff)
+
+                            # get EEG spectrogram data
+                            if pspec:
+                                spe_si = SP[ifreq,ti-ipre+1:ti+1]
+                                spe_sj = SP[ifreq,ti+1:ti+ipost+1]
+                                spe = np.concatenate((spe_si, spe_sj), axis=1)
+                                
+                                roi_transspe[sid][row['ID']].append(spe)
+                                
+    df = pd.DataFrame(data=data, columns = ['ID', 'mouse', 'recording', 'trans', 'dff', 'time'])
+
+    nroi = roi_mapping.ID.unique().shape[0]
+    mx_transact = dict()
+    mx_transspe = dict()
+    for (si,sj) in transitions:
+        sid = states[si] + states[sj]
+        mx_transact[sid] = np.zeros((nroi, m))
+        mx_transspe[sid] = np.zeros((nroi, len(f), m))
+
+    i_roi = 0
+    for index, row in roi_mapping.iterrows():
+        for (si,sj) in transitions:
+            sid = states[si] + states[sj]
+            
+            #pdb.set_trace()
+            tmp = df.loc[(df.ID == row['ID']) & (df.trans == sid), :]
+            tmp= np.array(tmp.groupby(['time']).mean()['dff'])
+            
+            if len(tmp) > 0:
+                #pdb.set_trace()
+                mx_transact[sid][i_roi,:] = tmp
                 
+                if pspec:
+                    tmp = np.array(roi_transspe[sid][row['ID']])
+                    mx_transspe[sid][i_roi,:,:] = tmp.mean(axis=0)
+                
+            else:
+                print('No transitions for ROI %d' % row['ID'])
+            
+        i_roi += 1
+            
+    ### PLOTTING #######################################################################################################
+    if pspec:
+        plt.ion()
+        ntrans = len(transitions)
+        plt.figure(figsize=(10, 5))
+        nx = 1.0/ntrans
+        dx = 0.2 * nx
+        nroi = len(rois)
+        f = freq[ifreq]
+        i = 0
+        for (si,sj) in transitions:
+            tr = states[si] + states[sj]
+            # plot DF/F
+            ax = plt.axes([nx*i+dx, 0.15, nx-dx-dx/3.0, 0.3])
+            tmp = mx_transact[tr].mean(axis=0)
+            plt.plot(tdff, tmp, color='blue')
+            sem = np.std(mx_transact[tr],axis=0) / np.sqrt(nroi)
+            ax.fill_between(tdff, tmp - sem, tmp + sem, color=(0, 0, 1), alpha=0.5, edgecolor=None)
+
+            sleepy.box_off(ax)
+            plt.xlabel('Time (s)')
+            plt.xlim([tdff[0], tdff[-1]])
+            if i==0:
+                if pzscore:
+                    plt.ylabel('$\Delta$F/F (z-scored)')
+                else:
+                    plt.ylabel('$\Delta$F/F (%)')
+            if len(ylim) == 2:
+                plt.ylim(ylim)
+            if len(xticks) == 2:
+                plt.xticks(xticks)
+            # END - DF/F
+
+            # plot spectrogram
+            if i==0:
+                axes_cbar = plt.axes([nx*i+dx +1.5*dx, 0.55+0.25+0.03, nx - dx-dx/3.0, 0.1])
+            ax = plt.axes([nx * i + dx, 0.55, nx - dx-dx/3.0, 0.25])
+            plt.title(states[si] + ' $\\rightarrow$ ' + states[sj])
+
+            # dimensions of trans_spe: number of ROIs x frequencies x time
+            # so, to average over mice, average over 0th dimension (axis)
+            im = ax.pcolorfast(tdff, f, mx_transspe[tr].mean(axis=0), cmap='jet')
+
+            if len(vm) > 0:
+                im.set_clim(vm)
+            ax.set_xticks([0])
+            ax.set_xticklabels([])
+            if i==0:
+                plt.ylabel('Freq. (Hz)')
+            if i>0:
+                ax.set_yticklabels([])
+            sleepy.box_off(ax)
+            # END - spectrogram
+
+            # colorbar for EEG spectrogram
+            if i==0:
+                cb = plt.colorbar(im, ax=axes_cbar, pad=0.0, aspect=10.0, orientation='horizontal')
+                cb.set_label('Rel. Power')
+                cb.ax.xaxis.set_ticks_position("top")
+                cb.ax.xaxis.set_label_position('top')
+                if len(cb_ticks) > 0:
+                    cb.set_ticks(cb_ticks)
+                axes_cbar.set_alpha(0.0)
+                axes_cbar.spines["top"].set_visible(False)
+                axes_cbar.spines["right"].set_visible(False)
+                axes_cbar.spines["bottom"].set_visible(False)
+                axes_cbar.spines["left"].set_visible(False)
+                axes_cbar.axes.get_xaxis().set_visible(False)
+                axes_cbar.axes.get_yaxis().set_visible(False)
+            # END - colorbar
+
+            i += 1
+
+    return mx_transact, df
+                                
 
 
 def brstate_transition_stats(df, timevec, trans_type):
