@@ -1417,7 +1417,7 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
                                 
 
 
-def brstate_transition_stats(df, timevec, trans_type):
+def brstate_transition_stats(df, timevec, trans_type, bonf=True):
     """
     Test at which time point a brain state transition becomes significant.
     The functions works together with brstate_transition_stats
@@ -1447,7 +1447,10 @@ def brstate_transition_stats(df, timevec, trans_type):
     tref = []
     pval = []
     sig = []
-    alpha = 0.05 / (len(timevec)-2)
+    if bonf:
+        alpha = 0.05 / (len(timevec)-2)
+    else:
+        alpha = 0.05
     for (i,j) in zip(timevec[1:-1], timevec[2:]):
         tmp = df[(df.time >= i) & (df.time < j)]
         val = tmp[tmp.trans == trans_type].groupby(['ID']).mean()['dff']
@@ -3100,7 +3103,9 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
 
 
 
-def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore=True, ma_rem_exception=False, local_mean='pre', roi_avg=True):
+def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True, 
+                      ma_thr=10, ma_rem_exception=False, pfilt=False, f_cutoff=2.0, 
+                      local_mean='pre', roi_avg=True):
     """
     Calculate phasic REM-triggered for all ROIs
 
@@ -3122,6 +3127,10 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
         If true, z-score DF/F signals (across whole recording session). The default is True.
     ma_rem_exception : bool, optional
         If true, MAs after REM, stay Wake. The default is False.
+    pfilt: bool, optional
+        if True, lowpass filter DF/F signal. 
+    f_cutoff: float, optional
+        Cutoff frequency for (optional) lowpass filter for DF/F signal
     local_mean : string, optional
         Two options: 'pre' or 'prepost'. 
         If 'pre', substract from each phREM-triggered DF/F signals, the mean calculated
@@ -3137,8 +3146,12 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
         with columns ['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time', 'phrem_ID'].
 
     """
+    pfilt = True
+    f_cutoff = 2.0
 
     IFR = 20
+    w0 = f_cutoff / (IFR*0.5)
+
     recordings = list(roi_mapping.columns)
     recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
     
@@ -3227,6 +3240,9 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, ma_thr=10, pzscore
                     dff = (dff-dff.mean()) / dff.std()
                 else:
                     dff *= 100
+                
+                if pfilt:
+                    dff = sleepy.my_lpfilter(dff, w0)
 
                 for t_ctr, t_onset, t_offset in zip(phrem_ctr, phrem_onset, phrem_offset):
 
