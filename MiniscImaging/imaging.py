@@ -1159,7 +1159,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
 
 
 def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_threshold, sj_threshold, pzscore=False,
-                        pspec=True, fmax=20, ylim=[], xticks=[], vm=[], cb_ticks=[], ma_thr=0, ma_rem_exception=True):
+                        pspec=True, fmax=20, ylim=[], xticks=[], vm=[], cb_ticks=[], ma_thr=0, ma_rem_exception=True, spe_filt=[]):
     """
     calculate average DF/F activity for ROIs along brain state transitions. The DF/F activity is binned like the hypnogram,
     using the function &downsample_dff2bs(...)
@@ -1262,6 +1262,11 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
             ifreq = np.where(freq <= fmax)[0]
             f = freq[ifreq]
             sp_mean = SP.mean(axis=1)
+            
+            if len(spe_filt) > 0:
+                filt = np.ones(spe_filt)
+                filt = np.divide(filt, filt.sum())
+                SP = scipy.signal.convolve2d(SP, filt, boundary='symm', mode='same')            
             SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
 
         for index, row in rec_map.iterrows():
@@ -1462,7 +1467,6 @@ def brstate_transition_stats(df, timevec, trans_type, bonf=True):
             sig.append(0)
         pval.append(p)
         tref.append(i + (j-i)/2)
-        print(tref)
 
     df_stats = pd.DataFrame({'time':tref, 'p':pval, 'sig':sig})
     print(df_stats)
@@ -3105,7 +3109,7 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
 
 def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True, 
                       ma_thr=10, ma_rem_exception=False, pfilt=False, f_cutoff=2.0, 
-                      local_mean='pre', roi_avg=True):
+                      local_mean='pre', roi_avg=True, eeg_spec=False):
     """
     Calculate phasic REM-triggered for all ROIs
 
@@ -3148,7 +3152,8 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     """
     pfilt = True
     f_cutoff = 2.0
-
+    nsr_seg = 2
+    fmax = 20
     IFR = 20
     w0 = f_cutoff / (IFR*0.5)
 
@@ -3158,6 +3163,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     # dict: type -> ID -> peak spectrograms
     data = []
     phrem_ID = 0
+    data_spec = []
     for rec in recordings:
         print(rec)
         img_time = imaging_timing(ipath, rec)
@@ -3199,6 +3205,9 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                             M[s] = 3
                     else:
                         M[s] = 3
+                        
+        if eeg_spec:
+            EEG = so.loadmat(os.path.join(ipath, rec, 'EEG.mat'), squeeze_me=True)['EEG']
         
         phrem = sleepy.phasic_rem(ipath, rec)
         phrem_list = []
@@ -3231,6 +3240,30 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                 roi_ids.append((roi_num,ID))                
             roi_dict[typ] = roi_ids        
         
+        ######################################################################
+        # calculate phasic REM events
+        if eeg_spec:
+            ipre_spec  = int(pre*sr  + (nsr_seg/2)*sr)
+            ipost_spec = int(post*sr + (nsr_seg/2)*sr)
+            
+            for t_onset in phrem_onset:
+        
+                istart = int(t_onset*sr)
+                freq_spec, t_spec, SP_spec = scipy.signal.spectrogram(EEG[istart-ipre_spec:istart+ipost_spec+1], fs=sr, 
+                                                                      window='hann', nperseg=nsr_seg * int(sr), noverlap= int(0.95 * nsr_seg * int(sr)))                    
+                ifreq = np.where(freq_spec <= fmax)[0]
+                freq_spec = freq_spec[ifreq]
+                SP_spec = SP_spec[ifreq,:]
+            
+                pxx = SP_spec.T.flatten()
+                fvec_spec = np.tile(freq_spec, SP_spec.shape[1])
+                tvec_spec = np.repeat(t_spec, SP_spec.shape[0])
+                m = len(fvec_spec)
+                data_spec += zip([idf]*m, [rec]*m,  fvec_spec, tvec_spec, pxx)
+        
+        ######################################################################
+        
+        
         # dict: typ -> 3D array (rois x frequency x time)
         for typ in types:
             for (roi_j,ID) in roi_dict[typ]:
@@ -3245,7 +3278,6 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                     dff = sleepy.my_lpfilter(dff, w0)
 
                 for t_ctr, t_onset, t_offset in zip(phrem_ctr, phrem_onset, phrem_offset):
-
                     if xdt == 0:                    
                         onset = eeg2img_time([t_onset], img_time)[0]
                         dff_onset = dff[onset-ipre:onset+ipost]
@@ -3257,6 +3289,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
 
                         m = len(dff_ctr)
                         data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, dff_ctr, dff_onset, t_phrem)
+                        
                         
                     else:                        
                         # onset
@@ -3313,7 +3346,11 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     if roi_avg:
         df = df.groupby(['mouse', 'Type', 'ID', 'time']).mean().reset_index()
     
-    return df
+    df_spec = []
+    if eeg_spec:
+        df_spec = pd.DataFrame(data=data_spec, columns=['mouse', 'recording', 'freq', 'time', 'pow'])
+    
+    return df, df_spec
 
 
 
