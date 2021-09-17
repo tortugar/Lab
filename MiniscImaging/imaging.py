@@ -1211,11 +1211,13 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
     states = {1:'R', 2:'W', 3:'N'}
 
     if pspec:
-        roi_transspe = dict()
+        #roi_transspe = dict()
+        trials_transspe = dict()
 
     for (si,sj) in transitions:
         sid = states[si] + states[sj]
-        roi_transspe[sid] = {r:[] for r in rois}
+        #roi_transspe[sid] = {r:[] for r in rois}
+        trials_transspe[sid] = []
 
     roi_stateval = {}
     for r in rois:
@@ -1277,7 +1279,14 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
                 SP = scipy.signal.convolve2d(SP, filt, boundary='symm', mode='same')            
             SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
 
+
+        got_spe = {}
+        for (si,sj) in transitions:
+            sid = states[si] + states[sj]        
+            got_spe[sid] = False
+            
         for index, row in rec_map.iterrows():
+            # for recording $rec, process all ROIs
             s=row[rec]
             a = re.split('-', s)
             roi_num  = int(a[1])
@@ -1307,19 +1316,25 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
                         # according to brain state time:
                         if ipre <= ti < len(M)-ipost and len(s)*sdt >= si_threshold[si-1] and len(sj_idx)*sdt >= sj_threshold[sj-1]:
 
-                            act_si = dff[ti-ipre+1:ti+1]
-                            act_sj = dff[ti+1:ti+ipost+1]
-                            act = np.concatenate((act_si, act_sj))
+                            #act_si = dff[ti-ipre+1:ti+1]
+                            #act_sj = dff[ti+1:ti+ipost+1]
+                            act = dff[ti-ipre+1:ti+ipost+1]
+                            
+                            #act = np.concatenate((act_si, act_sj))
 
                             data += zip([ID]*m, [idf]*m, [rec]*m, [sid]*m, act, tdff)
 
                             # get EEG spectrogram data
-                            if pspec:
+                            if pspec and not(got_spe[sid]):
                                 spe_si = SP[ifreq,ti-ipre+1:ti+1]
                                 spe_sj = SP[ifreq,ti+1:ti+ipost+1]
                                 spe = np.concatenate((spe_si, spe_sj), axis=1)
+                                #pdb.set_trace()
                                 
-                                roi_transspe[sid][row['ID']].append(spe)
+                                #roi_transspe[sid][row['ID']].append(spe)
+                                trials_transspe[sid].append(spe)
+            
+                got_spe[sid] = True
                                 
     df = pd.DataFrame(data=data, columns = ['ID', 'mouse', 'recording', 'trans', 'dff', 'time'])
 
@@ -1341,17 +1356,23 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
             tmp= np.array(tmp.groupby(['time']).mean()['dff'])
             
             if len(tmp) > 0:
-                #pdb.set_trace()
                 mx_transact[sid][i_roi,:] = tmp
                 
-                if pspec:
-                    tmp = np.array(roi_transspe[sid][row['ID']])
-                    mx_transspe[sid][i_roi,:,:] = tmp.mean(axis=0)
+                #if pspec:
+                    #tmp = np.array(roi_transspe[sid][row['ID']])
+                    #mx_transspe[sid][i_roi,:,:] = tmp.mean(axis=0)
+                #    pdb.set_trace()
+                #    trials_transspe[sid] = np.array(trials_transspe[sid]).mean(axis=0)
                 
             else:
                 print('No transitions for ROI %d' % row['ID'])
             
         i_roi += 1
+        
+    if pspec:
+        for (si,sj) in transitions:
+            sid = states[si] + states[sj]
+            trials_transspe[sid] = np.array(trials_transspe[sid]).mean(axis=0)
             
     ### PLOTTING #######################################################################################################
     if pspec:
@@ -1394,7 +1415,17 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
 
             # dimensions of trans_spe: number of ROIs x frequencies x time
             # so, to average over mice, average over 0th dimension (axis)
-            im = ax.pcolorfast(tdff, f, mx_transspe[tr].mean(axis=0), cmap='jet')
+            #im = ax.pcolorfast(tdff, f, mx_transspe[tr].mean(axis=0), cmap='jet')
+            im = ax.pcolorfast(tdff, f, trials_transspe[tr][:,:-1], cmap='jet')
+            # Why the :-1?
+            # Say we want to plot 0 to 5 s: So for the DF/F signal, 
+            # there a point for 0, 2.5 and 5s
+            # x  x  x
+            # These are the two bins in the spectrogr
+            #  -- -- --
+            # |  |  |  |
+            # 0 2.5 5 7.5
+            # So here paradoxially only 2 bins are needed to go from 0 to 5s
 
             if len(vm) > 0:
                 im.set_clim(vm)
