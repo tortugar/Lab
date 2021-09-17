@@ -539,7 +539,7 @@ def merge_roimapping(mappings):
 
 
 
-def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True):
+def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True, dff_filt=False, f_cutoff=2.0):
     """
     calculate average ROI DF/F activity during each brain state and then 
     perform statistics for ROIs to classify them into REM-max, Wake-max, or NREM-max.
@@ -585,6 +585,8 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         
         # load imaging timing
         img_time = imaging_timing(ipath, rec)
+        isr = 1/np.mean(np.diff(img_time))
+        print(isr)
 
         for state in [1,2,3]:
             seq = sleepy.get_sequences(np.where(M==state)[0])
@@ -597,11 +599,17 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         for index, row in rec_map.iterrows():
             s=row[rec]
             a = re.split('-', s)
-            #roi_list = int(a[0])
             roi_num  = int(a[1])
-            dff = DFF[:,roi_num] * 100
+            dff = DFF[:,roi_num] 
+            
+            if dff_filt:
+                w0 = f_cutoff / (isr*0.5)
+                dff = sleepy.my_lpfilter(dff, w0)
+            
             if pzscore:
                 dff = (dff-dff.mean()) / dff.std()
+            else:
+                dff = dff*100
             
             for state in [1,2,3]:
                 roi_stateval[row['ID']][state].append(dff[state_idx[state]])
@@ -664,7 +672,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         else:
             roi_type = 'X'
 
-            print(res)
+            #print(res)
             # R>N>W
             if (rmean > wmean) and (rmean > nmean) and (nmean  > wmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
@@ -3614,7 +3622,8 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq
 
 
 def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, tend=-1, 
-                             emg_ticks=[], cb_ticks=[], show_avgs=True, pnorm_spec=False, fmax=20, show_peaks=False):
+                             emg_ticks=[], cb_ticks=[], show_avgs=True, pnorm_spec=False, 
+                             fmax=20, show_peaks=False, dff_filt=False, f_cutoff=2.0):
     """
     For each mouse in the given ROI mapping, plot all ROIs sorted by different classes. If $show_avgs = True, 
     plot for each class the average across all ROIs.
@@ -3637,9 +3646,13 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         DESCRIPTION. The default is [].
     cb_ticks : TYPE, optional
         DESCRIPTION. The default is [].
-    show_avgs : TYPE, bool
+    show_avgs : bool, optional
         If true, plot for each 'Type' of ROIs the average DF/F activity. The default is True.
         If show_peaks == True, then plot the avearge frequency of Peaks for each ROI 'Type'
+    dff_filt: bool, optional
+        If True, lowpass filter calcium traces with cutoff frequency...
+    f_cutoff: float, optional
+        Cutoff frequency for lowpass filter.
 
     Returns
     -------
@@ -3690,6 +3703,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
 
         #pdb.set_trace()
         DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        
 
         if show_avgs and show_peaks:
             Peaks = find_capeaks(DFF)[0]
@@ -3703,14 +3717,9 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
                 Peaks[:,i] = sleepy.smooth_data(Peaks[:,i],1)
         elif not show_avgs and show_peaks:
             Peaks = find_capeaks(DFF)[0]
-
-            
-        #pdb.set_trace()
-        #DFF = downsample_dff2bs(ipath, rec, roi_list)
-
+        
         t = np.arange(0, len(M))*sdt
         m = len(t)
-
         
         roi_dict = {typ:[] for typ in types}
         ######################################################################
@@ -3849,10 +3858,17 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             #    calculate_dff(ipath, rec, roi_list)
             #DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
             img_time = imaging_timing(ipath, rec) 
+            isr = 1/np.mean(np.diff(img_time))
             nframes = DFF.shape[0]
             nroi    = DFF.shape[1]
             dffmax = DFF.max()
             
+            if dff_filt:
+                for i in range(nroi):
+                    dff = DFF[:,i]
+                    w0 = f_cutoff / (isr*0.5)
+                    DFF[:,i] = sleepy.my_lpfilter(dff, w0)
+                    
             if not show_avgs:                
                 # get calcium peaks
                 # Peaks = {}
