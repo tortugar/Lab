@@ -1329,7 +1329,6 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
                                 spe_si = SP[ifreq,ti-ipre+1:ti+1]
                                 spe_sj = SP[ifreq,ti+1:ti+ipost+1]
                                 spe = np.concatenate((spe_si, spe_sj), axis=1)
-                                #pdb.set_trace()
                                 
                                 #roi_transspe[sid][row['ID']].append(spe)
                                 trials_transspe[sid].append(spe)
@@ -1456,6 +1455,8 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
             # END - colorbar
 
             i += 1
+
+    df = df.groupby(['ID', 'mouse', 'recording', 'trans', 'time']).mean().reset_index()
 
     return mx_transact, df
                                 
