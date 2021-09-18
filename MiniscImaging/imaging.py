@@ -3657,15 +3657,15 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
                              emg_ticks=[], cb_ticks=[], show_avgs=True, pnorm_spec=False, 
                              fmax=20, show_peaks=False, dff_filt=False, f_cutoff=2.0):
     """
-    For each mouse in the given ROI mapping, plot all ROIs sorted by different classes. If $show_avgs = True, 
-    plot for each class the average across all ROIs.
+    For each mouse in the given ROI mapping, plot all ROIs sorted by different classes. 
+    If $show_avgs = True, plot for each class the average across all ROIs.
 
     Parameters
     ----------
     ipath : string
         DESCRIPTION.
-    roi_mapping : TYPE
-        DESCRIPTION.
+    roi_mapping : pd.DataFrame
+        Must contain column 'Type.
     pplot : TYPE, optional
         DESCRIPTION. The default is True.
     vm : TYPE, optional
@@ -3727,6 +3727,16 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         print(types)
         
         M = sleepy.load_stateidx(ipath, rec)[0]
+        M = sleepy.load_stateidx(ipath, rec)[0]
+        if tend == -1:
+            iend = len(M)
+        else:
+            iend = int(np.round(tend/sdt))
+        istart = int(np.round(tstart/sdt))
+        t = np.arange(istart, iend)*sdt
+
+        
+        
         
         # load DF/F for recording rec 
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
@@ -3736,6 +3746,9 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         #pdb.set_trace()
         DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
         
+        img_time = imaging_timing(ipath, rec) 
+        [istart_dff, iend_dff] = eeg2img_time([istart*sdt, iend*sdt], img_time)
+
 
         if show_avgs and show_peaks:
             Peaks = find_capeaks(DFF)[0]
@@ -3750,8 +3763,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         elif not show_avgs and show_peaks:
             Peaks = find_capeaks(DFF)[0]
         
-        t = np.arange(0, len(M))*sdt
-        m = len(t)
+        #t = np.arange(0, len(M))*sdt
         
         roi_dict = {typ:[] for typ in types}
         ######################################################################
@@ -3766,7 +3778,8 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             if len(roi_ids) > 0:
                 
                 dff = DFF[:,roi_ids].mean(axis=1)
-                data += zip([idf]*m, [rec]*m, [typ]*m, t, dff, M)
+                m = len(dff)
+                #data += zip([idf]*m, [rec]*m, [typ]*m, t, dff, M)
             if len(roi_ids) >= 2:
                 rval = []
                 block = DFF[:,roi_ids]
@@ -3788,13 +3801,13 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         r_mu = [10, 100]
         if pplot:
             
-            M = sleepy.load_stateidx(ipath, rec)[0]
-            if tend == -1:
-                iend = len(M)
-            else:
-                iend = int(np.round(tend/sdt))
-            istart = int(np.round(tstart/sdt))
-
+            # M = sleepy.load_stateidx(ipath, rec)[0]
+            # if tend == -1:
+            #     iend = len(M)
+            # else:
+            #     iend = int(np.round(tend/sdt))
+            # istart = int(np.round(tstart/sdt))
+            # t = np.arange(istart, iend)*sdt
             
             # load EEG and EMG spectrogram
             P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
@@ -3814,6 +3827,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             P = so.loadmat(os.path.join(ipath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
             SPEMG = P['mSP'] 
         
+        
             plt.ion()
             plt.figure(figsize=(10,8))
         
@@ -3822,7 +3836,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             axes_brs = plt.axes([0.1, 0.63, 0.8, 0.03])
             cmap = plt.cm.jet
             my_map = cmap.from_list('brs', [[0, 0, 0], [0, 1, 1], [0.6, 0, 1], [0.8, 0.8, 0.8]], 4)
-            tmp = axes_brs.pcolorfast(t, [0, 1], np.array([M]), vmin=0, vmax=3)
+            tmp = axes_brs.pcolorfast(t, [0, 1], np.array([M[istart:iend]]), vmin=0, vmax=3)
         
             tmp.set_cmap(my_map)
             axes_brs.axis('tight')
@@ -3840,7 +3854,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             axes_cbar = plt.axes([0.82, 0.8, 0.1, 0.15])
             # axes for EEG spectrogram
             # AXES SPECTROGRAM 
-            axes_spec = plt.axes([0.1, 0.8, 0.8, 0.15], sharex=axes_brs)                                            #AXES
+            axes_spec = plt.axes([0.1, 0.8, 0.8, 0.15], sharex=axes_brs)                                         
             im = axes_spec.pcolorfast(t, freq[ifreq], SPEEG[ifreq, istart:iend], cmap='jet', vmin=0, vmax=vm)
             axes_spec.axis('tight')
             #axes_spec.set_xticklabels([])
@@ -3869,8 +3883,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             # show EMG
             i_mu = np.where((freq >= r_mu[0]) & (freq <= r_mu[1]))[0]
             # * 1000: to go from mV to uV
-            p_mu = np.sqrt(SPEMG[i_mu, :].sum(axis=0) * (freq[1] - freq[0])) #* 1000.0
-            # AXES EMG
+            p_mu = np.sqrt(SPEMG[i_mu, :].sum(axis=0) * (freq[1] - freq[0])) 
             axes_emg = plt.axes([0.1, 0.68, 0.8, 0.1], sharex=axes_spec)
             axes_emg.plot(t, p_mu[istart:iend], color='black')
             axes_emg.patch.set_alpha(0.0)
@@ -3890,6 +3903,10 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             #    calculate_dff(ipath, rec, roi_list)
             #DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
             img_time = imaging_timing(ipath, rec) 
+            [istart_dff, iend_dff] = eeg2img_time([istart*sdt, iend*sdt], img_time)
+            
+            
+            
             isr = 1/np.mean(np.diff(img_time))
             nframes = DFF.shape[0]
             nroi    = DFF.shape[1]
@@ -3914,11 +3931,14 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
                 i = 0
                 for typ in types:
                     roi_ids = roi_dict[typ]
-                    for j in roi_ids:
-                        plt.plot(img_time[0:nframes], DFF[0:nframes,j]+i*dffmax, color=color_dict[typ])
+                    for roi_count, j in enumerate(roi_ids):
+                        #plt.plot(img_time[0:nframes], DFF[0:nframes,j]+i*dffmax, color=color_dict[typ])
+                        plt.plot(img_time[istart_dff:iend_dff], DFF[istart_dff:iend_dff,j]+i*dffmax, color=color_dict[typ])
+                        
                         if show_peaks:
                             plt.plot(img_time[Peaks[j]],  DFF[Peaks[j],j]+i*dffmax, 'r.', markersize=4)
-                        plt.text(100, i*dffmax+dffmax/4, str(j) + ' ' + typ, fontsize=12, color=color_dict[typ],bbox=dict(facecolor='w', alpha=0.))
+                        if roi_count == 0:
+                            plt.text(img_time[istart_dff]+100, i*dffmax+dffmax/4, str(j) + ' ' + typ, fontsize=12, color=color_dict[typ],bbox=dict(facecolor='w', alpha=0.))
                         i += 1
     
                 plt.ylim([-dffmax, dffmax*nrois])
@@ -3956,11 +3976,11 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
     
                     ntypes = len(types)
                     i = 0
-                    t = np.arange(0, Peaks.shape[0]) * sdt
+                    tpeaks = np.arange(0, Peaks.shape[0]) * sdt
                     for typ in types:
                         roi_ids = roi_dict[typ]
                         
-                        plt.plot(t, Peaks[:,roi_ids].mean(axis=1)+i*dffmax, color=color_dict[typ])
+                        plt.plot(tpeaks, Peaks[:,roi_ids].mean(axis=1)+i*dffmax, color=color_dict[typ])
                         plt.text(100, i*dffmax+dffmax/4, 'avg' + ' ' + typ, fontsize=12, color=color_dict[typ],bbox=dict(facecolor='w', alpha=0.))
                         i += 1
                     plt.ylim([-dffmax, dffmax*(ntypes)])
@@ -3972,7 +3992,8 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             # AXES TIME LEGEND
             axes_legend = plt.axes([0.1, 0.58, 0.8, 0.03], sharex=axes_dff)
             plt.ylim((0, 1.1))
-            plt.xlim([t[0], t[-1]])
+            #plt.xlim([t[0], t[-1]])
+            plt.xlim([img_time[istart_dff], img_time[iend_dff]])
             axes_legend.plot([0, tlegend], [1, 1], color='black')
             axes_legend.text(tlegend/4.0, 0.0, str(tlegend) + ' s')
             axes_legend.patch.set_alpha(0.0)
@@ -3983,10 +4004,10 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             axes_legend.axes.get_xaxis().set_visible(False)
             axes_legend.axes.get_yaxis().set_visible(False)
 
-    dfr = pd.DataFrame(data=data_r, columns=['mouse', 'recording', 'type', 'r', 'state'])
-    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'type', 'time', 'dff', 'state'])
+    #dfr = pd.DataFrame(data=data_r, columns=['mouse', 'recording', 'type', 'r', 'state'])
+    #df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'type', 'time', 'dff', 'state'])
 
-    return df, dfr
+    #return df, dfr
     
 
 
