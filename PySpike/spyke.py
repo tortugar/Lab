@@ -3026,7 +3026,7 @@ def waveform_classification(ppath, unit_listing, backup='', pplot=True):
 
 def fr_transitions(ppath, unit_listing, transitions, pre, post, si_threshold, sj_threshold,
                    backup='', mu=[10, 100], fmax=30, ma_thr=20, ma_polish=True, pemg=False, vm = [],
-                   base_int = 10, ylim=[], pzscore=False, psingle_mode=True):
+                   base_int = 10, xticks=[], ylim=[], pzscore=False, psingle_mode=True):
     """
     plot average firing rate along brainstate transitions.
     An example:
@@ -3058,6 +3058,7 @@ def fr_transitions(ppath, unit_listing, transitions, pre, post, si_threshold, sj
     :param vm: tuple (list with two elements), setting lower and upper range of spectrogram colormap
     :param base_int, float, duration of baseline interval, used as reference for statistical tests, when a firing rate
            change starts becoming significant
+    :param xticks: list, xticks 
     :param ylim: tuple, min. and max. value for y-range
     :param pzscore, if True, z-score firing rates
     :param psingle_mode, if True, plot each single unit separately with its own color
@@ -3244,7 +3245,9 @@ def fr_transitions(ppath, unit_listing, transitions, pre, post, si_threshold, sj
         plt.xlabel('Time (s)')
         if len(ylim) == 2:
             plt.ylim(ylim)
-
+        if len(xticks) > 0:
+            plt.xticks(xticks)
+        
         if i==0:
             if pzscore:
                 plt.ylabel('FR (z-scored)')
