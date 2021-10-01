@@ -36,6 +36,7 @@ from functools import reduce
 import pdb
 
 
+
 def cohen_d(x,y):
     """
     correct if the population S.D. is expected to be equal for the two groups.
@@ -3327,6 +3328,218 @@ def fr_transitions_singletrials(ppath, unit_listing, transition, pre, post, si_t
 
     return MX
 
+
+def detect_spindles(ppath, name, M=[], pplot=False, std_thr=1.5, sigma=[7,15]):
+    """
+    Detect spindles during NREM (only) using the algorithm described in Niethard et al. 2018.
+    
+
+    Parameters
+    ----------
+    ppath : string
+        Imaging base folder.
+    name : string
+        Name of recording.
+    M : np.array as returned by sleepy.load_stateidx[0], optional
+        Brain state sequence. If M == [], reload brain state sequence in function. The default is [].
+    pplot : bool, optional
+        If True, plot figures labeling detected spindles in raw EEG along with hynogram. The default is False.
+
+    Returns
+    -------
+    spindle : list
+        for each spindle the list contains a list with time point of 
+        [spindle_onset, spindle_center, spindle_offset].
+    t : np.array
+        time vector of raw EEG.
+
+    """
+    from scipy.signal import hilbert
+
+    EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
+    sr = sleepy.get_snr(ppath, name)
+    nbin = int(np.round(sr)*2.5)
+    
+    
+    # before 10 to 16
+    w0 = sigma[0] / (sr/2)
+    w1 = sigma[1] / (sr/2)
+    
+    EEGbp = sleepy.my_bpfilter(EEG, w0, w1)
+    res = hilbert(EEGbp)
+
+    amplitude_envelope = np.abs(res)
+
+    if len(M) == 0:
+        M = sleepy.load_stateidx(ppath, name)[0]
+    
+    seq = sleepy.get_sequences(np.where(M==3)[0])
+    
+    nrem_idx = []
+    for s in seq:
+        si = s[0]
+        sj = s[-1]
+        
+        nrem_idx += list(range(si*nbin, sj*nbin))
+        
+        
+    std = np.std(amplitude_envelope[nrem_idx])
+    thr = std * std_thr
+    
+    seq = sleepy.get_sequences(np.where(amplitude_envelope > thr)[0])
+    
+    spindle = []
+    spindle_idx = []
+    for s in seq:
+        if 0.5 <= len(s)*(1/sr) <= 3:
+            onset = s[0]
+            ctr = (s[-1] - s[0]) * 0.5 + s[0]
+            offset = s[-1]
+
+            if M[int(onset/nbin)] == 3:
+                spindle.append([onset, ctr, offset])   
+                spindle_idx += list(range(s[0], s[-1]+1))
+            
+    ctr = [int(s[1]) for s in spindle]
+    
+    t = np.arange(0, EEG.shape[0])*(1/sr)
+
+    if pplot:
+        plt.figure()
+        plt.title(name)
+    
+        st = np.arange(0, len(M)) * (nbin*(1/sr))   
+        ax = plt.subplot(211)
+        plt.plot(st, M)
+        
+        ax = plt.subplot(212, sharex=ax)
+        plt.plot(t, EEG)
+        plt.plot(t, EEGbp)
+        plt.plot(t, amplitude_envelope)    
+        plt.plot(t[spindle_idx], amplitude_envelope[spindle_idx], 'r.')
+    
+    return spindle, t
+
+
+
+def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True, backup='', std_thr=1.5, ma_thr=10, ma_rem_exception=False, pplot_spindles=False):
+    pass
+
+    if type(unit_listing) == str:
+        units = load_units(ppath, unit_listing)
+    else:
+        units = unit_listing
+
+    for k in units:
+        for rec in units[k]:
+            rec.set_path(ppath, backup)
+
+    states = {1: 'REM', 2: 'Wake', 3: 'NREM'}
+    
+
+    # gather the name of all recording folders in the given data set:    
+    paths = []
+    recordings = []
+    for k in units:
+        for rec in units[k]:
+            name = rec.name
+            path = rec.path
+            
+            if not(name in recordings):
+                recordings.append(name)
+                paths.append(path)
+
+    # build dict mapping recording name onto the units within this recording
+    # recording folder name |--> unit_IDs
+    recordings_dict = dict()                    
+    for r in recordings:
+        recordings_dict[r] = []
+
+    for k in units:
+        for rec in units[k]:
+            recordings_dict[rec.name].append(k)
+    
+    data = []
+    for (name, path) in zip(recordings, paths):
+
+        idf = re.split('_', name)[0]
+        sr = sleepy.get_snr(path, name)
+        dt = 1/sr
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+
+        ndown = int(xdt/dt)
+
+        ipre  = int(pre/dt)
+        ipost = int(post/dt)
+
+        # all units (IDs) in this recording
+        rec_units = recordings_dict[name]
+        
+        # dict: unit_ID :---> units objects in the current recordings $name;
+        # why? The the same unit_ID may also be associated with other reocrdings
+        pdb.set_trace()
+
+        units_in_name = {}
+        for unit_ID in rec_units:
+            for unit in units[unit_ID]:
+                if unit.name == name:
+                    if unit_ID in units_in_name:
+                        units_in_name[unit_ID].append(unit)
+                    else:
+                        units_in_name[unit_ID] = [unit]
+                    
+        
+                
+        # brainstate
+        M = sleepy.load_stateidx(path, name)[0]
+        
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        spindles, t_eeg = detect_spindles(path, name, M=M, pplot=pplot_spindles, std_thr=std_thr)
+        spindles_ctr    = [int(s[1]) for s in spindles]
+        spindles_onset  = [int(s[0]) for s in spindles]
+        spindles_offset = [int(s[2]) for s in spindles]
+        
+
+        for unit_ID in units_in_name:
+            units_for_ID = units_in_name[unit_ID]
+            
+            for unit in units_for_ID:
+                pdb.set_trace()
+                train = unpack_unit(unit.path, unit.name, unit.grp, unit.un)[1]
+
+                for ctr, onset, offset in zip(spindles_ctr, spindles_onset, spindles_offset):
+                    
+
+
+                    #train = sleepy.downsample_vec(train, ndown)
+                    
+                    
+                    fr = train[onset-ipre:onset+ipost]
+                    fr = sleepy.downsample_vec(fr, ndown)
+                    
+                    
+                    t_spindle = np.arange(-int(pre/xdt), int(post/xdt))*xdt
+
+                    
+                    m = len(fr)
+                    #pdb.set_trace()
+                    
+                    data += zip([idf]*m, [unit_ID]*m, [unit.name]*m, [unit.grp]*m, [unit.un]*m, t_spindle, fr)
+                    
+
+    df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'recording', 'group', 'unit', 'time', 'fr'])            
+    
+    return df
 
 
 def time_morph(X, nstates):
