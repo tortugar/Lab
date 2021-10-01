@@ -3423,7 +3423,6 @@ def detect_spindles(ppath, name, M=[], pplot=False, std_thr=1.5, sigma=[7,15]):
 
 
 def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True, backup='', std_thr=1.5, ma_thr=10, ma_rem_exception=False, pplot_spindles=False):
-    pass
 
     if type(unit_listing) == str:
         units = load_units(ppath, unit_listing)
@@ -3433,9 +3432,6 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True,
     for k in units:
         for rec in units[k]:
             rec.set_path(ppath, backup)
-
-    states = {1: 'REM', 2: 'Wake', 3: 'NREM'}
-    
 
     # gather the name of all recording folders in the given data set:    
     paths = []
@@ -3540,6 +3536,119 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True,
     df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'recording', 'group', 'unit', 'time', 'fr'])            
     
     return df
+
+
+
+def phrem_correlation(ppath, unit_listing, pre, post, xdt=0.1, pzscore=True, backup='', std_thr=1.5, ma_thr=10, ma_rem_exception=False, pplot_spindles=False):
+
+    if type(unit_listing) == str:
+        units = load_units(ppath, unit_listing)
+    else:
+        units = unit_listing
+
+    for k in units:
+        for rec in units[k]:
+            rec.set_path(ppath, backup)
+
+    # gather the name of all recording folders in the given data set:    
+    paths = []
+    recordings = []
+    for k in units:
+        for rec in units[k]:
+            name = rec.name
+            path = rec.path
+            
+            if not(name in recordings):
+                recordings.append(name)
+                paths.append(path)
+
+    # build dict mapping recording name onto the units within this recording
+    # recording folder name |--> unit_IDs
+    recordings_dict = {r:[] for r in recordings}
+
+    for k in units:
+        for unit in units[k]:
+            recordings_dict[unit.name].append(k)
+    
+    data = []
+    for (name, path) in zip(recordings, paths):
+
+        idf = re.split('_', name)[0]
+        sr = sleepy.get_snr(path, name)
+        dt = 1/sr
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+
+        ndown = int(xdt/dt)
+
+        ipre  = int(pre/dt)
+        ipost = int(post/dt)
+
+        # all units (IDs) in this recording
+        rec_units = recordings_dict[name]
+        
+        # dict: unit_ID :---> units objects in the current recordings $name;
+        # why? The the same unit_ID may also be associated with other reocrdings
+        units_in_name = {}
+        for unit_ID in rec_units:
+            for unit in units[unit_ID]:
+                if unit.name == name:
+                    if unit_ID in units_in_name:
+                        units_in_name[unit_ID].append(unit)
+                    else:
+                        # There should be just one unit object of unit_ID in recording name
+                        units_in_name[unit_ID] = [unit]
+                    
+        
+                
+        # brainstate
+        M = sleepy.load_stateidx(path, name)[0]
+        
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        phrem_in_name = sleepy.phasic_rem(path, name)
+        
+
+        for unit_ID in units_in_name:
+            units_for_ID = units_in_name[unit_ID]
+            # there should be only one unit object associated with unit_ID in 
+            # recording $name
+            unit = units_for_ID[0]
+            if len(units_for_ID) > 1:
+                print('Something weird going on...')
+            
+            train = unpack_unit(unit.path, unit.name, unit.grp, unit.un)[1]
+
+            for rem_id in phrem_in_name:
+                for phrem in phrem_in_name[rem_id]:
+                
+                    onset = phrem[0]
+
+                    fr = train[onset-ipre:onset+ipost]
+                    fr = sleepy.downsample_vec(fr, ndown)
+                    
+                    
+                    t_phrem = np.arange(-int(pre/xdt), int(post/xdt))*xdt
+
+                    
+                    m = len(fr)
+                    #pdb.set_trace()
+                    
+                    data += zip([idf]*m, [unit_ID]*m, [unit.name]*m, [unit.grp]*m, [unit.un]*m, t_phrem, fr)
+                    
+
+    df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'recording', 'group', 'unit', 'time', 'fr'])            
+    
+    return df
+
 
 
 def time_morph(X, nstates):
