@@ -3423,7 +3423,7 @@ def detect_spindles(ppath, name, M=[], pplot=False, std_thr=1.5, sigma=[7,15]):
 
 
 
-def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True, backup='', std_thr=1.5, pzscore=True, ma_thr=10, ma_rem_exception=False, pplot_spindles=False):
+def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, backup='', std_thr=1.5, pzscore=False, ma_thr=10, ma_rem_exception=False, pplot_spindles=False):
 
     if type(unit_listing) == str:
         units = load_units(ppath, unit_listing)
@@ -3475,8 +3475,6 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True,
         
         # dict: unit_ID :---> units objects in the current recordings $name;
         # why? The the same unit_ID may also be associated with other reocrdings
-        pdb.set_trace()
-
         units_in_name = {}
         for unit_ID in rec_units:
             for unit in units[unit_ID]:
@@ -3509,7 +3507,6 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True,
             units_for_ID = units_in_name[unit_ID]
             
             for unit in units_for_ID:
-                pdb.set_trace()
                 train = unpack_unit(unit.path, unit.name, unit.grp, unit.un)[1]
                 if pzscore:
                     train = sleepy.downsample_vec(train, ndown)
@@ -3517,8 +3514,8 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True,
                                 
                 for ctr, onset, offset in zip(spindles_ctr, spindles_onset, spindles_offset):                    
                     if pzscore:
-                        onset = int(onset/xdt)                        
-                        fr = train[onset - int(pre/xdt): onset:int(post/xdt)]
+                        onset = int(onset/ndown)                        
+                        fr = train[onset - int(pre/xdt): onset+int(post/xdt)]
                     else:
                         fr = train[onset-ipre:onset+ipost]
                         fr = sleepy.downsample_vec(fr, ndown)
@@ -3526,8 +3523,8 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True,
                     
                     t_spindle = np.arange(-int(pre/xdt), int(post/xdt))*xdt                    
                     m = len(fr)
-                    #pdb.set_trace()
-                    
+
+                    #pdb.set_trace()                    
                     data += zip([idf]*m, [unit_ID]*m, [unit.name]*m, [unit.grp]*m, [unit.un]*m, t_spindle, fr)
                     
 
@@ -3633,7 +3630,7 @@ def phrem_correlation(ppath, unit_listing, pre, post, xdt=0.1, pzscore=False, ba
                     onset = phrem[0]
 
                     if pzscore:
-                        onset = int(onset/xdt)
+                        onset = int(onset/ndown)
                         fr = train[onset-int(pre/xdt):onset+int(post/xdt)]
                     else:
                         fr = train[onset-ipre:onset+ipost]
