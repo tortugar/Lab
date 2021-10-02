@@ -3329,6 +3329,7 @@ def fr_transitions_singletrials(ppath, unit_listing, transition, pre, post, si_t
     return MX
 
 
+
 def detect_spindles(ppath, name, M=[], pplot=False, std_thr=1.5, sigma=[7,15]):
     """
     Detect spindles during NREM (only) using the algorithm described in Niethard et al. 2018.
@@ -3536,7 +3537,8 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, pzscore=True,
 
 
 
-def phrem_correlation(ppath, unit_listing, pre, post, xdt=0.1, pzscore=True, backup='', std_thr=1.5, ma_thr=10, ma_rem_exception=False, pplot_spindles=False):
+def phrem_correlation(ppath, unit_listing, pre, post, xdt=0.1, pzscore=False, backup='', 
+                      ma_thr=10, ma_rem_exception=False, pplot_spindles=False):
 
     if type(unit_listing) == str:
         units = load_units(ppath, unit_listing)
@@ -3558,7 +3560,6 @@ def phrem_correlation(ppath, unit_listing, pre, post, xdt=0.1, pzscore=True, bac
             if not(name in recordings):
                 recordings.append(name)
                 paths.append(path)
-
 
     # build dict mapping recording name onto the units within this recording
     # recording folder name |--> unit_IDs
@@ -3596,9 +3597,7 @@ def phrem_correlation(ppath, unit_listing, pre, post, xdt=0.1, pzscore=True, bac
                     else:
                         # There should be just one unit object of unit_ID in recording name
                         units_in_name[unit_ID] = [unit]
-                    
-        
-                
+                                            
         # brainstate
         M = sleepy.load_stateidx(path, name)[0]
         
@@ -3626,13 +3625,19 @@ def phrem_correlation(ppath, unit_listing, pre, post, xdt=0.1, pzscore=True, bac
             if name != unit.name:
                 print('ERROR: something wrong')
             train = unpack_unit(unit.path, unit.name, unit.grp, unit.un)[1]
+            if pzscore:
+                train = (train - train.mean()) / train.std()
 
             for rem_id in phrem_in_name:
                 for phrem in phrem_in_name[rem_id]:
                     onset = phrem[0]
 
-                    fr = train[onset-ipre:onset+ipost]
-                    fr = sleepy.downsample_vec(fr, ndown)
+                    if pzscore:
+                        onset = int(onset/xdt)
+                        fr = train[onset-int(pre/xdt):onset+int(post/xdt)]
+                    else:
+                        fr = train[onset-ipre:onset+ipost]
+                        fr = sleepy.downsample_vec(fr, ndown)
                     
                     t_phrem = np.arange(-int(pre/xdt), int(post/xdt))*xdt
                     
