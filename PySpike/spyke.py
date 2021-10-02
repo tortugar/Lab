@@ -3624,6 +3624,8 @@ def phrem_correlation(ppath, unit_listing, pre, post, xdt=0.1, pzscore=False, ba
             train = unpack_unit(unit.path, unit.name, unit.grp, unit.un)[1]
             if pzscore:
                 train = (train - train.mean()) / train.std()
+                train = sleepy.downsample_vec(train, ndown)
+
 
             for rem_id in phrem_in_name:
                 for phrem in phrem_in_name[rem_id]:
