@@ -215,13 +215,15 @@ def show_rois(ipath, name, idx_list, bnd_list,blk=False) :
     
 
 
-def draw_rois(ROIs, axes, c, show_num=True):
+def draw_rois(ROIs, axes, c, show_num=True, lw=1):
     """
     helper function for plot_rois
+    
+    :param c: color
     """
     i=0
     for (x,y) in ROIs :
-        l = plt.Line2D(y+[y[0]], x+[x[0]], color=c)
+        l = plt.Line2D(y+[y[0]], x+[x[0]], color=c, lw=lw)
         if show_num:
             axes.text(np.max(y)-5, np.min(x)+7, str(i), fontsize=10, color=c,bbox=dict(facecolor='w', alpha=0.))
         axes.add_line(l)
@@ -229,7 +231,7 @@ def draw_rois(ROIs, axes, c, show_num=True):
 
 
 
-def plot_rois(ipath, name, roi_id, roi_set=[], amap=True, show_num=True):
+def plot_rois(ipath, name, roi_id, roi_set=[], amap=True, show_num=True, pplot=True):
     """
     plot ROIs along with activity map or average image
     :param ipath, name: imaging false folder and recording name
@@ -243,9 +245,11 @@ def plot_rois(ipath, name, roi_id, roi_set=[], amap=True, show_num=True):
         image = so.loadmat(os.path.join(ipath, name, 'recording_' + name + '_actmap.mat'))['mean']
     else:
         image = so.loadmat(os.path.join(ipath, name, 'recording_' + name + '_alignedmean.mat'))['mean']
-    plt.figure()
-    axes = plt.subplot(111)
-    axes.imshow(image, cmap='gray', vmin=0, vmax=np.percentile(image, 99.5))
+
+    if pplot:
+        plt.figure()
+        axes = plt.subplot(111)
+        axes.imshow(image, cmap='gray', vmin=0, vmax=np.percentile(image, 99.5))
     
     (ROI_coords, ROIs) = load_roilist(ipath, name, roi_id)
     if len(roi_set) > 0:
@@ -253,7 +257,10 @@ def plot_rois(ipath, name, roi_id, roi_set=[], amap=True, show_num=True):
     else:
         ROIs_sel = ROIs
     
-    draw_rois(ROIs_sel, axes, 'red', show_num=show_num)
+    if pplot: 
+        draw_rois(ROIs_sel, axes, 'red', show_num=show_num)
+        
+    return ROIs_sel
 
 
 
@@ -2899,8 +2906,6 @@ def detect_spindles(ppath, name, M=[], pplot=False, std_thr=1.5, sigma=[7,15]):
         time vector of raw EEG.
 
     """
-    
-    
     from scipy.signal import hilbert
 
     EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
@@ -3670,8 +3675,9 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         DESCRIPTION. The default is True.
     vm : TYPE, optional
         DESCRIPTION. The default is -1.
-    tstart : TYPE, optional
-        DESCRIPTION. The default is 0.
+    tstart : float, optional
+        Beginning [in seconds] of the shown interval in the recording. The default is 0.
+        NOTE: tstart and tend only work for show_avgs=False
     tend : TYPE, optional
         DESCRIPTION. The default is -1.
     emg_ticks : TYPE, optional
@@ -3708,7 +3714,6 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
     recordings = list(roi_mapping.columns)
     recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
     
-    data = []
     data_r = []
     for rec in recordings:
         print(rec)
