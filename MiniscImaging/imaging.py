@@ -3193,6 +3193,10 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     -------
     df : pd.DataFrame
         with columns ['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time', 'phrem_ID'].
+        
+    df_phrem: pd.DataFrame
+        average DF/F activity during phasic REM and during baseline interval of equal duration preceding the phasic REM episode
+        columns ['mouse' ,'recording', 'Type', 'ID', 'dff_pre', 'dff_post', 'phrem_ID']
 
     """
     pfilt = True
@@ -3209,6 +3213,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     data = []
     phrem_ID = 0
     data_spec = []
+    data_phrem = []
     for rec in recordings:
         print(rec)
         img_time = imaging_timing(ipath, rec)
@@ -3383,9 +3388,24 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                             m = len(dff_onset)
                             data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, 
                                         dff_ctr, dff_onset, dff_offset, t_phrem, [phrem_ID]*m)
+                            
+                            
+                            ph_dur = tk-ti
+                            idx_pre = eeg2img_time([ti-ph_dur, ti], img_time)                        
+                            dff_pre  = dff[idx_pre[0] : idx_pre[1]+1].mean()
+                            
+                            idx_post = eeg2img_time([ti, tk], img_time)                        
+                            dff_post = dff[idx_post[0] : idx_post[1]+1].mean()
+
+                            data_phrem += [[idf, rec, typ, ID, dff_pre,  'pre',  phrem_ID]]
+                            data_phrem += [[idf, rec, typ, ID, dff_post, 'post', phrem_ID]]
+                            data_phrem += [[idf, rec, typ, ID, dff_post - dff_pre, 'diff', phrem_ID]]
+                            
+                            
                             phrem_ID += 1
                                                                         
     df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time', 'phrem_ID'])        
+    df_phrem = pd.DataFrame(data=data_phrem, columns=['mouse' ,'recording', 'Type', 'ID', 'dff', 'time', 'phrem_ID'])        
     
     # average across ROIs
     if roi_avg:
@@ -3395,7 +3415,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     if eeg_spec:
         df_spec = pd.DataFrame(data=data_spec, columns=['mouse', 'recording', 'freq', 'time', 'pow'])
     
-    return df, df_spec
+    return df, df_spec, df_phrem
 
 
 
