@@ -546,7 +546,7 @@ def merge_roimapping(mappings):
 
 
 
-def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True, dff_filt=False, f_cutoff=2.0):
+def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True, dff_filt=False, f_cutoff=2.0, dff_var='dff'):
     """
     calculate average ROI DF/F activity during each brain state and then 
     perform statistics for ROIs to classify them into REM-max, Wake-max, or NREM-max.
@@ -562,6 +562,9 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
                        into REM > Wake > NREM (R>W>N) and REM > NREM > Wake (R>N>W) ROIs
     :param single_mice: boolean, if True use separate colors for single mice in 
                         summary plots
+    :param dff_var: Default is 'dff'. Use raw DF/F signal ('dff'), denoised DF/F signal 
+                    using OASIS algorithm ('dff_dn'), or deconvoluted DF/F signal ('dff_sp').
+                    In case of 'dff_dn' or 'dff_sp', make sure to run first script denoise_dff.py
     """
     
     import pingouin as pg
@@ -585,7 +588,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
         if not(os.path.isfile(dff_file)):
             calculate_dff(ipath, rec, roi_list)
-        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
         # brainstate
         M = sleepy.load_stateidx(ipath, rec)[0]
         state_idx = {1:[], 2:[], 3:[]}
@@ -1174,7 +1177,7 @@ def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold
 
 
 def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_threshold, sj_threshold, pzscore=False,
-                        pspec=True, fmax=20, ylim=[], xticks=[], vm=[], cb_ticks=[], ma_thr=0, ma_rem_exception=True, spe_filt=[]):
+                        pspec=True, fmax=20, ylim=[], xticks=[], vm=[], cb_ticks=[], ma_thr=0, ma_rem_exception=True, spe_filt=[], dff_var='dff'):
     """
     calculate average DF/F activity for ROIs along brain state transitions. The DF/F activity is binned like the hypnogram,
     using the function &downsample_dff2bs(...)
@@ -1204,6 +1207,8 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
     :param cb_ticks: ticks for colorbar
     :param ma_thr: wake sequences s with round(len(s)*dt) <= ma_thr are set to NREM
     :param ma_rem_exception: if True, don't interprete wake periods following REM as MA (i.e. NREM)
+    :param dff_var: string. Three options: 'dff' - raw DF/F signal; 
+           'dff_dn' - denoised DF/F signal; 'dff_sp' - deconvolved DF/F signal
 
     Example call:
     mx, df = imaging.brstate_transitions(ppath, df_class[df_class['Type']=='N-max'], [[3,1], [1,2]], 60, 30, [60, 60, 60], [30, 30, 30])
@@ -1248,7 +1253,7 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
         if not(os.path.isfile(dff_file)):
             calculate_dff(ipath, rec, roi_list)
-        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
         DFF = downsample_dff2bs(ipath, rec, roi_list, psave=False, peaks=False, dff_data = DFF)
         
         # brainstate
@@ -3154,7 +3159,7 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
 
 def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True, 
                       ma_thr=10, ma_rem_exception=False, pfilt=False, f_cutoff=2.0, 
-                      local_mean='pre', roi_avg=True, eeg_spec=False):
+                      local_mean='pre', roi_avg=True, eeg_spec=False, dff_var='dff'):
     """
     Calculate phasic REM-triggered for all ROIs
 
@@ -3242,7 +3247,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
         if not(os.path.isfile(dff_file)):
             calculate_dff(ipath, rec, roi_list)
-        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
         # brainstate
         M = sleepy.load_stateidx(ipath, rec)[0]
         
@@ -3680,7 +3685,7 @@ def plot_catraces(ipath, name, roi_id, cf=0, bcorr=1, pspec = False, vm=[], freq
 
 def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, tend=-1, 
                              emg_ticks=[], cb_ticks=[], show_avgs=True, pnorm_spec=False, 
-                             fmax=20, show_peaks=False, dff_filt=False, f_cutoff=2.0):
+                             fmax=20, show_peaks=False, dff_filt=False, f_cutoff=2.0, dff_var='dff'):
     """
     For each mouse in the given ROI mapping, plot all ROIs sorted by different classes. 
     If $show_avgs = True, plot for each class the average across all ROIs.
@@ -3711,6 +3716,12 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         If True, lowpass filter calcium traces with cutoff frequency...
     f_cutoff: float, optional
         Cutoff frequency for lowpass filter.
+    dff_var: string, optional
+        Type of DF/F signal:
+            'dff': Use unprocessed DF/F signal
+            'dff_dn': Use denoised DF/F signal
+            'dff_sp': Use deconvoluted DF/F signal
+        For denoising and deconvolution run the script denoise_dff.py
 
     Returns
     -------
@@ -3761,15 +3772,13 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
         t = np.arange(istart, iend)*sdt
 
         
-        
-        
         # load DF/F for recording rec 
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
         if not(os.path.isfile(dff_file)):
             calculate_dff(ipath, rec, roi_list)
 
         #pdb.set_trace()
-        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
         
         img_time = imaging_timing(ipath, rec) 
         [istart_dff, iend_dff] = eeg2img_time([istart*sdt, iend*sdt], img_time)
@@ -3804,7 +3813,6 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
                 
                 dff = DFF[:,roi_ids].mean(axis=1)
                 m = len(dff)
-                #data += zip([idf]*m, [rec]*m, [typ]*m, t, dff, M)
             if len(roi_ids) >= 2:
                 rval = []
                 block = DFF[:,roi_ids]
