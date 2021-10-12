@@ -546,7 +546,8 @@ def merge_roimapping(mappings):
 
 
 
-def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True, dff_filt=False, f_cutoff=2.0, dff_var='dff'):
+def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True, dff_filt=False, f_cutoff=2.0, dff_var='dff', 
+                ma_thr=0, ma_rem_exception=False):
     """
     calculate average ROI DF/F activity during each brain state and then 
     perform statistics for ROIs to classify them into REM-max, Wake-max, or NREM-max.
@@ -565,6 +566,9 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
     :param dff_var: Default is 'dff'. Use raw DF/F signal ('dff'), denoised DF/F signal 
                     using OASIS algorithm ('dff_dn'), or deconvoluted DF/F signal ('dff_sp').
                     In case of 'dff_dn' or 'dff_sp', make sure to run first script denoise_dff.py
+    :param ma_thr: wake sequences s with round(len(s)*dt) <= ma_thr are set to NREM
+    :param ma_rem_exception: if True, don't interprete wake periods following REM as MA (i.e. NREM)
+
     """
     
     import pingouin as pg
@@ -591,6 +595,19 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
         # brainstate
         M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        # flatten out MAs
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+                
         state_idx = {1:[], 2:[], 3:[]}
         
         # load imaging timing
@@ -677,12 +694,10 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
                             
             tmp = [r, rmean, wmean, nmean, res.F.iloc[0], res['p-unc'].iloc[0], res2['p-tukey'].iloc[0], roi_type]
             data.append(tmp)
-            
         
         else:
             roi_type = 'X'
 
-            #print(res)
             # R>N>W
             if (rmean > wmean) and (rmean > nmean) and (nmean  > wmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
