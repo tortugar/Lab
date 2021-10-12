@@ -3457,6 +3457,7 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, backup='', st
             recordings_dict[rec.name].append(k)
     
     data = []
+    data_spindle = []
     for (name, path) in zip(recordings, paths):
 
         idf = re.split('_', name)[0]
@@ -3512,13 +3513,21 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, backup='', st
                     train = sleepy.downsample_vec(train, ndown)
                     train = (train-train.mean()) / train.std()
                                 
-                for ctr, onset, offset in zip(spindles_ctr, spindles_onset, spindles_offset):                    
+                for ctr, onset, offset in zip(spindles_ctr, spindles_onset, spindles_offset):       
+                    dur = (offset-onset) * dt
+                    
                     if pzscore:
                         onset = int(onset/ndown)                        
-                        fr = train[onset - int(pre/xdt): onset+int(post/xdt)]
+                        fr = train[onset - int(pre/xdt) : onset+int(post/xdt)]
+                        
+                        fr_pre  = train[onset - int(dur/xdt) : onset].mean()
+                        fr_post = train[onset : onset + int(dur/xdt)].mean()
                     else:
                         fr = train[onset-ipre:onset+ipost]
                         fr = sleepy.downsample_vec(fr, ndown)
+
+                        fr_pre  = train[onset-dur : onset]
+                        fr_post = train[onset : onset+dur]
                     
                     
                     t_spindle = np.arange(-int(pre/xdt), int(post/xdt))*xdt                    
@@ -3526,11 +3535,16 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, backup='', st
 
                     #pdb.set_trace()                    
                     data += zip([idf]*m, [unit_ID]*m, [unit.name]*m, [unit.grp]*m, [unit.un]*m, t_spindle, fr)
-                    
+
+                    data_spindle += [[idf, unit_ID, unit.name, unit.grp, unit.un, 'pre',  fr_pre]]
+                    data_spindle += [[idf, unit_ID, unit.name, unit.grp, unit.un, 'post', fr_post]]
+                    data_spindle += [[idf, unit_ID, unit.name, unit.grp, unit.un, 'diff', fr_post-fr_pre]]
+
 
     df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'recording', 'group', 'unit', 'time', 'fr'])            
+    df_spindle = pd.DataFrame(data=data_spindle, columns=['mouse', 'ID', 'recording', 'group', 'unit', 'time', 'fr'])
     
-    return df
+    return df, df_spindle
 
 
 
