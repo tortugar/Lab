@@ -547,7 +547,7 @@ def merge_roimapping(mappings):
 
 
 def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True, dff_filt=False, f_cutoff=2.0, dff_var='dff', 
-                ma_thr=0, ma_rem_exception=False):
+                ma_thr=0, ma_rem_exception=False, awake=False):
     """
     calculate average ROI DF/F activity during each brain state and then 
     perform statistics for ROIs to classify them into REM-max, Wake-max, or NREM-max.
@@ -568,6 +568,8 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
                     In case of 'dff_dn' or 'dff_sp', make sure to run first script denoise_dff.py
     :param ma_thr: wake sequences s with round(len(s)*dt) <= ma_thr are set to NREM
     :param ma_rem_exception: if True, don't interprete wake periods following REM as MA (i.e. NREM)
+    :param wake: bool, if True, use only active wake was "wake". Active wake is defined based on 
+                 a threshold (mean + 1 std) applied to the EMG amplitude. 
 
     """
     
@@ -607,7 +609,23 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
                     else:
                         M[s] = 3
         
-                
+        if awake:
+            mu = [10, 100]
+            tmp = so.loadmat(os.path.join(ipath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
+            MSP = tmp['mSP']
+            freq = tmp['freq']
+            df = freq[1] - freq[0]
+            imu = np.where((freq>=mu[0]) & (freq<=mu[1]))[0]
+            
+            widx = np.where(M==2)[0]
+            ampl = np.sqrt(MSP[imu, :].sum(axis=0)*df)
+            wampl = ampl[widx]
+            thr = wampl.mean() + wampl.std()
+            awk_idx = widx[np.where(wampl>thr)[0]]
+            qwk_idx = np.setdiff1d(widx, awk_idx)
+            M[qwk_idx] = 4
+            
+        
         state_idx = {1:[], 2:[], 3:[]}
         
         # load imaging timing
