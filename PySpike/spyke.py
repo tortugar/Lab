@@ -3514,20 +3514,22 @@ def spindle_correlation(ppath, unit_listing, pre, post, xdt = 0.1, backup='', st
                     train = (train-train.mean()) / train.std()
                                 
                 for ctr, onset, offset in zip(spindles_ctr, spindles_onset, spindles_offset):       
-                    dur = (offset-onset) * dt
                     
                     if pzscore:
+                        dur = int((offset-onset) / ndown)
                         onset = int(onset/ndown)                        
                         fr = train[onset - int(pre/xdt) : onset+int(post/xdt)]
                         
-                        fr_pre  = train[onset - int(dur/xdt) : onset].mean()
-                        fr_post = train[onset : onset + int(dur/xdt)].mean()
+                        fr_pre  = train[onset - dur : onset].mean()
+                        fr_post = train[onset : onset + dur+1].mean()
                     else:
+                        dur = offset-onset
+
                         fr = train[onset-ipre:onset+ipost]
                         fr = sleepy.downsample_vec(fr, ndown)
 
                         fr_pre  = train[onset-dur : onset]
-                        fr_post = train[onset : onset+dur]
+                        fr_post = train[onset : onset+dur+1]
                     
                     
                     t_spindle = np.arange(-int(pre/xdt), int(post/xdt))*xdt                    
