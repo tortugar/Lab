@@ -2297,7 +2297,7 @@ def write_fr(ppath, name, grp, un):
 
 
 
-def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu=[10, 100], 
+def brstate_fr_plt(ppath, name, units, vm=[], fmax=30, tstart=0, tend=-1, r_mu=[10, 100], 
                    ma_thr=10, ma_mode=False, emg_ampl=True, emg_corr=0):
     """
     plot firing rate along spectrogram, brainstate, EMG amplitude using matplotlib
@@ -2305,7 +2305,8 @@ def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu=
     :param ppath: base folder
     :param name: recording name
     :param units: list of tuples, e.g., [(1,2), [2,2]] to plot unit 2 of group 1 and unit 2 of group 2
-    :param vm: float, set saturation level of EEG spectrogram heatmap
+    :param vm: list, if empty, automatrically set saturation level of EEG spectrogram heatmap;
+           otherwise, if tuple or list with 2 elements, set the colorrange to the given values.
     :param fmax: float, maximum frequency of EEG spectrogram
     :param tstart: float, tstart, first time point to be shown (in [s])
     :param tend: float, last time point to be shown (in [s]), if -1 show everything till the end
@@ -2392,10 +2393,13 @@ def brstate_fr_plt(ppath, name, units, vm=2.5, fmax=30, tstart=0, tend=-1, r_mu=
     axes1.spines["bottom"].set_visible(False)
     axes1.spines["left"].set_visible(False)
 
+    if len(vm) == 0:
+        vm = [0, med * 2.5]
+
     # show spectrogram
     ifreq = np.where(freq <= fmax)[0]
     axes2 = plt.axes([0.1, 0.75, 0.8, 0.2], sharex=axes1)
-    axes2.pcolorfast(t, freq[ifreq], SPEEG[ifreq, istart:iend], vmin=0, vmax=vm * med, cmap='jet')
+    axes2.pcolorfast(t, freq[ifreq], SPEEG[ifreq, istart:iend], vmin=vm[0], vmax=vm[1], cmap='jet')
     axes2.axis('tight')
     plt.ylabel('Freq (Hz)')
     sleepy.box_off(axes2)
