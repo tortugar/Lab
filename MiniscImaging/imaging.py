@@ -733,7 +733,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
                 # NEW
                 cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
                 
-                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                if cond1['p-tukey'].iloc[0] < 0.5 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'R>W>N'
                     
             # W-max
@@ -771,7 +771,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
     plt.ion()
     plt.figure()
     types = df_class['Type'].unique()
-    types = [i for i in types if not (i=='X')]
+    #types = [i for i in types if not (i=='X')]
     types.sort()
     
     j = 1
@@ -1979,6 +1979,7 @@ def pearson_state_corr(ipath, roi_mapping, band, ma_thr=10, min_dur=20, pnorm_sp
         ######################################################################
         # go through all ROIs in recording rec
         for index, row in rec_map.iterrows():
+            ID = row['ID']
             s=row[rec]
             roi_num = int(re.split('-', s)[1])
             dff = DFF[:,roi_num]
@@ -1998,9 +1999,9 @@ def pearson_state_corr(ipath, roi_mapping, band, ma_thr=10, min_dur=20, pnorm_sp
                 else:
                     sig = 'no'
                     
-                data.append([idf, rec, roi_num, r, p, sig, state_map[s]])
+                data.append([idf, rec, ID, roi_num, r, p, sig, state_map[s]])
     
-    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'ID', 'r', 'p', 'sig', 'state'])    
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'ID', 'roi_num', 'r', 'p', 'sig', 'state'])    
 
     return df
 
@@ -3192,7 +3193,7 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
 
 def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True, 
                       ma_thr=10, ma_rem_exception=False, pfilt=False, f_cutoff=2.0, 
-                      local_mean='pre', roi_avg=True, eeg_spec=False, dff_var='dff'):
+                      local_mean='pre', roi_avg=True, eeg_spec=False, dff_var='dff', prand=False, pmean_diff=True):
     """
     Calculate phasic REM-triggered for all ROIs
 
@@ -3226,6 +3227,10 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
         The default is 'pre'.
     roi_avg : bool, optional
         If true, calculate for each ROI, average across all phREM events. The default is True.
+    pmean_diff: value used for statisitics; If False, calculate difference between mean baseline
+        and max or min value during phasic REM, depending on whether the mean DF/F activity
+        is increased or decreased during phasic REM compared with the activity during baseline.
+    prand: if True, randomize the timepoint of each phasic REM event for control.
 
     Returns
     -------
@@ -3252,6 +3257,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     phrem_ID = 0
     data_spec = []
     data_phrem = []
+    data_ev = []
     for rec in recordings:
         print(rec)
         img_time = imaging_timing(ipath, rec)
@@ -3350,8 +3356,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                 data_spec += zip([idf]*m, [rec]*m,  fvec_spec, tvec_spec, pxx)
         
         ######################################################################
-        
-        
+                
         # dict: typ -> 3D array (rois x frequency x time)
         for typ in types:
             for (roi_j,ID) in roi_dict[typ]:
@@ -3381,9 +3386,14 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                         
                     else:                        
                         # onset
-                        ti = t_onset
-                        tj = t_ctr
-                        tk = t_offset
+                        if prand == True:
+                            randd = np.random.uniform(30) - 15
+                        else:
+                            randd = 0
+                        
+                        ti = t_onset + randd
+                        tj = t_ctr + randd
+                        tk = t_offset + randd
                         if ti-ipre > 0 and tk+ipost < img_time[-1]:
                             t_phrem = np.arange(-int(pre/xdt), int(post/xdt))*xdt   
                             
@@ -3422,7 +3432,9 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                                 dff_offset -= dff_offset[np.where(t_phrem<0)].mean()
                             elif local_mean == 'prepost':
                                 dff_offset -= dff_offset.mean()
-                            
+                            else:
+                                pass
+                                                            
                             m = len(dff_onset)
                             data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, 
                                         dff_ctr, dff_onset, dff_offset, t_phrem, [phrem_ID]*m)
@@ -3430,20 +3442,32 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                             
                             ph_dur = tk-ti
                             idx_pre = eeg2img_time([ti-ph_dur, ti], img_time)                        
-                            dff_pre  = dff[idx_pre[0] : idx_pre[1]+1].mean()
+                            dff_pre  = dff[idx_pre[0] : idx_pre[1]]
                             
-                            idx_post = eeg2img_time([ti, tk], img_time)                        
-                            dff_post = dff[idx_post[0] : idx_post[1]+1].mean()
+                            idx_post = eeg2img_time([ti, ti+ph_dur], img_time)                        
+                            dff_post = dff[idx_post[0] : idx_post[1]]
 
-                            data_phrem += [[idf, rec, typ, ID, dff_pre,  'pre',  phrem_ID]]
-                            data_phrem += [[idf, rec, typ, ID, dff_post, 'post', phrem_ID]]
-                            data_phrem += [[idf, rec, typ, ID, dff_post - dff_pre, 'diff', phrem_ID]]
+                            data_phrem += [[idf, rec, typ, ID, dff_pre.mean(),  'pre',  phrem_ID]]
+                            data_phrem += [[idf, rec, typ, ID, dff_post.mean(), 'post', phrem_ID]]
+                            if not pmean_diff:
+                                if dff_post.mean() > dff_pre.mean():
+                                    data_phrem += [[idf, rec, typ, ID, dff_post.max()-dff_pre.mean(), 'diff', phrem_ID]]
+                                else:
+                                    data_phrem += [[idf, rec, typ, ID, dff_post.min()-dff_pre.mean(), 'diff', phrem_ID]]
+                            else:
+                                data_phrem += [[idf, rec, typ, ID, dff_post.mean()-dff_pre.mean(), 'diff', phrem_ID]]
+                                                            
+                            m = len(dff_pre)
+                            data_ev += zip([idf]*m, [typ]*m, [ID]*m, dff_pre, ['pre']*m, [phrem_ID]*m)
+                            m = len(dff_post)
+                            data_ev += zip([idf]*m, [typ]*m, [ID]*m, dff_post, ['post']*m, [phrem_ID]*m)
                             
                             
                             phrem_ID += 1
                                                                         
     df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time', 'phrem_ID'])        
     df_phrem = pd.DataFrame(data=data_phrem, columns=['mouse' ,'recording', 'Type', 'ID', 'dff', 'time', 'phrem_ID'])        
+    df_ev = pd.DataFrame(data=data_ev, columns=['mouse' ,'Type', 'ID', 'dff', 'time', 'phrem_ID'])        
     
     # average across ROIs
     if roi_avg:
@@ -3453,7 +3477,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     if eeg_spec:
         df_spec = pd.DataFrame(data=data_spec, columns=['mouse', 'recording', 'freq', 'time', 'pow'])
     
-    return df, df_spec, df_phrem
+    return df, df_spec, df_phrem, df_ev
 
 
 
@@ -3845,7 +3869,6 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             if len(roi_ids) > 0:
                 
                 dff = DFF[:,roi_ids].mean(axis=1)
-                m = len(dff)
             if len(roi_ids) >= 2:
                 rval = []
                 block = DFF[:,roi_ids]
@@ -3893,7 +3916,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             P = so.loadmat(os.path.join(ipath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
             SPEMG = P['mSP'] 
         
-        
+            ###
             plt.ion()
             plt.figure(figsize=(10,8))
         
