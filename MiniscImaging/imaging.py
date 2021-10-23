@@ -673,7 +673,7 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         d = {'state':state, 'val':val}
         df = pd.DataFrame(d)
 
-        res = pg.anova(data=df, dv='val', between='state')
+        res  = pg.anova(data=df, dv='val', between='state')
         res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
  
         def _get_mean(s):
@@ -714,26 +714,28 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
             data.append(tmp)
         
         else:
+            # mode == 'rem'
             roi_type = 'X'
 
             # R>N>W
-            if (rmean > wmean) and (rmean > nmean) and (nmean  > wmean):  
+            if (rmean > wmean) and (rmean > nmean) and (nmean > wmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
                 cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
                 # NEW
                 cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
 
                 if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                    #R > N                              R > W                                N > W                               ANOVA
                     roi_type = 'R>N>W'
                     
             # R>W>N
-            elif (rmean > wmean) and (rmean > nmean) and (wmean  > nmean):  
+            elif (rmean > wmean) and (rmean > nmean) and (wmean > nmean):  
                 cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
                 cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
                 # NEW
                 cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
                 
-                if cond1['p-tukey'].iloc[0] < 0.5 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and cond3['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
                     roi_type = 'R>W>N'
                     
             # W-max
