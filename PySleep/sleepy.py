@@ -3439,6 +3439,7 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
 
     P = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
     SPEEG = P['SP']
+    
     # calculate median for choosing right saturation for heatmap
     med = np.median(SPEEG.max(axis=0))
     if len(vm) == 0:
@@ -5185,6 +5186,7 @@ def set_awake(M, MSP, freq, mu=[10, 100]):
     return M
 
 
+
 def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, 
                           mu=[10,100], ci='sd', pmode=1, pnorm = False, pplot=True, 
                           harmcs=0, harmcs_mode='iplt', iplt_level=0, peeg2=False, 
@@ -5534,7 +5536,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
     -------
     phrem : dict
         dict: start index of each REM episode in hypnogram --> all sequences of phasic REM episodes;
-        not that phREM sequences are represented as indices in the raw EEG
+        note that phREM sequences are represented as indices in the raw EEG
 
     """
     from scipy.signal import hilbert
@@ -5622,7 +5624,8 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
     # but this time concat the data to one long vector each (@trdiff_sm and rem_eeg)
     for s in seq:
         ta = s[0]*nbin
-        tb = s[-1]*(nbin+1)
+        #tb = s[-1]*(nbin+1)
+        tb = (s[-1]+1)*nbin
         tb = np.min((tb, neeg))
 
         eeg_idx = np.arange(ta, tb)
@@ -5675,8 +5678,6 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
         #thr4 = np.mean(eegh)    
         for q in cand:
             dur = ( (tridx[q[-1]]-tridx[q[0]]+1)/sr ) * 1000
-            #if 16250 > si*nbin * (1/sr) > 16100:
-            #    print((tridx[q[0]]+si*nbin) * (1/sr))
 
             if dur > 900 and np.min(sdiff[q]) < thr2 and np.mean(eegh[tridx[q[0]]:tridx[q[-1]]+1]) > thr3:
                 
@@ -5698,7 +5699,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
         file_sp  = os.path.join(ppath, name, 'sp_fine_%s.mat' % name)
 
         if (not os.path.isfile(file_sp)):
-            freq, t, SP = scipy.signal.spectrogram(EEG, fs=sr, window='hanning', nperseg=int(nsr_seg * sr),
+            freq, t, SP = scipy.signal.spectrogram(EEG, fs=sr, window='hann', nperseg=int(nsr_seg * sr),
                                                    noverlap=int(nsr_seg * sr * perc_overlap))
             # for nsr_seg=1 and perc_overlap = 0.9,
             # t = [0.5, 0.6, 0.7 ...]
