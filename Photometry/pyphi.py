@@ -1635,7 +1635,7 @@ def activity_transitions(ppath, recordings, transitions, pre, post, si_threshold
              df:         pd.DataFrame: index - time intervals, columns - transitions,
                          reports all the p-values for comparison of baseline interval (first $base_int seconds) vs.
                          each consecutive interval of equal duration. 
-             df_trans:   p.DataFrame. All individual trials. the DataFrame 
+             df_trans:   pd.DataFrame. All individual trials. the DataFrame 
                          has the following columns: ['mouse', 'time', 'dff', 'trans']
                          `trans` refers to the type of transition
     
@@ -2661,14 +2661,14 @@ def irem_corr(ppath, recordings, pzscore=True, ma_thr=0, rem_break=0, min_irem=-
         seq = sleepy.get_sequences(np.where(M==1)[0], np.round(rem_break/dt).astype('int')+1)
         if len(seq) >= 2:
             for (si, sj) in zip(seq[:-1], seq[1:]):
-                # indices of inter-REM period
+                # indices of inter-REM period                                
                 idx = range(si[-1]+1,sj[0])
                 
-                if min_irem > 0 and len(idx)*dt < min_irem:
+                if min_irem > 0 and np.round(len(idx)*dt) < min_irem:
                     print('skipping inter-REM period')
                     continue
-                
-                m_cut = M[idx]
+
+                m_cut = M[idx]                
                 dff_cut = dff[idx]
                 
                 rem_pre = len(si)*dt
@@ -2679,6 +2679,7 @@ def irem_corr(ppath, recordings, pzscore=True, ma_thr=0, rem_break=0, min_irem=-
                 
                 dff_irem = np.mean(dff_cut).mean()
                 dff_inrem = dff_cut[np.where(m_cut==3)[0]].mean()
+                
                 dff_iwake = dff_cut[np.where(m_cut==2)[0]].mean()
                 dff_pre = dff[si].mean()
                 dff_post = dff[sj].mean()
@@ -3176,15 +3177,12 @@ def dff_infraslow(ppath, recordings, ma_thr=10, min_dur = 160,
     band         -       frequency band used for calculation
     win          -       window (number of indices) for FFT calculation
     pplot        -       if True, plot window showing result
-    pnorm        -       if True, normalize spectrum (for each mouse) by its total power
-    
+    pnorm        -       if True, normalize "infraslow" PSD (for each mouse) by its total mean power (like in Lecci et al. 2017)
+    pnorm_spec   -       if True, normalize EEG spectrogram before calculating FFT for PSD (that we call infraslow)
     
     @RETURN:
     df           -       pd.DataFrame
     """
-    import scipy.linalg as LA
-
-    #min_dur = win*2.5
     min_dur = np.max([win*2.5, min_dur])
     
     if type(recordings) != list:
@@ -3308,8 +3306,6 @@ def dff_infraslow(ppath, recordings, ma_thr=10, min_dur = 160,
     df = pd.DataFrame(data=data, columns=['mouse', 'freq', 'pow', 'type'])
 
     return df
-
-
 
 
 
