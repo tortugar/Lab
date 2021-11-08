@@ -2617,6 +2617,13 @@ def state_firing_avg(ppath, unit_listing, backup='', pzscore=False):
 def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
     """
     Test tye type of each unit in $file_listing.
+    
+    The function performs first a Kruskal-Wallis test to test whether the 
+    firing rates of each unit are significantly modulated by the brain state.
+    In a second step, it then performs a Mann-Whitney U test to check
+    which state is most active. Multiple comparisons are accounted for using
+    Bonferroni correction.
+    
     Types tested for are REM-max, REM-on, REM>Wake>NREM, Wake-max, NREM-max, REM-off, sleep-active (=wake-min) units.
     The statistical test used is Ranksum test, together with Bonferroni correction
     :param ppath: base folder
@@ -2625,6 +2632,8 @@ def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
     :param backup: optional backup folder
     :return: dict with class/category as key and list of Recordings (objects of class Recording)
     """
+    import pingouin as pg
+    
     units = load_units(ppath, file_listing)
     for k in units:
         for rec in units[k]:
@@ -2646,13 +2655,31 @@ def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
 
         FR[k] = state_fr
 
+    kruskal_dict = {}
+    for k in units:
+        fr1 = FR[k][1]
+        fr2 = FR[k][2]
+        fr3 = FR[k][3]
+        
+        data = []
+        data += zip(['REM']*len(fr1), fr1)
+        data += zip(['REM']*len(fr2), fr2)
+        data += zip(['REM']*len(fr3), fr3)
+        
+        df_fr = pd.DataFrame(data=data, columns=['fr', 'state'])
+        
+        res = pg.kruskal(data=df_fr, dv='fr', between='state')
+        p_kruskal = res['p-unc']
+        kruskal_dict[k] = p_kruskal
+
     # Who is REM-max?
     rem_max = []
     rem_on  = []
     rem_wake = []
     for k in units:
+        
         # test if REM is largest
-        if FR[k][1].mean() > FR[k][2].mean() and FR[k][1].mean() > FR[k][3].mean():
+        if kruskal_dict[k] < 0.05 and FR[k][1].mean() > FR[k][2].mean() and FR[k][1].mean() > FR[k][3].mean():            
             p1 = stats.ranksums(FR[k][1], FR[k][2])[1]
             p2 = stats.ranksums(FR[k][1], FR[k][3])[1]
             print(p1, p2)
@@ -2666,16 +2693,20 @@ def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
             # or NREM > Wake
             p3 = stats.ranksums(FR[k][2], FR[k][3])[1]
             if p1 < alpha/3. and p2 < alpha/3.:
-                if p3 > alpha/3. or FR[k][3].mean() > FR[k][2].mean():
+                #if p3 > alpha/3. or FR[k][3].mean() > FR[k][2].mean():
+                if p3 < alpha/3. and FR[k][3].mean() > FR[k][2].mean():
                     rem_on.append(k)
-                else:
+                #else:
+            elif p3 < alpha/3. and FR[k][2].mean() > FR[k][3].mean():
                     rem_wake.append(k)
+            else:
+                pass
 
     # test for Wake-max
     wake_max = []
     for k in units:
         # test if REM is largest
-        if FR[k][2].mean() > FR[k][1].mean() and FR[k][2].mean() > FR[k][3].mean():
+        if kruskal_dict[k] < 0.05 and FR[k][2].mean() > FR[k][1].mean() and FR[k][2].mean() > FR[k][3].mean():
             p1 = stats.ranksums(FR[k][2], FR[k][1])[1]
             p2 = stats.ranksums(FR[k][2], FR[k][3])[1]
             # Bonferroni correction
@@ -2686,7 +2717,7 @@ def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
     nrem_max = []
     for k in units:
         # test if REM is largest
-        if FR[k][3].mean() > FR[k][1].mean() and FR[k][3].mean() > FR[k][2].mean():
+        if kruskal_dict[k] < 0.05 and FR[k][3].mean() > FR[k][1].mean() and FR[k][3].mean() > FR[k][2].mean():
             p1 = stats.ranksums(FR[k][3], FR[k][1])[1]
             p2 = stats.ranksums(FR[k][3], FR[k][2])[1]
             # Bonferroni correction
@@ -2697,7 +2728,7 @@ def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
     rem_off = []
     for k in units:
         # test if REM is largest
-        if FR[k][1].mean() < FR[k][2].mean() and FR[k][1].mean() < FR[k][3].mean():
+        if kruskal_dict[k] < 0.05 and FR[k][1].mean() < FR[k][2].mean() and FR[k][1].mean() < FR[k][3].mean():
             p1 = stats.ranksums(FR[k][1], FR[k][2])[1]
             p2 = stats.ranksums(FR[k][1], FR[k][3])[1]
             # Bonferroni correction
@@ -2708,7 +2739,7 @@ def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
     wake_min = []
     for k in units:
         # test if REM is largest
-        if FR[k][2].mean() < FR[k][1].mean() and FR[k][2].mean() < FR[k][3].mean():
+        if kruskal_dict[k] < 0.05 and FR[k][2].mean() < FR[k][1].mean() and FR[k][2].mean() < FR[k][3].mean():
             p1 = stats.ranksums(FR[k][2], FR[k][1])[1]
             p2 = stats.ranksums(FR[k][2], FR[k][3])[1]
             # Bonferroni correction
