@@ -547,7 +547,7 @@ def merge_roimapping(mappings):
 
 
 def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True, dff_filt=False, f_cutoff=2.0, dff_var='dff', 
-                ma_thr=0, ma_rem_exception=False, awake=False):
+                ma_thr=0, ma_rem_exception=False, awake=False, ann_name = ''):
     """
     calculate average ROI DF/F activity during each brain state and then 
     perform statistics for ROIs to classify them into REM-max, Wake-max, or NREM-max.
@@ -596,7 +596,10 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
             calculate_dff(ipath, rec, roi_list)
         DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
         # brainstate
-        M = sleepy.load_stateidx(ipath, rec)[0]
+        
+        M = sleepy.load_stateidx(ipath, rec, ann_name=rec + ann_name)[0]
+        if ann_name != '':
+            print('using annotation %s' % rec + ann_name + '.txt')
         
         # flatten out MAs
         if ma_thr>0:
@@ -3195,7 +3198,8 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
 
 def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True, 
                       ma_thr=10, ma_rem_exception=False, pfilt=False, f_cutoff=2.0, 
-                      local_mean='pre', roi_avg=True, eeg_spec=False, dff_var='dff', prand=False, pmean_diff=True):
+                      local_mean='pre', roi_avg=True, eeg_spec=False, dff_var='dff', 
+                      prand=False, pmean_diff=True, bsl_win = 0, ann_name='', change_mode='mean'):
     """
     Calculate phasic REM-triggered for all ROIs
 
@@ -3233,6 +3237,10 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
         and max or min value during phasic REM, depending on whether the mean DF/F activity
         is increased or decreased during phasic REM compared with the activity during baseline.
     prand: if True, randomize the timepoint of each phasic REM event for control.
+    change_mode: string with option 'mean' or 'amp', only relevent for pmean_diff == False; sets how an increase or decrease
+        in DF/F activity during phasic REM is defined: 
+        if change_mode == 'mean', then compare mean during phasic REM with that during preceding baseline
+        if change_mode == 'amp', test whether maximum change during phasic REM is larger or smaller then mean baseline activity.
 
     Returns
     -------
@@ -3290,7 +3298,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
             calculate_dff(ipath, rec, roi_list)
         DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
         # brainstate
-        M = sleepy.load_stateidx(ipath, rec)[0]
+        M = sleepy.load_stateidx(ipath, rec, ann_name = rec+ann_name)[0]
         
         if ma_thr>0:
             seq = sleepy.get_sequences(np.where(M==2)[0])
@@ -3441,8 +3449,10 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                             data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, 
                                         dff_ctr, dff_onset, dff_offset, t_phrem, [phrem_ID]*m)
                             
-                            
-                            ph_dur = tk-ti
+                            if bsl_win == 0:
+                                ph_dur = tk-ti
+                            else:
+                                ph_dur = bsl_win
                             idx_pre = eeg2img_time([ti-ph_dur, ti], img_time)                        
                             dff_pre  = dff[idx_pre[0] : idx_pre[1]]
                             
@@ -3452,7 +3462,17 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                             data_phrem += [[idf, rec, typ, ID, dff_pre.mean(),  'pre',  phrem_ID]]
                             data_phrem += [[idf, rec, typ, ID, dff_post.mean(), 'post', phrem_ID]]
                             if not pmean_diff:
-                                if dff_post.mean() > dff_pre.mean():
+                                a = dff_post.max()-dff_pre.mean()
+                                b = dff_post.min()-dff_pre.mean()
+                                
+                                if change_mode == 'mean':
+                                    cond = dff_post.mean() > dff_pre.mean()
+                                else:
+                                    cond = np.abs(a) > np.abs(b)
+                                
+                                if cond: 
+                                #if np.abs(a) > np.abs(b):
+                                #if dff_post.mean() > dff_pre.mean():
                                     data_phrem += [[idf, rec, typ, ID, dff_post.max()-dff_pre.mean(), 'diff', phrem_ID]]
                                 else:
                                     data_phrem += [[idf, rec, typ, ID, dff_post.min()-dff_pre.mean(), 'diff', phrem_ID]]
