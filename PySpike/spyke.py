@@ -2663,13 +2663,13 @@ def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
         
         data = []
         data += zip(['REM']*len(fr1), fr1)
-        data += zip(['REM']*len(fr2), fr2)
-        data += zip(['REM']*len(fr3), fr3)
+        data += zip(['Wake']*len(fr2), fr2)
+        data += zip(['NREM']*len(fr3), fr3)
         
-        df_fr = pd.DataFrame(data=data, columns=['fr', 'state'])
+        df_fr = pd.DataFrame(data=data, columns=['state', 'fr'])
         
         res = pg.kruskal(data=df_fr, dv='fr', between='state')
-        p_kruskal = res['p-unc']
+        p_kruskal = res['p-unc'].iloc[0]
         kruskal_dict[k] = p_kruskal
 
     # Who is REM-max?
@@ -2697,10 +2697,10 @@ def unit_classification(ppath, file_listing, alpha = 0.05, backup=''):
                 if p3 < alpha/3. and FR[k][3].mean() > FR[k][2].mean():
                     rem_on.append(k)
                 #else:
-            elif p3 < alpha/3. and FR[k][2].mean() > FR[k][3].mean():
-                    rem_wake.append(k)
-            else:
-                pass
+                elif p3 < alpha/3. and FR[k][2].mean() > FR[k][3].mean():
+                        rem_wake.append(k)
+                else:
+                    pass
 
     # test for Wake-max
     wake_max = []
