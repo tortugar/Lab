@@ -902,7 +902,7 @@ def upsample_mx(x, nbin):
     return y
 
 
-       
+
 def brstate_transitions(ipath, roi_mapping, transitions, pre, post, si_threshold, sj_threshold, xdt=1.0, pzscore=False,
                         pspec=True, fmax=20, ylim=[], xticks=[], vm=[], cb_ticks=[], ma_thr=0, ma_rem_exception=True):
     """
@@ -2206,7 +2206,7 @@ def bandpass_avgcorr_state(ipath, roi_mapping, band, fft_win=2.5, perc_overlap=0
     That is, for each recording and class average the DF/F activity and then calculate
     the cross-correlation.
 
-    See also banpass_corr_state    
+    See also bandpass_corr_state    
 
     Parameters
     ----------
@@ -2545,7 +2545,7 @@ def irem_corr(ipath, roi_mapping, pzscore=True, ma_thr=10, ma_rem_exception=True
 def pearson_state_avgcorr(ipath, roi_mapping, bands, ma_thr=10, min_dur=20, pnorm_spec=True, pzscore=True):
     """
     For each recording in the ROI mapping, determine first the average activity
-    for each neurons class and then correlated the average activty with different
+    for each neurons class and then correlate the average activty with different
     frequency bands in the EEG powerspectrum
     """
     
@@ -3182,18 +3182,153 @@ def spindle_correlation(ipath, roi_mapping, ma_thr=10, ma_rem_exception=True,
                             dff_post = time_morph(dff[idx_post[0] : idx_post[1]], int(post/xdt))                             
                             dff_offset = np.concatenate((dff_pre, dff_post))
 
-
                             t_spindle = np.arange(-int(pre/xdt), int(post/xdt))*xdt
-                                                    
-                            
+                                                                                
                             m = len(dff_onset)
                             data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, dff_ctr, dff_onset, dff_offset, t_spindle)
                                                                         
     df = pd.DataFrame(data=data, columns=['mouse' ,'recording', 'Type', 'ID', 'ROI', 'dff_ctr', 'dff_onset', 'dff_offset', 'time'])        
     # average across ROIs
     dfm = df.groupby(['mouse', 'Type', 'ID', 'time']).mean().reset_index()
+
     return dfm
 
+
+def phrem_remaverage(ipath, roi_mapping, pzscore=True, dff_var='dff', ann_name = '', phasic_exclude=True):
+    """
+    Calculate the average activity during REM for each ROI along with other metrics including
+    REM duration, number of phasic REM events for each single REM episode and ROI;
+    frequency of phasic REM for each single REM episode and ROI;
+    
+
+    Parameters
+    ----------
+    ipath : TYPE
+        DESCRIPTION.
+    roi_mapping : TYPE
+        DESCRIPTION.
+    pzscore : TYPE, optional
+        DESCRIPTION. The default is True.
+    dff_var : TYPE, optional
+        DESCRIPTION. The default is 'dff'.
+    ann_name : TYPE, optional
+        DESCRIPTION. The default is ''.
+    phasic_exclude : bool, optional.
+        If True, exclude phasic REM events from the calculation of the average 
+        ROI activity for the given REM episode. The default is True.
+
+    Returns
+    -------
+    df : pandas DataFrame 
+        with columns ['mouse', 'recording', 'Type', 'ID', 'dff_avg', 'rem_dur', 'phrem', 'phrem_freq', 'rem_ID'].
+        rem_dur: REM duration
+        phrem: number of phasic REM events for each single REM episode and ROI
+        phrem_freq: number of phasic REM events / REM duration for each single REM episode and ROI
+        dff_avg: average activity of each ROI during each REM episode
+
+    """
+    
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    
+    # dict: type -> ID -> peak spectrograms
+    data = []
+    for rec in recordings:
+        print(rec)
+        img_time = imaging_timing(ipath, rec)
+
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+                
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        types = rec_map.Type.unique()
+        types.sort()
+
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
+        
+        if pzscore:
+            for i in range(DFF.shape[1]):
+                dff = DFF[:,i]
+                DFF[:,i] = (dff-dff.mean()) / dff.std()
+        else:
+            DFF *= 100
+
+        
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec, ann_name = rec+ann_name)[0]
+        
+        rem_seq = sleepy.get_sequences(np.where(M==1)[0])
+                        
+        
+        phrem = sleepy.phasic_rem(ipath, rec)
+
+        ######################################################################
+        # collect all ROIs for each ROI Type
+        roi_dict = {typ:[] for typ in types}
+        # go through all ROIs in recording rec
+        for typ in types:
+            dfs = rec_map[rec_map.Type == typ]
+            roi_ids = []
+            for index, row in dfs.iterrows():
+                s=row[rec]
+                ID = row['ID']
+                roi_num = int(re.split('-', s)[1])
+                roi_list = int(re.split('-', s)[0])
+                roi_ids.append((roi_num,ID))                
+            roi_dict[typ] = roi_ids    
+
+        for seq in rem_seq:
+            a = seq[0]  * sdt
+            b = (seq[-1]+1) * sdt
+            idx = eeg2img_time([a,b], img_time)
+            idx = np.arange(idx[0], idx[-1])
+            
+            if seq[0] in phrem:                
+                num_phrem = len(phrem[seq[0]])
+            else:
+                num_phrem = 0
+
+            if phasic_exclude and seq[0] in phrem:
+                ph_events = phrem[seq[0]]
+                
+                for ph in ph_events:
+                    a = ph[0] * (1/sr)
+                    b = ph[-1] * (1/sr)
+                    
+                    phidx = eeg2img_time([a,b], img_time)
+                    
+                    idx = np.setdiff1d(idx, range(phidx[0], phidx[-1]+1))
+                                                
+            for typ in types:
+                for (roi_j,ID) in roi_dict[typ]:
+    
+                    dff = DFF[:,roi_j]
+
+                    rem_avg = dff[idx].mean()
+                    rem_dur = len(seq)*sdt
+                    rem_ID = rec + '__' + str(seq[0])
+
+                    if seq[0] in phrem:
+                        data += [[idf, rec, typ, ID, rem_avg, rem_dur, num_phrem, num_phrem/rem_dur, rem_ID]]                        
+                    
+                    else:
+                        data += [[idf, rec, typ, ID, rem_avg, rem_dur, 0, 0, rem_ID]]
+
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'Type', 'ID', 'dff_avg', 'rem_dur', 'phrem', 'phrem_freq', 'rem_ID'])                        
+                        
+    return df
+        
 
 
 def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True, 
@@ -3237,7 +3372,12 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
         and max or min value during phasic REM, depending on whether the mean DF/F activity
         is increased or decreased during phasic REM compared with the activity during baseline.
     prand: if True, randomize the timepoint of each phasic REM event for control.
-    change_mode: string with option 'mean' or 'amp', only relevent for pmean_diff == False; sets how an increase or decrease
+    bsl_win: float
+        Define duration of baseline window, used to calculate baseline activity of DF/F preceding
+        phasic REM. If bsl_win == 0, then use an interval as long as the following phasic REM event
+        to calculate the mean baseline activity.
+    change_mode: string with option 'mean' or 'amp'. 
+        only relevent for pmean_diff == False; sets how an increase or decrease
         in DF/F activity during phasic REM is defined: 
         if change_mode == 'mean', then compare mean during phasic REM with that during preceding baseline
         if change_mode == 'amp', test whether maximum change during phasic REM is larger or smaller then mean baseline activity.
@@ -3825,6 +3965,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
     recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
     
     data_r = []
+    data = []
     for rec in recordings:
         print(rec)
         idf = re.split('_', rec)[0]
@@ -3891,6 +4032,7 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             if len(roi_ids) > 0:
                 
                 dff = DFF[:,roi_ids].mean(axis=1)
+                data += zip([idf]*len(img_time), [rec]*len(img_time), [typ]*len(img_time), img_time, dff)
             if len(roi_ids) >= 2:
                 rval = []
                 block = DFF[:,roi_ids]
@@ -4115,10 +4257,10 @@ def plot_catraces_avgclasses(ipath, roi_mapping, pplot=True, vm=-1, tstart=0, te
             axes_legend.axes.get_xaxis().set_visible(False)
             axes_legend.axes.get_yaxis().set_visible(False)
 
-    #dfr = pd.DataFrame(data=data_r, columns=['mouse', 'recording', 'type', 'r', 'state'])
-    #df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'type', 'time', 'dff', 'state'])
+    dfr = pd.DataFrame(data=data_r, columns=['mouse', 'recording', 'Type', 'r', 'state'])
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'Type', 'time', 'dff'])
 
-    #return df, dfr
+    return df, dfr
     
 
 
