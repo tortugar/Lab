@@ -1789,7 +1789,8 @@ def dff_remrem_sections(ipath, roi_mapping, nsections=5, pzscore=False, ma_thr=1
 
 
 
-def bout_timecourse(ipath, roi_mapping, states, min_dur={}, nsections=4, ma_thr=10, ma_rem_exception=True, pzscore=True):
+def bout_timecourse(ipath, roi_mapping, states, min_dur={}, max_dur={}, 
+                    nsections=4, ma_thr=10, ma_rem_exception=True, pzscore=True):
     """
     Caluculate timecourse of DF/F activity throughout single episodes.
         
@@ -1822,6 +1823,11 @@ def bout_timecourse(ipath, roi_mapping, states, min_dur={}, nsections=4, ma_thr=
         min_dur['REM'] = 0
         min_dur['Wake'] = ma_thr
         min_dur['NREM'] = 0
+    
+    if len(max_dur) == 0:
+        max_dur['REM'] = np.inf
+        max_dur['Wake'] = np.inf
+        max_dur['NREM'] = np.inf
     
     state_map = {'REM':1, 'Wake':2, 'NREM':3}
 
@@ -1866,7 +1872,7 @@ def bout_timecourse(ipath, roi_mapping, states, min_dur={}, nsections=4, ma_thr=
         teeg = np.arange(0, len(M)*nbin) * (1/sr)
         for state in states:
             seq = sleepy.get_sequences(np.where(M==state_map[state])[0])
-            seq = [s for s in seq if len(s)*sdt >= min_dur[state]]
+            seq = [s for s in seq if len(s)*sdt >= min_dur[state] and len(s)*sdt < max_dur[state]]
         
             for s in seq:
                 si = s[0]*nbin
@@ -1899,6 +1905,150 @@ def bout_timecourse(ipath, roi_mapping, states, min_dur={}, nsections=4, ma_thr=
     df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'ROI', 'Type', 'section', 'state', 'dff'])
     df = df.groupby(['mouse', 'ID', 'Type', 'section', 'state']).mean().reset_index()
     
+    return df
+
+
+
+def dff_nremremwake(ipath, roi_mapping, nsections=[5, 5, 5], rem_bins = [0,60,120,180],
+                    ma_thr=10, ma_rem_exception=True, pzscore=True, dff_var='dff'):
+    """
+    
+
+    Parameters
+    ----------
+    ipath : TYPE
+        DESCRIPTION.
+    roi_mapping : TYPE
+        DESCRIPTION.
+    nsections : TYPE, optional
+        DESCRIPTION. The default is [10, 10, 10].
+    rem_bins : TYPE, optional
+        DESCRIPTION. The default is [0,60,120,180].
+    ma_thr : TYPE, optional
+        DESCRIPTION. The default is 10.
+    ma_rem_exception : TYPE, optional
+        DESCRIPTION. The default is True.
+    pzscore : TYPE, optional
+        DESCRIPTION. The default is True.
+    dff_var : TYPE, optional
+        DESCRIPTION. The default is 'dff'.
+
+    Returns
+    -------
+    df : pd.DataFrame with columns
+        ['mouse', 'ID', 'rem_bin', 'Type', 'section', 'dff'].
+
+    """
+    
+    bins = {}
+    i = 0
+    for (a,b) in zip(rem_bins[0:-1], rem_bins[1:]):
+        bins[i] = [a,b]
+        i += 1
+    #bins[i] = [rem_bins[-1], np.inf]
+    
+    recordings = list(roi_mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]   
+    
+    data = []
+    for rec in recordings:
+        print(rec)
+        img_time = imaging_timing(ipath, rec)
+
+        idf = re.split('_', rec)[0]
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+
+        rec_map = roi_mapping[roi_mapping[rec] != 'X']   
+        if sum(roi_mapping[rec] == 'X') == len(roi_mapping):
+            print('Recording %s: no ROI present' % rec)
+            continue
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
+        if pzscore:
+            for j in range(DFF.shape[1]):
+                DFF[:,j] = (DFF[:,j]-DFF[:,j].mean()) / DFF[:,j].std()
+
+        # brainstate
+        M = sleepy.load_stateidx(ipath, rec)[0]
+    
+        # flatten out MAs
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        remseq = sleepy.get_sequences(np.where(M==1)[0])
+        
+        for rem in remseq:
+            # select right bin for current REM duration
+            rem_dur = len(rem) * sdt
+            for bk in bins:
+                dur = bins[bk]
+                if dur[0] <= rem_dur < dur[-1]:
+                    rem_label = 'dur' + str(bk)
+            
+            # get start of preceding NREM sequence
+            a = rem[0]-1
+            while a>0 and M[a] == 3:
+                a = a-1
+            nremi = a+1
+            
+            # get end of wake period following REM
+            b = rem[-1]+1
+            while b < len(M) and M[b] == 2:
+                b = b+1
+            wakej = b-1
+            
+            #         REM
+            #       -------- 
+            # 0 2.5 5 7.5 10 12.5
+            # 0  1  2  3   4  5     <- indices
+            
+            nrem_ti = nremi * sdt
+            rem_ti  = rem[0] * sdt
+            rem_tj  = (rem[-1]+1) * sdt
+            wake_tj = (wakej+1) * sdt
+            
+            idx_nrem = eeg2img_time([nrem_ti,rem_ti], img_time)               
+            idx_rem  = eeg2img_time([rem_ti,rem_tj], img_time)               
+            idx_wake = eeg2img_time([rem_tj,wake_tj], img_time)               
+            
+            
+            for (index, row) in rec_map.iterrows():
+                ID = row['ID']
+                Type = row['Type']
+                
+                s=row[rec]
+                roi_num = int(re.split('-', s)[1])
+                roi_list = int(re.split('-', s)[0])
+                
+                dff_nrem = time_morph(DFF[idx_nrem[0]:idx_nrem[-1],:], nsections[0])
+                dff_rem  = time_morph(DFF[idx_rem[0]:idx_rem[-1],:], nsections[1])
+                dff_wake = time_morph(DFF[idx_wake[0]:idx_wake[-1],:], nsections[2])
+                
+                dff_cut = np.concatenate((dff_nrem, dff_rem, dff_wake), axis=0)
+                                
+                t1 = ['n'+str(i) for i in range(nsections[0])]
+                t2 = ['r'+str(i) for i in range(nsections[1])]
+                t3 = ['w'+str(i) for i in range(nsections[2])]
+                m = sum(nsections)
+
+                data += zip([idf]*m, [ID]*m, [rem_label]*m, [Type]*m, t1+t2+t3, dff_cut[:,roi_num])
+
+    df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'rem_bin', 'Type', 'section', 'dff'])        
+
     return df
 
 
