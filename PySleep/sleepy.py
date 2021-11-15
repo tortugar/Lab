@@ -522,9 +522,10 @@ def smooth_data(x, sig):
     # gaussian:
     gauss = lambda x, sig : (1/(sig*np.sqrt(2.*np.pi)))*np.exp(-(x*x)/(2.*sig*sig))
 
-    p = 1000000000
+    bound = 1.0/10000
     L = 10.
-    while (p > p):
+    p = gauss((L, sig))
+    while (p > bound):
         L = L+10
         p = gauss((L, sig))
 
