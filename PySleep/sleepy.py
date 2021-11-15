@@ -5585,7 +5585,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
         
         #[0      1         2         3]
         #[0-2500 2500-5000 5000-7500 7500 9999]
-        tb = (s[-1])*nbin
+        tb = (s[-1]+1)*nbin
         tb = np.min((tb, neeg))
                 
         eeg_idx = np.arange(ta, tb)        
@@ -5628,7 +5628,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
     for s in seq:
         ta = s[0]*nbin
         #tb = s[-1]*(nbin+1)
-        tb = (s[-1])*(nbin)
+        tb = (s[-1]+1) * nbin
         tb = np.min((tb, neeg))
 
         eeg_idx = np.arange(ta, tb)
