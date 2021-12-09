@@ -2576,7 +2576,12 @@ def state_firing_avg(ppath, unit_listing, backup='', pzscore=False):
     plt.ion()
     plt.figure()
     ax = plt.axes([0.2, 0.1, 0.35, 0.8])
+    mmean = FR[:,[0,2,1]].mean(axis=0)
+    sem = FR[:,[0,2,1]].std(axis=0) / np.sqrt(FR.shape[0])
+    
     plt.bar([1,2,3], FR[:,[0,2,1]].mean(axis=0), color='gray')
+    plt.errorbar([1,2,3], mmean, yerr=sem, color='black')
+    
     plt.plot([1,2,3], FR[:,[0,2,1]].T, color='black')
     sleepy.box_off(ax)
     plt.xticks([1,2,3], ['REM', 'NREM', 'Wake'], rotation=30)
