@@ -20,6 +20,7 @@ import os
 import re
 import h5py
 import sleepy
+import pdb
 
 
 def get_cycles(ppath, name):
@@ -183,6 +184,19 @@ def load_trigger(ppath, name) :
         triggered = np.array( h5py.File(file,'r').get('rem_trig') )
     except:
         triggered = so.loadmat(file)['rem_trig']
+    return np.squeeze(triggered)
+
+
+def load_pull(ppath, name) :
+    """load sleep-state detection signal
+    recorded during closed loop stimulation
+    from ppath, name ...
+    @RETURN: @laser, sequency of 0's and 1's """
+    file = os.path.join(ppath, name, 'pull_'+name+'.mat')
+    try:
+        triggered = np.array( h5py.File(file,'r').get('pull') )
+    except:
+        triggered = so.loadmat(file)['pull']
     return np.squeeze(triggered)
 
 
@@ -415,7 +429,7 @@ class MainWindow(QtGui.QMainWindow):
         plot laser, currently visited state and annotated states
         """
         self.graph_treck.clear()
-        self.graph_treck.plot(self.ftime*scale, self.K*0.5, pen=(150,150,150))
+        self.graph_treck.plot(self.ftime*scale, self.K[0:self.nbin]*0.5, pen=(150,150,150))
         if self.pplot_laser:
             self.graph_treck.plot(self.ftime*scale, self.laser, pen=(0,0,255))
 
@@ -774,7 +788,7 @@ class MainWindow(QtGui.QMainWindow):
             #A[np.where(A==0)] = 4
             # needs to be packed into 1 x nbin matrix for display
             self.M = np.zeros((1,self.nbin))
-            self.M[0,:] = A
+            self.M[0,:] = A[0:self.nbin]
             # backup for brainstate in case somethin goes wrong
             self.M_old = self.M.copy()
             self.K[np.where(K_old<0)] = -1
@@ -913,7 +927,6 @@ class MainWindow(QtGui.QMainWindow):
         if len(lfp_files) > 0:
             self.lfp_pointer = -1
             for f in lfp_files:
-                #pdb.set_trace()
                 key = re.split('\\.', f)[0]
                 LFP = so.loadmat(os.path.join(self.ppath, self.name, f), squeeze_me=True)[key]
                 self.LFP_list.append(LFP)
@@ -936,7 +949,7 @@ class MainWindow(QtGui.QMainWindow):
         #A[np.where(A==0)] = 4
         # needs to be packed into 1 x nbin matrix for display
         self.M = np.zeros((1,self.nbin))
-        self.M[0,:] = A
+        self.M[0,:] = A[0:self.nbin]
         # backup for brainstate in case somethin goes wrong
         self.M_old = self.M.copy()
                 
@@ -971,6 +984,17 @@ class MainWindow(QtGui.QMainWindow):
                         i = int(np.round(i / self.fbin))
                         j = int(np.round(j / self.fbin))
                         self.suppl_treck[i:j + 1] = 1
+            # REM deprivation   
+        elif os.path.isfile(os.path.join(self.ppath, self.name, 'pull_' + self.name + '.mat')):
+            self.psuppl = True
+            self.suppl_treck = np.zeros((self.nbin,))
+            trig = load_pull(self.ppath, self.name)
+            (start_idx, end_idx) = laser_start_end(trig)
+            if len(start_idx) > 0:
+                for (i, j) in zip(start_idx, end_idx):
+                    i = int(np.round(i / self.fbin))
+                    j = int(np.round(j / self.fbin))
+                    self.suppl_treck[i:j + 1] = 1                                    
             ##################################
         else:
             self.laser_raw = np.zeros((len(self.EEG),), dtype='int8')
