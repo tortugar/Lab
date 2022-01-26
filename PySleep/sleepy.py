@@ -524,10 +524,10 @@ def smooth_data(x, sig):
 
     bound = 1.0/10000
     L = 10.
-    p = gauss((L, sig))
+    p = gauss(L, sig)
     while (p > bound):
         L = L+10
-        p = gauss((L, sig))
+        p = gauss(L, sig)
 
     #F = map(lambda x: gauss((x, sig)), np.arange(-L, L+1.))
     # py3:
@@ -6471,8 +6471,12 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
                 a = cum_base[id_trans][:,-1]
                 b = cum_laser[id_trans][:,-1]
             else:
-                a = np.nanmean(cum_base[id_trans], axis=1)
-                b = np.nanmean(cum_laser[id_trans], axis=1)
+                #a = np.nanmean(cum_base[id_trans], axis=1)
+                #b = np.nanmean(cum_laser[id_trans], axis=1)
+                #NEW:
+                a = np.nansum(cum_base[id_trans], axis=1)  * tdown
+                b = np.nansum(cum_laser[id_trans], axis=1) * tdown
+                
 
             if not paired_stats:
                 d = a[irand] - b
@@ -6480,6 +6484,10 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
                 d = a-b
 
             p = 2 * np.min([len(np.where(d > 0)[0]) / (1.0 * len(d)), len(np.where(d <= 0)[0]) / (1.0 * len(d))])                
+            
+            #NEW:
+            (cil, cih) = np.percentile(d, (2.5, 97.5))    
+            md = d.mean()
 
             # if np.mean(d) >= 0:
             #     # now we want all values be larger than 0
@@ -6503,11 +6511,11 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
                 S[id_trans] = 'no'
 
             Mod[id_trans] = np.nanmean(b) / np.nanmean(a)
-            print('Transition %s was changed by a factor of %f' % (id_trans, Mod[id_trans]))
+            print('Transition %s was changed by a factor of %f; MD = %f CI(%f, %f)' % (id_trans, Mod[id_trans], md, cil, cih))
 
-            data.append([id_trans, P[id_trans], Mod[id_trans], S[id_trans]])
+            data.append([id_trans, P[id_trans], Mod[id_trans], S[id_trans], md, cil, cil])
 
-    df = pd.DataFrame(data=data, columns=['trans', 'p-value', 'change', 'sig'])
+    df = pd.DataFrame(data=data, columns=['trans', 'p-value', 'change', 'sig', 'md', 'cil', 'cih'])
     print(df)
 
     return df
