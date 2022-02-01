@@ -6477,11 +6477,10 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
                 a = np.nansum(cum_base[id_trans], axis=1)  * tdown
                 b = np.nansum(cum_laser[id_trans], axis=1) * tdown
                 
-
             if not paired_stats:
-                d = a[irand] - b
+                d = b-a[irand]
             else:
-                d = a-b
+                d = b-a
 
             p = 2 * np.min([len(np.where(d > 0)[0]) / (1.0 * len(d)), len(np.where(d <= 0)[0]) / (1.0 * len(d))])                
             
@@ -6513,7 +6512,7 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
             Mod[id_trans] = np.nanmean(b) / np.nanmean(a)
             print('Transition %s was changed by a factor of %f; MD = %f CI(%f, %f)' % (id_trans, Mod[id_trans], md, cil, cih))
 
-            data.append([id_trans, P[id_trans], Mod[id_trans], S[id_trans], md, cil, cil])
+            data.append([id_trans, P[id_trans], Mod[id_trans], S[id_trans], md, cil, cih])
 
     df = pd.DataFrame(data=data, columns=['trans', 'p-value', 'change', 'sig', 'md', 'cil', 'cih'])
     print(df)
