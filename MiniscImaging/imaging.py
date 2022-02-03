@@ -3521,7 +3521,10 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
         the phasic REM event).
     roi_avg : bool, optional
         If true, calculate for each ROI, average across all phREM events. The default is True.
-    pmean_diff: value used for statisitics; If False, calculate difference between mean baseline
+    pmean_diff: bool, optional
+        value used for statisitics; 
+        if True, calculate difference between mean baseline and mean phREM activity for statistics
+        If False, calculate difference between mean baseline
         and max or min value during phasic REM, depending on whether the mean DF/F activity
         is increased or decreased during phasic REM compared with the activity during baseline.
     prand: if True, randomize the timepoint of each phasic REM event for control.
@@ -3626,8 +3629,8 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
         
     
         # randomization #######################################################
-        phrem_list = []
         if prand:
+            phrem_list = []
             for p in phrem:
     
                 ph_list = phrem[p]
@@ -3639,11 +3642,10 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     
                 for ph in ph_list:    
                     ph_dur = (ph[-1]-ph[0]) * (1/sr)
-                    onset_rand = np.random.uniform(p*2.5, q*2.5)    
+                    onset_rand = np.random.uniform(p*2.5, (q+1)*2.5)    
                     offset_rand = onset_rand + ph_dur
                     ctr_rand = onset_rand + (offset_rand-onset_rand)/2
-                    
-                    
+                                        
                     phrem_list.append([onset_rand, ctr_rand, offset_rand])
     
             phrem_ctr = [p[1] for p in phrem_list]    
@@ -3718,12 +3720,13 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                         
                         
                     else:                        
-                        # onset
-                        if prand == True:
-                            randd = np.random.uniform(30) - 15
-                            randd = 0
-                        else:
-                            randd = 0
+                        randd = 0
+                        # Old type of randomization:
+                        # if prand == True:
+                        #     randd = np.random.uniform(30) - 15
+                        #     randd = 0
+                        # else:
+                        #     randd = 0
                         
                         ti = t_onset + randd
                         tj = t_ctr + randd
@@ -3745,7 +3748,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                                 dff_onset = (dff_onset - dff_onset.mean()) / dff_onset.std()
                                 
                         
-                            # center of spindle
+                            # center of phREM
                             idx_pre = eeg2img_time([tj-pre, tj], img_time)                        
                             dff_pre  = time_morph(dff[idx_pre[0] : idx_pre[1]], int(pre/xdt))
                             
@@ -3760,7 +3763,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                                 dff_onset = (dff_onset - dff_onset.mean()) / dff_onset.std()
 
 
-                            # offset of spindle
+                            # offset of phREM
                             idx_pre = eeg2img_time([tk-pre, tk], img_time)                        
                             dff_pre  = time_morph(dff[idx_pre[0] : idx_pre[1]], int(pre/xdt))
                             
@@ -3773,7 +3776,6 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                                 dff_offset -= dff_offset.mean()
                             elif local_mean=='local_zscore':
                                 dff_onset = (dff_onset - dff_onset.mean()) / dff_onset.std()
-
                                                             
                             m = len(dff_onset)
                             data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, 
@@ -3808,8 +3810,6 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                                     cond = np.abs(a) > np.abs(b)
                                 
                                 if cond: 
-                                #if np.abs(a) > np.abs(b):
-                                #if dff_post.mean() > dff_pre.mean():
                                     data_phrem += [[idf, rec, typ, ID, dff_post.max()-dff_pre.mean(), 'diff', phrem_ID]]
                                 else:
                                     data_phrem += [[idf, rec, typ, ID, dff_post.min()-dff_pre.mean(), 'diff', phrem_ID]]
