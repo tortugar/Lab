@@ -1515,7 +1515,7 @@ def brstate_transitions_simple(ipath, roi_mapping, transitions, pre, post, si_th
 def brstate_transition_stats(df, timevec, trans_type, bonf=True):
     """
     Test at which time point a brain state transition becomes significant.
-    The functions works together with brstate_transition_stats
+    The functions works together with brstate_transitions
     :param df: pandas DataFrame as returned (2nd argument) from brstate_transitions().
            The data frame contains columns 'ID' (ROI id number), 'mouse', 'time', 'dff' and 'trans'
            (the transition type, encoded through 2 character strings, e.g. 'NR').
@@ -2011,10 +2011,11 @@ def dff_nremremwake(ipath, roi_mapping, nsections=[5, 5, 5], rem_bins = [0,60,12
                 b = b+1
             wakej = b-1
             
-            #         REM
-            #       -------- 
-            # 0 2.5 5 7.5 10 12.5
-            # 0  1  2  3   4  5     <- indices
+            #                          REM
+            #                 -------------------------- 
+            # [0-2.5] [2.5-5] [5-7.5] [7.5-10] [10-12.5]
+            #   0         1     2         3       4         5     <- indices
+            # is if a REM episode goes from index 2 to 4, it ranges from 5 to 12.5 seconds
             
             nrem_ti = nremi * sdt
             rem_ti  = rem[0] * sdt
@@ -3516,6 +3517,8 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
         over the time window from -pre to 0s (= onset of phREM).
         If 'prepost', subtract mean calculated for window from -pre to post.
         The default is 'pre'.
+        if 'local_zscore', only zscore single each single trial (time window surrouding
+        the phasic REM event).
     roi_avg : bool, optional
         If true, calculate for each ROI, average across all phREM events. The default is True.
     pmean_diff: value used for statisitics; If False, calculate difference between mean baseline
@@ -3549,10 +3552,13 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     IFR = 20
     w0 = f_cutoff / (IFR*0.5)
 
+    if local_mean == 'local_zscore':
+        pzscore = False
+
+
     recordings = list(roi_mapping.columns)
     recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
     
-    # dict: type -> ID -> peak spectrograms
     data = []
     phrem_ID = 0
     data_spec = []
@@ -3619,6 +3625,32 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
         phrem_offset = [p[-1] for p in phrem_list]
         
     
+        # randomization #######################################################
+        phrem_list = []
+        if prand:
+            for p in phrem:
+    
+                ph_list = phrem[p]
+    
+                a = p
+                while M[a] == 1:
+                    a += 1
+                q = a-1
+    
+                for ph in ph_list:    
+                    ph_dur = (ph[-1]-ph[0]) * (1/sr)
+                    onset_rand = np.random.uniform(p*2.5, q*2.5)    
+                    offset_rand = onset_rand + ph_dur
+                    ctr_rand = onset_rand + (offset_rand-onset_rand)/2
+                    
+                    
+                    phrem_list.append([onset_rand, ctr_rand, offset_rand])
+    
+            phrem_ctr = [p[1] for p in phrem_list]    
+            phrem_onset = [p[0] for p in phrem_list]            
+            phrem_offset = [p[-1] for p in phrem_list]
+        ######################################################################
+            
         ######################################################################
         # collect all ROIs for each ROI Type
         roi_dict = {typ:[] for typ in types}
@@ -3670,6 +3702,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                 if pfilt:
                     dff = sleepy.my_lpfilter(dff, w0)
 
+                phasic_idx = []
                 for t_ctr, t_onset, t_offset in zip(phrem_ctr, phrem_onset, phrem_offset):
                     if xdt == 0:                    
                         onset = eeg2img_time([t_onset], img_time)[0]
@@ -3688,6 +3721,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                         # onset
                         if prand == True:
                             randd = np.random.uniform(30) - 15
+                            randd = 0
                         else:
                             randd = 0
                         
@@ -3707,6 +3741,9 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                                 dff_onset = dff_onset - dff_onset[np.where(t_phrem<0)].mean() 
                             elif local_mean=='prepost':
                                 dff_onset = dff_onset - dff_onset.mean() 
+                            elif local_mean=='local_zscore':
+                                dff_onset = (dff_onset - dff_onset.mean()) / dff_onset.std()
+                                
                         
                             # center of spindle
                             idx_pre = eeg2img_time([tj-pre, tj], img_time)                        
@@ -3719,6 +3756,8 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                                 dff_ctr -= dff_ctr[np.where(t_phrem<0)].mean()
                             elif local_mean=='prepost':
                                 dff_ctr -= dff_ctr.mean()
+                            elif local_mean=='local_zscore':
+                                dff_onset = (dff_onset - dff_onset.mean()) / dff_onset.std()
 
 
                             # offset of spindle
@@ -3732,8 +3771,9 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                                 dff_offset -= dff_offset[np.where(t_phrem<0)].mean()
                             elif local_mean == 'prepost':
                                 dff_offset -= dff_offset.mean()
-                            else:
-                                pass
+                            elif local_mean=='local_zscore':
+                                dff_onset = (dff_onset - dff_onset.mean()) / dff_onset.std()
+
                                                             
                             m = len(dff_onset)
                             data += zip([idf]*m, [rec]*m, [typ]*m, [ID]*m, [str(roi_list)+'-'+str(roi_num)]*m, 
@@ -3745,9 +3785,16 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
                                 ph_dur = bsl_win
                             idx_pre = eeg2img_time([ti-ph_dur, ti], img_time)                        
                             dff_pre  = dff[idx_pre[0] : idx_pre[1]]
+
+                            #tmp = np.intersect1d(list(range(idx_pre[0], idx_pre[1])), phasic_idx)
+                            #if len(tmp) > 0:
+                            #    print('overlap between tonic and phasic REM')
+                            #    dff_pre = np.setdiff1d(list(range(idx_pre[0], idx_pre[1]), tmp))
                             
                             idx_post = eeg2img_time([ti, ti+ph_dur], img_time)                        
                             dff_post = dff[idx_post[0] : idx_post[1]]
+                            phasic_idx += list(range(idx_post[0], idx_post[1]))
+
 
                             data_phrem += [[idf, rec, typ, ID, dff_pre.mean(),  'pre',  phrem_ID]]
                             data_phrem += [[idf, rec, typ, ID, dff_post.mean(), 'post', phrem_ID]]
