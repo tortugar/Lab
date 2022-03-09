@@ -447,7 +447,7 @@ def my_hpfilter(x, w0, N=4):
     #y = signal.lfilter(taps, 1.0, x)
 
     b,a = signal.butter(N, w0, 'high')
-    y = signal.filtfilt(b,a, x)
+    y = signal.filtfilt(b,a, x, padlen = x.shape[0]-1)
         
     return y
 
@@ -6775,6 +6775,7 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
     pflipx       -       if True, plot wavelength instead of frequency on x-axis
     pnorm        -       string, if pnorm == 'mean', normalize spectrum by the mean power, 
                          if pnorm == 'area', normalize by area under spectrogram
+                         if pnorm == 'no', perform no normalization
     
     @RETURN:
     SpecMx, f    -       ndarray [mice x frequencies], vector [frequencies]
@@ -6857,9 +6858,12 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
         SpecMx[i,:] = np.array(Spec[idf]).mean(axis=0)
         if len(pnorm) > 0:
             if pnorm == 'mean':
-                SpecMx[i,:] = SpecMx[i,:]/SpecMx[i,:].mean()#LA.norm(SpecMx[i,:])
-            else:
+                SpecMx[i,:] = SpecMx[i,:]/SpecMx[i,:].mean()
+            elif pnorm == 'area':
                 SpecMx[i,:] = SpecMx[i,:]/(SpecMx[i,:].sum()*(f[1]-f[0]))
+            else:
+                # no normalization
+                pass
             
         data += zip([idf]*len(f), SpecMx[i,:], f)
         i += 1
