@@ -10,14 +10,15 @@ import scipy.signal
 import re
 import numpy as np
 import sleepy
-import plotly
-import plotly.graph_objs as go
 import matplotlib.pylab as plt
 import scipy.stats as stats
 import pandas as pd
 import seaborn as sns
 from scipy.stats import linregress
 from functools import reduce
+#import plotly
+#import plotly.graph_objs as go
+
 
 import pdb
 
@@ -571,111 +572,111 @@ def plot_dff_example(ppath, name, tlegend, dff_scale=10, tstart=0, tend=-1, fmax
         sleepy.save_figure(fig_file)
 
 
+# DEPRICATED
+# def brstate_dff(ppath, name, nskip=30, offline_plot=True):
+#     """
+#     plot DF/F along with brain state using plotly. The DF/F signal is binned in 2.5 s bins, same as the
+#     EEG spectrogram.
+#     :param ppath: base recording folder
+#     :param name: recording
+#     :param nskip: number of seconds to be skipped at beginning (to hide initial artefact)
+#     :param offline_plot: boolean, if True use offline version of plotly
+#     :return:
+#     """
+#     sdt = 2.5
+#     nskip = int(nskip/sdt)
 
-def brstate_dff(ppath, name, nskip=30, offline_plot=True):
-    """
-    plot DF/F along with brain state using plotly. The DF/F signal is binned in 2.5 s bins, same as the
-    EEG spectrogram.
-    :param ppath: base recording folder
-    :param name: recording
-    :param nskip: number of seconds to be skipped at beginning (to hide initial artefact)
-    :param offline_plot: boolean, if True use offline version of plotly
-    :return:
-    """
-    sdt = 2.5
-    nskip = int(nskip/sdt)
+#     # EMG range
+#     mu = [10, 100]
+#     # load brain state
+#     M, S = sleepy.load_stateidx(ppath, name)
+#     M[np.where(M == 0)] = 3
+#     M = M[nskip:]
+#     # load spectrogram
+#     SP = np.squeeze(so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name))['SP'])[0:40, nskip:]
+#     freq = np.squeeze(so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name))['freq'])
+#     im = np.where((freq > mu[0]) & (freq <= mu[1]))[0]
+#     ampl = np.sqrt(np.squeeze(so.loadmat(
+#         os.path.join(ppath, name, 'msp_%s.mat' % name))['mSP'])[im, :].sum(axis=0) *
+#                    (freq[1] - freq[0]))[nskip:]
 
-    # EMG range
-    mu = [10, 100]
-    # load brain state
-    M, S = sleepy.load_stateidx(ppath, name)
-    M[np.where(M == 0)] = 3
-    M = M[nskip:]
-    # load spectrogram
-    SP = np.squeeze(so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name))['SP'])[0:40, nskip:]
-    freq = np.squeeze(so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name))['freq'])
-    im = np.where((freq > mu[0]) & (freq <= mu[1]))[0]
-    ampl = np.sqrt(np.squeeze(so.loadmat(
-        os.path.join(ppath, name, 'msp_%s.mat' % name))['mSP'])[im, :].sum(axis=0) *
-                   (freq[1] - freq[0]))[nskip:]
+#     dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dffd'][nskip:]*100
 
-    dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dffd'][nskip:]*100
+#     data_dff = go.Scatter(y=dff, x=np.arange(0, len(dff)) * 2.5, mode='lines', xaxis='x', yaxis='y')
 
-    data_dff = go.Scatter(y=dff, x=np.arange(0, len(dff)) * 2.5, mode='lines', xaxis='x', yaxis='y')
+#     med = np.median(SP.max(axis=0))
 
-    med = np.median(SP.max(axis=0))
+#     data_sp = go.Heatmap(z=SP, y=freq[0:40], x=np.arange(0, len(dff)) * 2.5,
+#                          zmin=0, zmax=med*3,
+#                          xaxis='x', yaxis='y4',
+#                          colorscale='Jet',
+#                          showscale=False)
 
-    data_sp = go.Heatmap(z=SP, y=freq[0:40], x=np.arange(0, len(dff)) * 2.5,
-                         zmin=0, zmax=med*3,
-                         xaxis='x', yaxis='y4',
-                         colorscale='Jet',
-                         showscale=False)
+#     data_emg = go.Scatter(y=ampl, x=np.arange(0, len(dff)) * 2.5, mode='lines', xaxis='x', yaxis='y3',
+#                           line=dict(
+#                               color=('rgb(0, 0, 0)'),
+#                               width=2))
 
-    data_emg = go.Scatter(y=ampl, x=np.arange(0, len(dff)) * 2.5, mode='lines', xaxis='x', yaxis='y3',
-                          line=dict(
-                              color=('rgb(0, 0, 0)'),
-                              width=2))
+#     data_m = go.Heatmap(z=[M], x=np.arange(0, len(dff)) * 2.5, showscale=False,
+#                         xaxis='x',
+#                         yaxis='y2',
+#                         colorscale=[[0, 'rgb(0,255,255)'],
+#                                     [1 / 3., 'rgb(0,255,255)'],
+#                                     [1 / 3., 'rgb(150,0,255)'],
+#                                     [2 / 3., 'rgb(150,0,255)'],
+#                                     [2 / 3., 'rgb(192,192,192)'],
+#                                     [3 / 3., 'rgb(192,192,192)']])
 
-    data_m = go.Heatmap(z=[M], x=np.arange(0, len(dff)) * 2.5, showscale=False,
-                        xaxis='x',
-                        yaxis='y2',
-                        colorscale=[[0, 'rgb(0,255,255)'],
-                                    [1 / 3., 'rgb(0,255,255)'],
-                                    [1 / 3., 'rgb(150,0,255)'],
-                                    [2 / 3., 'rgb(150,0,255)'],
-                                    [2 / 3., 'rgb(192,192,192)'],
-                                    [3 / 3., 'rgb(192,192,192)']])
+#     layout = go.Layout(
+#         yaxis=dict(
+#             domain=[0.0, 0.6],
+#             title='DF/F (%)',
+#         ),
+#         yaxis2=dict(
+#             domain=[0.62, 0.7],
+#             ticks='',
+#             showticklabels=False
+#         ),
+#         yaxis3=dict(
+#             domain=[0.75, 0.85],
+#             title='EMG (uV)'
+#         ),
+#         yaxis4=dict(
+#             domain=[0.9, 1.0],
+#             title='Freq (Hz)'
+#         ),
+#         xaxis=dict(
+#             domain=[0, 1],
+#             anchor='y',
+#             title='Time (s)',
+#         ),
+#         xaxis2=dict(
+#             domain=[0, 1],
+#             anchor='y2',
+#             showticklabels=False,
+#             ticks='',
+#         ),
+#         xaxis3=dict(
+#             domain=[0, 1],
+#             anchor='y3',
+#             showticklabels=False,
+#             ticks='',
+#         ),
+#         xaxis4=dict(
+#             domain=[0, 1],
+#             anchor='y4',
+#             showticklabels=False,
+#             ticks='',
+#         ),
+#         showlegend=False
 
-    layout = go.Layout(
-        yaxis=dict(
-            domain=[0.0, 0.6],
-            title='DF/F (%)',
-        ),
-        yaxis2=dict(
-            domain=[0.62, 0.7],
-            ticks='',
-            showticklabels=False
-        ),
-        yaxis3=dict(
-            domain=[0.75, 0.85],
-            title='EMG (uV)'
-        ),
-        yaxis4=dict(
-            domain=[0.9, 1.0],
-            title='Freq (Hz)'
-        ),
-        xaxis=dict(
-            domain=[0, 1],
-            anchor='y',
-            title='Time (s)',
-        ),
-        xaxis2=dict(
-            domain=[0, 1],
-            anchor='y2',
-            showticklabels=False,
-            ticks='',
-        ),
-        xaxis3=dict(
-            domain=[0, 1],
-            anchor='y3',
-            showticklabels=False,
-            ticks='',
-        ),
-        xaxis4=dict(
-            domain=[0, 1],
-            anchor='y4',
-            showticklabels=False,
-            ticks='',
-        ),
-        showlegend=False
+#     )
 
-    )
-
-    fig = go.Figure(data=[data_dff] + [data_m, data_emg, data_sp], layout=layout)
-    if offline_plot:
-        plotly.offline.plot(fig, filename='brstate_dff.html')
-    else:
-        plotly.plotly.iplot(fig, filename='brstate_dff.html')
+#     fig = go.Figure(data=[data_dff] + [data_m, data_emg, data_sp], layout=layout)
+#     if offline_plot:
+#         plotly.offline.plot(fig, filename='brstate_dff.html')
+#     else:
+#         plotly.plotly.iplot(fig, filename='brstate_dff.html')
 
 
 
@@ -4004,5 +4005,107 @@ def ridge_regression(A, r, theta):
     k = scipy.linalg.solve(AC, SR)
 
     return k
+
+
+
+### Functions for phasic REM analysis #########################################
+def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False, mouse_avg=True):
+    """
+    calculate phasic REM triggered DF/F signal
+
+    Parameters
+    ----------
+    ppath : string
+        base folder.
+    names : list
+        list of recordings.
+    pre : float
+        Time before phasic REM onset.
+    post : float
+        Time after phasic REM onset.
+    tbin : float, optional
+        Binning of DF/F signal. The default is 0.1.
+    pzscore : bool, optional
+        If True, z-score DF/F signal. The default is True.
+    pplot : bool, optional
+        If True, plot figure. The default is False.
+    mouse_avg : bool, optional
+        If True, average data for each mouse, and then average across mice 
+        for the final plot. The default is True.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        DataFrame with columns ['mouse', 'recording', 't', 'dff'].
+
+    """
+    
+    # first get common sampling rate
+    dts = []
+    for name in names:
+        sr = sleepy.get_snr(ppath, name)
+        dts.append(1/sr)
+        
+    dt = np.array(dts).mean()
+    ipre = np.round(pre/dt).astype('int')
+    ipost = np.round(post/dt).astype('int')
+
+    if tbin == 0:
+        ndown = 1
+        dt_dn = dt
+    else:
+        ndown = int(np.round(tbin / dt))
+        dt_dn = dt*ndown
+    
+    
+    
+    data = []
+    for name in names:
+        idf = re.split('_', name)[0]
+
+        # load DF/F
+        dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dff']
+        if pzscore:
+            dff = (dff - dff.mean()) / dff.std()
+        else:
+            dff = dff*100
+
+        phrem = sleepy.phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11)
+        
+        
+        onset = []
+        for rem_id in phrem:
+            ph_events = phrem[rem_id]
+            
+            for ph in ph_events:
+                onset.append(ph[0])
+                
+            
+        for a in onset:
+            dff_cut = dff[a-ipre:a+ipost]
+            dff_cut_dn = downsample_vec(dff_cut, ndown)
+            
+            t = np.arange(0, dff_cut_dn.shape[0])*dt_dn - ipre*dt
+            n = len(t)
+            
+            data += zip([idf]*n, [name]*n, t, dff_cut_dn)
+            
+
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 't', 'dff'])        
+    
+    ### plot figure ###########################################################
+    if pplot:
+        plt.figure()
+        dfm = df.groupby(['mouse', 't']).mean().reset_index()
+        if mouse_avg:    
+            sns.lineplot(data=dfm, x='t', y='dff', ci=95)
+        else:
+            sns.lineplot(data=df, x='t', y='dff', ci=95)
+    
+        sns.despine()
+        plt.xlabel('Time (s)')
+        plt.ylabel('DF/F')
+    
+    return df
 
 
