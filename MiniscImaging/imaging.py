@@ -3512,7 +3512,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
     f_cutoff: float, optional
         Cutoff frequency for (optional) lowpass filter for DF/F signal
     local_mean : string, optional
-        Two options: 'pre' or 'prepost'. 
+        Three options: 'pre', 'prepost', or 'local_zscore'
         If 'pre', substract from each phREM-triggered DF/F signals, the mean calculated
         over the time window from -pre to 0s (= onset of phREM).
         If 'prepost', subtract mean calculated for window from -pre to post.

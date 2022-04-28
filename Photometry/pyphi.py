@@ -4009,7 +4009,7 @@ def ridge_regression(A, r, theta):
 
 
 ### Functions for phasic REM analysis #########################################
-def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False, 
+def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False, local_mean='',
               mouse_avg=True, scontrol=''):
     """
     calculate phasic REM triggered DF/F signal
@@ -4030,6 +4030,15 @@ def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False,
         If True, z-score DF/F signal. The default is True.
     pplot : bool, optional
         If True, plot figure. The default is False.
+    local_mean : str, optional
+        Three options: 'pre', 'prepost', or 'local_zscore'
+        If 'pre', substract from each phREM-triggered DF/F signals, the mean calculated
+        over the time window from -pre to 0s (= onset of phREM).
+        If 'prepost', subtract mean calculated for window from -pre to post.
+        if 'local_zscore', only zscore single each single trial (time window surrouding
+        the phasic REM event).
+        The default is ''.
+        
     mouse_avg : bool, optional
         If True, average data for each mouse, and then average across mice 
         for the final plot. The default is True.
@@ -4044,6 +4053,11 @@ def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False,
         DataFrame with columns ['mouse', 'recording', 't', 'dff'].
 
     """
+    if local_mean == 'local_zscore':
+        pzscore = False
+
+    if type(names) == str:
+        names = [names]
     
     # first get common sampling rate
     dts = []
@@ -4063,6 +4077,7 @@ def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False,
         dt_dn = dt*ndown
         
     data = []
+    ev = 0
     for name in names:
         print(name)
         idf = re.split('_', name)[0]
@@ -4078,16 +4093,14 @@ def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False,
             dff = dff*100
 
         phrem = sleepy.phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11)
-        
-        
+                
         onset = []
         for rem_id in phrem:
             ph_events = phrem[rem_id]
             
             for ph in ph_events:
                 onset.append(ph[0])
-                
-            
+                            
         for a in onset:
             dff_cut = dff[a-ipre:a+ipost]
             dff_cut_dn = downsample_vec(dff_cut, ndown)
@@ -4095,10 +4108,19 @@ def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False,
             t = np.arange(0, dff_cut_dn.shape[0])*dt_dn - ipre*dt
             n = len(t)
             
-            data += zip([idf]*n, [name]*n, t, dff_cut_dn)
+            if local_mean == 'pre':
+                it = np.where(t < 0)[0]
+                dff_cut_dn -= dff_cut_dn[it].mean()
+            elif local_mean == 'prepost':
+                dff_cut_dn -= dff_cut_dn.mean()
+            elif local_mean == 'local_zscore':
+                dff_cut_dn = (dff_cut_dn - dff_cut_dn.mean()) / dff_cut_dn.std()
+                            
+            data += zip([idf]*n, [name]*n, [ev]*n, t, dff_cut_dn)
+            ev += 1
             
 
-    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 't', 'dff'])        
+    df = pd.DataFrame(data=data, columns=['mouse', 'recording', 'event', 't', 'dff'])        
     
     ### plot figure ###########################################################
     if pplot:
@@ -4112,6 +4134,18 @@ def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False,
         sns.despine()
         plt.xlabel('Time (s)')
         plt.ylabel('DF/F')
+        
+        events = df.event.unique().tolist()
+        mx = np.zeros((len(events), len(t)))
+        for i, ev in enumerate(events):
+            m = np.array(df[df.event == ev]['dff'])
+            mx[i,:] = m
+            
+        plt.figure()
+        ax = plt.subplot(111)
+        im = ax.pcolormesh(t, range(1, len(events)+1), mx, cmap='bwr')
+        cb = plt.colorbar(im, ax=ax)
+        cb.set_label('$\Delta F / F$')
     
     return df
 
