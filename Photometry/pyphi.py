@@ -4009,7 +4009,8 @@ def ridge_regression(A, r, theta):
 
 
 ### Functions for phasic REM analysis #########################################
-def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False, mouse_avg=True):
+def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False, 
+              mouse_avg=True, scontrol=''):
     """
     calculate phasic REM triggered DF/F signal
 
@@ -4032,6 +4033,10 @@ def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False, mous
     mouse_avg : bool, optional
         If True, average data for each mouse, and then average across mice 
         for the final plot. The default is True.
+    scontrol : str, optional
+        if $scontrol == '', then use fitted DF/F signal. Other options:
+        $scontrol == '465': use raw fluorescence signal
+        $scontrol == '405': use isosbestic wavelength as control.
 
     Returns
     -------
@@ -4056,15 +4061,17 @@ def dff_phrem(ppath, names, pre, post, tbin=0.1, pzscore=True, pplot=False, mous
     else:
         ndown = int(np.round(tbin / dt))
         dt_dn = dt*ndown
-    
-    
-    
+        
     data = []
     for name in names:
+        print(name)
         idf = re.split('_', name)[0]
 
         # load DF/F
-        dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dff']
+        if scontrol=='':
+            dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dff']
+        else:
+            dff = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)[scontrol]
         if pzscore:
             dff = (dff - dff.mean()) / dff.std()
         else:
