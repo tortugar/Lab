@@ -424,8 +424,7 @@ def calc_catransition(ipath, name, roi_id, statei, statej, pre, post, thr_pre, t
 
 
     idx = np.nonzero(M==statei)[0]
-    seq = get_sequences(idx)
-    # HERE 
+    seq = sleepy.get_sequences(idx)
 
     # preceding and following time interval in frame indices:
     Blocks = []
@@ -590,13 +589,14 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         rec_map = mapping[mapping[rec] != 'X']   
 
         roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+
         # load DF/F for recording rec 
         dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
         if not(os.path.isfile(dff_file)):
             calculate_dff(ipath, rec, roi_list)
         DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
-        # brainstate
-        
+
+        # brainstate        
         M = sleepy.load_stateidx(ipath, rec, ann_name=rec + ann_name)[0]
         if ann_name != '':
             print('using annotation %s' % rec + ann_name + '.txt')
@@ -811,9 +811,638 @@ def brstate_dff(ipath, mapping, pzscore=False, class_mode='basic', single_mice=T
         j += 1
     
     return df_class
+
+
                         
+def brstate_dff_bonf(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True, dff_filt=False, f_cutoff=2.0, dff_var='dff', 
+                ma_thr=0, ma_rem_exception=False, awake=False, ann_name = '', xdt=0, 
+                session_correction=False, ptukey=True, rand_labeling=False):
+    """
+    Calculate average ROI DF/F activity during each brain state and 
+    perform statistics to classify ROIs into REM-max, Wake-max, or NREM-max.
+    For each ROI, ANOVA is performed, followed by Tukey-test.
+    
+    Compared with &brstate_dff, the function first downsamples the DFF signal and then
+    performs the brain state classification on the downsampled signal. 
+    
+    :param ipath: base imaging folder
+    :param mapping: pandas DataFrame as returned by &load_roimapping.
+           The frame contains one column for each recording in the given data set.
+    :param pzscore: if True, z-score DF/F traces
+    :param class_mode: class_mode == 'basic': classify ROIs into 
+                       REM-max, Wake-max and NREM-max ROIs
+                       class_mode == 'rem': further separate REM-max ROIs 
+                       into REM > Wake > NREM (R>W>N) and REM > NREM > Wake (R>N>W) ROIs
+    :param single_mice: boolean, if True use separate colors for single mice in 
+                        summary plots
+    :param dff_var: Default is 'dff'. Use raw DF/F signal ('dff'), denoised DF/F signal 
+                    using OASIS algorithm ('dff_dn'), or deconvoluted DF/F signal ('dff_sp').
+                    In case of 'dff_dn' or 'dff_sp', make sure to run first script denoise_dff.py
+    :param ma_thr: wake sequences s with round(len(s)*dt) <= ma_thr are set to NREM
+    :param ma_rem_exception: if True, don't interprete wake periods following REM as MA (i.e. NREM)
+    :param awake: bool, if True, use only active wake was "wake". Active wake is defined based on 
+                 a threshold (mean + 1 std) applied to the EMG amplitude.
+    :param ann_name: suffix of sleep annotation files
+    :param xdt: Downsample DF/F traces to bin size of xdt seconds; if 0, no downsampling
+    :param session_correction: if True divide significance level for posthoc correction by number of ROIs recorded
+           in the same animal.
+    :param ptukey: Test for post-hoc correction; if False, use boostrapping
+    :param rand_labeling: if True, randomize assignment of brain states to to DF/F values
+           (for each time point).
+
+    """
+    
+    import pingouin as pg
+    
+    rois = list(mapping['ID'])
+    
+    roi_stateval = {}
+    for r in rois:
+        roi_stateval[r] = {1:[], 2:[], 3:[]}
+    
+    recordings = list(mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    for rec in recordings:
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = mapping[mapping[rec] != 'X']   
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
+
+        # brainstate        
+        M = sleepy.load_stateidx(ipath, rec, ann_name=rec + ann_name)[0]
+        if ann_name != '':
+            print('using annotation %s' % rec + ann_name + '.txt')
+        
+        # flatten out MAs
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        if awake:
+            mu = [10, 100]
+            tmp = so.loadmat(os.path.join(ipath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
+            MSP = tmp['mSP']
+            freq = tmp['freq']
+            df = freq[1] - freq[0]
+            imu = np.where((freq>=mu[0]) & (freq<=mu[1]))[0]
+            
+            widx = np.where(M==2)[0]
+            ampl = np.sqrt(MSP[imu, :].sum(axis=0)*df)
+            wampl = ampl[widx]
+            thr = wampl.mean() + wampl.std()
+            awk_idx = widx[np.where(wampl>thr)[0]]
+            qwk_idx = np.setdiff1d(widx, awk_idx)
+            M[qwk_idx] = 4            
+        
+        state_idx = {1:[], 2:[], 3:[]}
+        
+        # load imaging timing
+        img_time = imaging_timing(ipath, rec)
+        isr = 1/np.mean(np.diff(img_time))
+        dt = 1/isr
+        ndown = int(np.round(xdt/dt))
+        
+        for state in [1,2,3]:
+            seq = sleepy.get_sequences(np.where(M==state)[0])
+            for s in seq:                
+                # eeg2img_time: EEG time |---> Frame Indices
+                a = eeg2img_time([s[0]*sdt, s[-1]*sdt], img_time)
+                idx = range(a[0],a[1]+1)                
+                state_idx[state] += list(idx)
+
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            a = re.split('-', s)
+            roi_num  = int(a[1])
+            dff = DFF[:,roi_num] 
+            
+            if dff_filt:
+                w0 = f_cutoff / (isr*0.5)
+                dff = sleepy.my_lpfilter(dff, w0)
+            
+            if pzscore:
+                dff = (dff-dff.mean()) / dff.std()
+            else:
+                dff = dff*100
+            
+            for state in [1,2,3]:
+                if xdt == 0:
+                    roi_stateval[row['ID']][state].append(dff[state_idx[state]])
+                else:
+                    idx = state_idx[state]
+                    seq = sleepy.get_sequences(np.array(idx))
+                    tmp = []
+                    for s in seq:
+                        tmp += list(sleepy.downsample_vec(dff[s], ndown))
+                    
+                    roi_stateval[row['ID']][state].append(tmp)
+                    
+    for r in rois:
+        for state in [1,2,3]:
+            roi_stateval[r][state] = np.concatenate(roi_stateval[r][state])
+    
+    
+    columns = ['ID', 'nsessions', 'R', 'W', 'N', 'F-anova', 'DOFs', 'P-anova', 'P-tukey', 'Type']
+    data = []
+    for r in rois:
+        stateval = roi_stateval[r]
+        val = np.concatenate([stateval[1], stateval[2], stateval[3]])
+        if rand_labeling:
+            n = len(val)
+            idx = np.random.randint(0, n, (n,))
+            val = val[idx]
+        
+        state = ['R']*len(stateval[1]) + ['W']*len(stateval[2]) + ['N']*len(stateval[3])
+        d = {'state':state, 'val':val}
+        df = pd.DataFrame(d)
+
+        res  = pg.anova(data=df, dv='val', between='state')
+        if ptukey:
+            res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
+            test_var = 'p-tukey'
+        else:
+            res2 = profile_bootstrap(df, nboots=100)
+            test_var = 'p'
+        #res2 = pg.pairwise_ttests(data=df, dv='val', between='state', padjust='bonf')
+        ddof = [res.ddof1.iloc[0], res.ddof2.iloc[0]]  
+        
+        mouse = mapping[(mapping.ID == r)]['mouse'].iloc[0]
+        nrois = mapping[mapping.mouse==mouse].shape[0]
+        
+        if session_correction:
+            alpha = 0.05 / nrois
+        else:
+            alpha = 0.05        
+        nsessions = sum(mapping.loc[mapping.ID==r, recordings].values[0] != 'X')
+        
+        def _get_mean(s):
+            return df[df['state']==s]['val'].mean()
+ 
+        rmean = _get_mean('R')
+        wmean = _get_mean('W')
+        nmean = _get_mean('N')
+        
+        if class_mode == 'basic':
+            roi_type = 'X'
+            # REM-max
+            if (rmean > wmean) and (rmean > nmean):
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                
+                if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'R-max'
+            # W-max
+            elif (wmean > nmean) and (wmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+    
+                if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'W-max'
+            # N-max 
+            elif (nmean > wmean) and (nmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+    
+                if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'N-max'
+                    
+            else:
+                roi_type = 'X'
+                            
+            tukey_res = [res2[(res2['A'] == 'N') & (res2['B'] == 'R')][test_var].iloc[0], 
+                         res2[(res2['A'] == 'N') & (res2['B'] == 'W')][test_var].iloc[0], 
+                         res2[(res2['A'] == 'R') & (res2['B'] == 'W')][test_var].iloc[0]]
+
+            tmp = [r, rmean, wmean, nmean, res.F.iloc[0], ddof, res['p-unc'].iloc[0], tukey_res, roi_type]
+            data.append(tmp)
+        
+        else:
+            # mode == 'rem'
+            roi_type = 'X'
+
+            # R>N>W
+            if (rmean > wmean) and (rmean > nmean) and (nmean > wmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                # NEW
+                cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+
+                if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and cond3[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                    #R > N                              R > W                                N > W                               ANOVA
+                    roi_type = 'R>N>W'
+                    
+            # R>W>N
+            elif (rmean > wmean) and (rmean > nmean) and (wmean > nmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                # NEW
+                cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                
+                if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and cond3[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'R>W>N'
+                    
+            # W-max
+            elif (wmean > nmean) and (wmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+    
+                if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'W-max'
+            # N-max 
+            elif (nmean > wmean) and (nmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+    
+                if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'N-max'
+                    
+            else:
+                roi_type = 'X'
+            
+            tukey_res = [res2[(res2['A'] == 'N') & (res2['B'] == 'R')][test_var].iloc[0], 
+                         res2[(res2['A'] == 'N') & (res2['B'] == 'W')][test_var].iloc[0], 
+                         res2[(res2['A'] == 'R') & (res2['B'] == 'W')][test_var].iloc[0]]
+            
+            tmp = [r, nsessions, rmean, wmean, nmean, res.F.iloc[0], ddof, res['p-unc'].iloc[0], tukey_res, roi_type]
+            data.append(tmp)
+
+    df_class = pd.DataFrame(data, columns=columns)
+    df_class = pd.merge(mapping, df_class, on='ID')
+
+    mice = [m for m in df_class['mouse'].unique()]
+    j = 0
+    mdict = {}
+    for m in mice:
+        mdict[m] = j
+        j+=1
+    clrs = sns.color_palette("husl", len(mice))
+
+    types = df_class['Type'].unique()
+    types.sort()
+    
+    j = 1
+    plt.ion()
+    plt.figure()
+    for typ in types:
+        mouse_shown = {m:0 for m in mice}
+        plt.subplot(int('1%d%d' % (len(types), j)))
+        df = df_class[df_class['Type']==typ][['mouse', 'R', 'N', 'W']]
+        #df = pd.melt(df, var_name='state', value_name='dff')  
+        
+        sns.barplot(data=df[['R', 'N', 'W']], color='gray')
+        for index, row in df.iterrows():
+            if single_mice:
+                m=row['mouse']                
+                if mouse_shown[m] > 0:
+                    plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color=clrs[mdict[m]])
+                else:
+                    plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color=clrs[mdict[m]], label=m)
+                    mouse_shown[m] += 1   
+            else:
+                plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color='black')
+
+        sns.despine()
+        plt.title(typ)
+        plt.legend()
+        if j == 1:
+            if not pzscore:
+                plt.ylabel('DF/F (%)')
+            else:
+                plt.ylabel('DF/F (z-scored)')
+        j += 1
+    
+    return df_class
+
+
+
+def brstate_dff_down(ipath, mapping, pzscore=False, class_mode='basic', single_mice=True, dff_filt=False, f_cutoff=2.0, dff_var='dff', 
+                ma_thr=0, ma_rem_exception=False, awake=False, ann_name = ''):
+    """
+    Calculate average ROI DF/F activity during each brain state and 
+    perform statistics to classify ROIs into REM-max, Wake-max, or NREM-max.
+    For each ROI, ANOVA is performed, followed by Tukey-test.
+    
+    Compared with &brstate_dff, the function first downsamples the DFF signal and then
+    performs the brain state classification on the downsampled signal. 
+    
+    :param ipath: base imaging folder
+    :param mapping: pandas DataFrame as returned by &load_roimapping.
+           The frame contains one column for each recording in the given data set.
+    :param pzscore: if True, z-score DF/F traces
+    :param class_mode: class_mode == 'basic': classify ROIs into 
+                       REM-max, Wake-max and NREM-max ROIs
+                       class_mode == 'rem': further separate REM-max ROIs 
+                       into REM > Wake > NREM (R>W>N) and REM > NREM > Wake (R>N>W) ROIs
+    :param single_mice: boolean, if True use separate colors for single mice in 
+                        summary plots
+    :param dff_var: Default is 'dff'. Use raw DF/F signal ('dff'), denoised DF/F signal 
+                    using OASIS algorithm ('dff_dn'), or deconvoluted DF/F signal ('dff_sp').
+                    In case of 'dff_dn' or 'dff_sp', make sure to run first script denoise_dff.py
+    :param ma_thr: wake sequences s with round(len(s)*dt) <= ma_thr are set to NREM
+    :param ma_rem_exception: if True, don't interprete wake periods following REM as MA (i.e. NREM)
+    :param wake: bool, if True, use only active wake was "wake". Active wake is defined based on 
+                 a threshold (mean + 1 std) applied to the EMG amplitude. 
+
+    """
+    import pingouin as pg
+    
+    rois = list(mapping['ID'])
+    
+    roi_stateval = {}
+    for r in rois:
+        roi_stateval[r] = {1:[], 2:[], 3:[]}
+    
+    recordings = list(mapping.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+    for rec in recordings:
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        rec_map = mapping[mapping[rec] != 'X']   
+
+        roi_list = int(re.split('-', rec_map.iloc[0][rec])[0])
+
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        #pdb.set_trace()
+        #tmp = so.loadmat(dff_file, squeeze_me=True)
+        #if dff_var in tmp:
+        #    DFF = tmp[[dff_var]]
+        #else:
+        DFF = downsample_dff2bs(ipath, rec, roi_list, psave=False, dff_var=dff_var)
+
+        # brainstate        
+        M = sleepy.load_stateidx(ipath, rec, ann_name=rec + ann_name)[0]
+        if ann_name != '':
+            print('using annotation %s' % rec + ann_name + '.txt')
+        
+        # flatten out MAs
+        if ma_thr>0:
+            seq = sleepy.get_sequences(np.where(M==2)[0])
+            for s in seq:
+                if np.round(len(s)*sdt) <= ma_thr:
+                    if ma_rem_exception:
+                        if (s[0]>1) and (M[s[0] - 1] != 1):
+                            M[s] = 3
+                    else:
+                        M[s] = 3
+        
+        if awake:
+            mu = [10, 100]
+            tmp = so.loadmat(os.path.join(ipath, rec, 'msp_%s.mat' % rec), squeeze_me=True)
+            MSP = tmp['mSP']
+            freq = tmp['freq']
+            df = freq[1] - freq[0]
+            imu = np.where((freq>=mu[0]) & (freq<=mu[1]))[0]
+            
+            widx = np.where(M==2)[0]
+            ampl = np.sqrt(MSP[imu, :].sum(axis=0)*df)
+            wampl = ampl[widx]
+            thr = wampl.mean() + wampl.std()
+            awk_idx = widx[np.where(wampl>thr)[0]]
+            qwk_idx = np.setdiff1d(widx, awk_idx)
+            M[qwk_idx] = 4
+            
+        
+        state_idx = {1:[], 2:[], 3:[]}
+        
+        # load imaging timing
+        img_time = imaging_timing(ipath, rec)
+        isr = 1/np.mean(np.diff(img_time))
+
+        for state in [1,2,3]:
+            seq = sleepy.get_sequences(np.where(M==state)[0])
+            for s in seq:                
+                state_idx[state] += list(s)
+
+
+        for index, row in rec_map.iterrows():
+            s=row[rec]
+            a = re.split('-', s)
+            roi_num  = int(a[1])
+            dff = DFF[:,roi_num] 
+            
+            if dff_filt:
+                w0 = f_cutoff / (isr*0.5)
+                dff = sleepy.my_lpfilter(dff, w0)
+            
+            if pzscore:
+                dff = (dff-dff.mean()) / dff.std()
+            else:
+                dff = dff*100
+            
+            for state in [1,2,3]:
+                roi_stateval[row['ID']][state].append(dff[state_idx[state]])
+
+    for r in rois:
+        for state in [1,2,3]:
+            roi_stateval[r][state] = np.concatenate(roi_stateval[r][state])
+    
+    
+    columns = ['ID', 'R', 'W', 'N', 'F-anova', 'P-anova', 'P-tukey', 'Type']
+    data = []
+    for r in rois:
+        
+        stateval = roi_stateval[r]
+        val = np.concatenate([stateval[1], stateval[2], stateval[3]])
+        state = ['R']*len(stateval[1]) + ['W']*len(stateval[2]) + ['N']*len(stateval[3])
+        d = {'state':state, 'val':val}
+        df = pd.DataFrame(d)
+        test_var = 'p'
+
+
+        res  = pg.anova(data=df, dv='val', between='state')
+        #res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
+        
+        res2 = profile_bootstrap(df, nboots=100)
+ 
+        #pdb.set_trace()
+        def _get_mean(s):
+            return df[df['state']==s]['val'].mean()
+ 
+        rmean = _get_mean('R')
+        wmean = _get_mean('W')
+        nmean = _get_mean('N')
+        
+        if class_mode == 'basic':
+            roi_type = 'X'
+            # REM-max
+            if (rmean > wmean) and (rmean > nmean):
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'R-max'
+            # W-max
+            elif (wmean > nmean) and (wmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+    
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'W-max'
+            # N-max 
+            elif (nmean > wmean) and (nmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+    
+                if cond1['p-tukey'].iloc[0] < 0.05 and cond2['p-tukey'].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'N-max'
+                    
+            else:
+                roi_type = 'X'
+                            
+            tmp = [r, rmean, wmean, nmean, res.F.iloc[0], res['p-unc'].iloc[0], res2['p-tukey'].iloc[0], roi_type]
+            data.append(tmp)
+        
+        else:
+            # mode == 'rem'
+            roi_type = 'X'
+
+            # R>N>W
+            if (rmean > wmean) and (rmean > nmean) and (nmean > wmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                # NEW
+                cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+
+                if cond1[test_var].iloc[0] < 0.05 and cond2[test_var].iloc[0] < 0.05 and cond3[test_var].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                    #R > N                              R > W                                N > W                               ANOVA
+                    roi_type = 'R>N>W'
+                    
+            # R>W>N
+            elif (rmean > wmean) and (rmean > nmean) and (wmean > nmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+                # NEW
+                cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                
+                if cond1[test_var].iloc[0] < 0.05 and cond2[test_var].iloc[0] < 0.05 and cond3[test_var].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'R>W>N'
+                    
+            # W-max
+            elif (wmean > nmean) and (wmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+    
+                if cond1[test_var].iloc[0] < 0.05 and cond2[test_var].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'W-max'
+            # N-max 
+            elif (nmean > wmean) and (nmean > rmean):  
+                cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+                cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+    
+                if cond1[test_var].iloc[0] < 0.05 and cond2[test_var].iloc[0] < 0.05 and res['p-unc'].iloc[0] < 0.05:
+                    roi_type = 'N-max'
+                    
+            else:
+                roi_type = 'X'
+
+            tukey_res = [res2[(res2['A'] == 'N') & (res2['B'] == 'R')][test_var].iloc[0], 
+                         res2[(res2['A'] == 'N') & (res2['B'] == 'W')][test_var].iloc[0], 
+                         res2[(res2['A'] == 'R') & (res2['B'] == 'W')][test_var].iloc[0]]
+                                        
+            tmp = [r, rmean, wmean, nmean, res.F.iloc[0], res['p-unc'].iloc[0], tukey_res, roi_type]
+            data.append(tmp)
+
+    df_class = pd.DataFrame(data, columns=columns)
+    df_class = pd.merge(mapping, df_class, on='ID')
+
+    mice = [m for m in df_class['mouse'].unique()]
+    j = 0
+    mdict = {}
+    for m in mice:
+        mdict[m] = j
+        j+=1
+    clrs = sns.color_palette("husl", len(mice))
+
+    plt.ion()
+    plt.figure()
+    types = df_class['Type'].unique()
+    #types = [i for i in types if not (i=='X')]
+    types.sort()
+    
+    j = 1
+    plt.ion()
+    plt.figure()
+    for typ in types:
+        mouse_shown = {m:0 for m in mice}
+        plt.subplot(int('1%d%d' % (len(types), j)))
+        df = df_class[df_class['Type']==typ][['mouse', 'R', 'N', 'W']]
+        #df = pd.melt(df, var_name='state', value_name='dff')  
+        
+        sns.barplot(data=df[['R', 'N', 'W']], color='gray')
+        for index, row in df.iterrows():
+            if single_mice:
+                m=row['mouse']                
+                if mouse_shown[m] > 0:
+                    plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color=clrs[mdict[m]])
+                else:
+                    plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color=clrs[mdict[m]], label=m)
+                    mouse_shown[m] += 1   
+            else:
+                plt.plot(['R', 'N', 'W'], row[['R', 'N', 'W']], color='black')
+
+        sns.despine()
+        plt.title(typ)
+        plt.legend()
+        if j == 1:
+            if not pzscore:
+                plt.ylabel('DF/F (%)')
+            else:
+                plt.ylabel('DF/F (z-scored)')
+        j += 1
+    
+    return df_class
+
+
+def profile_bootstrap(df, nboots=1000):
+    
+    val = {}
+    for s in ['R', 'W', 'N']:
+        val[s] = np.array(df[df.state == s]['val'])
+    
+    n = df.shape[0]
+    data = []
+    for i in range(nboots):
+        idx = np.random.randint(0, n, (n,))        
+        df_rnd = df.iloc[idx,:]        
+        mmean = df_rnd.groupby('state').mean().loc[['R', 'W', 'N'], 'val'].tolist()        
+        data += [mmean]
+    
+    df_boot = pd.DataFrame(data=data, columns=['R', 'W', 'N'])
+    
+    data = []
+    for i,j in [['N', 'R'], ['N', 'W'], ['R', 'W']]:
+        d = df_boot.loc[:,i].values - df_boot.loc[:,j].values
+    
+        p = 2 * np.min([len(np.where(d > 0)[0]) / nboots, len(np.where(d <= 0)[0]) / nboots])
+        (cil, cih) = np.percentile(d, (2.5, 97.5))    
+        md = d.mean()
+    
+        data += [[i,j, p, md, cil, cih]]
+        
+    df_res = pd.DataFrame(data=data, columns=['A', 'B', 'p', 'md', 'cil', 'cih'])
+
+    return df_res
 
             
+
 def time_morph(X, nstates):
     """
     upsample vector or matrix X to nstates states
@@ -1634,8 +2263,6 @@ def dff_interrem(ipath, roi_mapping, nstates_rem=10, nstates_irem=20, pspec=True
         if pspec:
             P = so.loadmat(os.path.join(ipath, rec, 'sp_%s.mat' % rec), squeeze_me=True)
             SP = P['SP']
-            freq = P['freq']
-            ifreq = np.where(freq <= fmax)[0]
             sp_mean = SP.mean(axis=1)
             SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
 
@@ -1671,10 +2298,8 @@ def dff_interrem(ipath, roi_mapping, nstates_rem=10, nstates_irem=20, pspec=True
                     m = dff_rir.shape[0]
                     tlabel = list(range(m))
                     
-                    
                     data += zip([idf]*m, [roi_num]*m, [rec]*m, dff_rir, tlabel)
     
-
     df = pd.DataFrame(data=data, columns=['mouse', 'ID', 'recording',  'dff', 'time'])
     return df
 
@@ -3840,7 +4465,7 @@ def phrem_correlation(ipath, roi_mapping, pre, post, xdt=0.1, pzscore=True,
 
 
 
-def downsample_dff2bs(ipath, rec, roi_list, psave=False, peaks=False, dff_data = []):
+def downsample_dff2bs(ipath, rec, roi_list, psave=False, peaks=False, dff_data = [], dff_var='dff'):
 
     sr = sleepy.get_snr(ipath, rec)
     nbin = int(np.round(sr)*2.5)
@@ -3857,7 +4482,7 @@ def downsample_dff2bs(ipath, rec, roi_list, psave=False, peaks=False, dff_data =
         #dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
         if not(os.path.isfile(dff_file)):
             calculate_dff(ipath, rec, roi_list)
-        DFF = so.loadmat(dff_file, squeeze_me=True)['dff']
+        DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]
     else:
         DFF = dff_data
     
