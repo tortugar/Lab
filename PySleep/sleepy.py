@@ -1452,7 +1452,7 @@ def rem_online_analysis(ppath, recordings, backup='', single_mode=False, fig_fil
     :param backup: string, potential second backup folder with recordings
     :param single_mode: boolean, if True, average across all REM periods (irrespective of mouse)
            and plot each single REM period as dot
-    :param overlap: float between 0 and 100; specifices percentage by which the online detected REM period has to
+    :param overlap: float between 0 and 1; specifices percentage by which the online detected REM period has to
            overlap with real (annotated) REM period to be further consided for analysis;
            if overlap == 0, then any overlap counts, i.e. this parameter has no influence
     :return: df, pd.DataFrame, with control and experimental REM durations as data columns
@@ -1507,7 +1507,7 @@ def rem_online_analysis(ppath, recordings, backup='', single_mode=False, fig_fil
             isect = np.intersect1d(s, rem_idx)
             #print(len(isect)/ len(s))
             # test if real REM period s overlaps with online detected REM periods and, 
-            # if yes, make sure that the overlap is at least overlap *100 percent
+            # if yes, make sure that the overlap is at least overlap * 100 percent
             if len(np.intersect1d(s, rem_idx)) > 0 and float(len(isect)) / len(s) >= overlap:
                 drn = (s[-1]-s[0]+1)*dt
                 # does the sequence overlap with laser?
@@ -2293,7 +2293,7 @@ def plot_hypnograms(ppath, recordings, tbin=0, unit='h', ma_thr=20, title='', ts
             iend = int(tend/dt_sec)
         M = M[istart:iend]
 
-        if ma_thr>0:
+        if ma_thr > 0:
             seq = get_sequences(np.where(M==2)[0])
             for s in seq:
                 if len(s)*dt_sec <= ma_thr:
@@ -3449,7 +3449,7 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
     freq = P['freq']
     if pemg_ampl:
         P = so.loadmat(os.path.join(ppath, name, 'msp_%s.mat' % name), squeeze_me=True)
-        SPEMG = P['mSP']#/1000000.0
+        SPEMG = P['mSP']
     else:
         emg = so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG']
 
@@ -5696,7 +5696,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
     
     # make plot:
     if pplot:
-        nsr_seg = 1 # before 1
+        nsr_seg = 1 
         # overlap of consecutive FFT windows
         perc_overlap = 0.8
         
@@ -5806,7 +5806,241 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
         
     return phrem
                     
+
+
+def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1, 
+               break_dur=0.2, thr_perc=99, pemg2=False, vip=False):
+    
+    mu = [50, 200]
+    M = load_stateidx(ppath, name)[0]
+    
+    if not pemg2:
+        EMG = so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG']
+    else:
+        EMG = so.loadmat(os.path.join(ppath, name, 'EMG2.mat'), squeeze_me=True)['EMG2']
         
+    neeg = EMG.shape[0]
+    seq = get_sequences(np.where(M == 1)[0])
+    rem_idx = []
+    for s in seq:
+        rem_idx += list(s)
+    
+    sr = get_snr(ppath, name)
+    nbin = int(np.round(2.5*sr))
+    sdt = nbin*(1/sr)
+    ibreak = int(break_dur / (ndown*(1/sr))) + 1
+    dt_hp = (1/sr)*ndown
+
+    seq = [s for s in seq if len(s)*sdt>=min_dur]
+    hp_emg_list = []
+    hp_seq = {}
+    for s in seq:
+        ta = s[0]*nbin
+        
+        #[0      1         2         3]
+        #[0-2500 2500-5000 5000-7500 7500 9999]
+        tb = (s[-1]+1)*nbin
+        tb = np.min((tb, neeg))
+
+        emg_idx = np.arange(ta, tb)        
+        emg_cut = EMG[emg_idx]    
+        if len(emg_cut)*(1/sr) <= min_dur:
+            continue
+
+        emg_cut = np.abs(my_hpfilter(emg_cut, 0.5))
+        emg_cut = downsample_vec(emg_cut, ndown)
+        emg_cut = np.abs(my_hpfilter(emg_cut, 0.1))
+
+        hp_emg_list += list(emg_cut)
+        hp_seq[s[0]] = emg_cut
+
+    hp_emg = np.array(hp_emg_list)
+    # threshold for phasic REM detection:
+    thr = np.percentile(hp_emg, thr_perc)
+    
+    print('Threshold for recording %s: %f' % (name, thr))
+
+    phemg = {}
+    ph_idx_all = []
+    for si in hp_seq:
+        offset = nbin * si
+        emg_cut = hp_seq[si]
+        idx = np.where(emg_cut > thr)[0]
+
+        if len(idx) == 0:
+            continue
+                
+        cand = get_sequences(idx, ibreak=ibreak)
+
+        for q in cand:
+            dur = len(q) * dt_hp
+
+            if dur < min_phasic:
+                continue
+            
+            a = q[0]*ndown + offset
+            b = (q[-1]+1)*ndown + offset
+
+            ph_idx = range(a, b)
+            
+            if si in phemg:
+                phemg[si].append(ph_idx)
+            else:
+                phemg[si] = [ph_idx]
+                
+            #ph_idx_all += list(q + int(offset/ndown))
+            tmp = np.array(ph_idx)/ndown
+            ph_idx_all += list(tmp.astype('int'))
+                
+    if pplot:
+        nsr_seg = 1 
+        # overlap of consecutive FFT windows
+        perc_overlap = 0.8
+        
+        file_sp  = os.path.join(ppath, name,  'sp_fine_%s.mat' % name)
+        file_msp = os.path.join(ppath, name, 'msp_fine_%s.mat' % name)
+        
+        
+        if (not os.path.isfile(file_sp)):
+            EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
+            freq, t, SP = scipy.signal.spectrogram(EEG, fs=sr, window='hann', nperseg=int(nsr_seg * sr),
+                                                   noverlap=int(nsr_seg * sr * perc_overlap))
+            # for nsr_seg=1 and perc_overlap = 0.9,
+            # t = [0.5, 0.6, 0.7 ...]
+            dt = t[1]-t[0]
+            # Note: sp_name.mat includes keys: SP, SP2, freq, dt, t
+            so.savemat(file_sp, {'SP':SP, 'SP2':[], 'dt':dt, 'freq':freq, 't':t})
+
+        if (not os.path.isfile(file_msp)):
+            freq, t, mSP = scipy.signal.spectrogram(EMG, fs=sr, window='hann', nperseg=int(nsr_seg * sr),
+                                                   noverlap=int(nsr_seg * sr * perc_overlap))
+            # for nsr_seg=1 and perc_overlap = 0.9,
+            # t = [0.5, 0.6, 0.7 ...]
+            dt = t[1]-t[0]
+            # Note: sp_name.mat includes keys: SP, SP2, freq, dt, t
+            if not pemg2:
+                so.savemat(file_msp, {'mSP':mSP, 'mSP2':[], 'dt':dt, 'freq':freq, 't':t})
+            else:
+                so.savemat(file_msp, {'mSP':[], 'mSP2':mSP, 'dt':dt, 'freq':freq, 't':t})
+    
+        tmp  = so.loadmat(file_sp, squeeze_me=True)
+        SP   = tmp['SP']
+        freq = tmp['freq']
+        dfreq = freq[1] - freq[0]
+        tbs    = tmp['t']
+        dt   = tmp['dt']
+    
+        tmp  = so.loadmat(file_msp, squeeze_me=True)
+        mSP = tmp['mSP']
+        imu = np.where((freq >= mu[0]) & (freq <= mu[1]))[0]
+        ampl = mSP[imu,:].sum(axis=0) * dfreq
+        ampl = my_hpfilter(ampl, 0.2)
+        ampl = np.abs(ampl)        
+    
+        plt.figure()
+        # plot spectrogram
+        ax = plt.subplot(512)
+        ifreq = np.where(freq <= 20)[0]
+        ax.pcolorfast(tbs, freq[ifreq], SP[ifreq,:], vmin=0, vmax=5000, cmap='jet')
+        plt.ylabel('Freq. (Hz)')
+        
+        # plot hypnogram
+        axes_brs = plt.subplot(511, sharex=ax)
+        cmap = plt.cm.jet
+        my_map = cmap.from_list('brs', [[0, 0, 0], [0, 1, 1], [0.6, 0, 1], [0.8, 0.8, 0.8]], 4)
+    
+        tmp = axes_brs.pcolorfast(tbs, [0, 1], np.array([M]), vmin=0, vmax=3)
+        tmp.set_cmap(my_map)
+        axes_brs.axis('tight')
+        _despine_axes(axes_brs)
+        plt.xlim([tbs[0], tbs[-1]])
+                
+        # plot EMG amplitude
+        ax = plt.subplot(513, sharex=axes_brs)
+        #ax.plot(tbs, ampl)
+        plt.xlim([tbs[0], tbs[-1]])
+                
+        # plot filtered EMG
+        teeg_hp = np.arange(0, int(len(EMG)/ndown)) * dt_hp
+        ax = plt.subplot(514, sharex=axes_brs)
+        for si in hp_seq:
+            emg_hp = hp_seq[si]
+            ta = int(si*nbin / ndown)
+            idx_hp = range(ta, ta+len(emg_hp))
+            
+            plt.plot(teeg_hp[idx_hp], emg_hp)
+
+            plt.plot((teeg_hp[idx_hp[0]], teeg_hp[idx_hp[-1]]), np.ones(2,)*thr, 'r')
+            
+        plt.xlim((teeg_hp[0], teeg_hp[-1]))
+        
+        # plot raw EMG
+        ndown_emg =1
+
+        plt.subplot(515, sharex=axes_brs)
+        EMGdn = downsample_vec(EMG, ndown_emg)
+        #teeg = np.arange(0, len(EMG)) * (1/sr)
+        teeg_dn = np.arange(0, len(EMGdn)) * ((1/sr)*ndown_emg)
+
+        for s in seq:
+            ta = int(s[0]*nbin/ndown_emg)
+            tb = int(s[-1]*nbin/ndown_emg)
+            idx_dn = range(ta, tb+1)
+            plt.plot(teeg_dn[idx_dn], EMGdn[idx_dn], 'k', lw=0.5)
+
+        for si in phemg:
+            ta = si*nbin
+            idx_list = phemg[si]            
+            
+            # for tr in idx_list:            
+            #     idx = range(tr[0], tr[-1]+1)
+            #     idx_dn = [int(i/4) for i in idx]
+                
+            #     eeg = EMGdn[idx_dn]                        
+            #     plt.plot(teeg_dn[idx_dn], eeg, 'k')        
+            # plt.xlim([0, teeg[-1]])
+
+            
+            for idx in idx_list:
+                a = idx[0]
+                b = idx[-1]
+                a = int(a/ndown_emg)
+                b = int(b/ndown_emg)
+                
+                plt.plot(teeg_dn[range(a,b+1)], EMGdn[a:b+1], 'r', lw=0.5)
+                            
+    if vip:
+        lines = ''
+        vip_file = os.path.join(ppath, name, 'vip_phasic_emg.txt')
+        
+        lines += "@symbols: p-phasic" + "\n" + "\n" + "@t: fdt" + "\n" + "\n"
+        #writer.write()
+        
+        t_hp = np.arange(0, int(len(EMG)/ndown)) * dt_hp
+        ph_dict = {r:'' for r in range(len(t_hp))}
+        for r in ph_idx_all:
+            ph_dict[r] = 'p'
+            
+        for i,t in enumerate(t_hp):
+            
+            #if i in ph_idx_all:
+            sym = ph_dict[i]
+            # if sym == 'p':
+            #     pass
+            #     pdb.set_trace()
+            if (i%10000) == True :
+                print(i)
+            
+            lines += str(round(t, 2)) + '\t' + sym + "\t" + "0" + '\n'
+
+        print('writing vip_ file')
+        writer = open(vip_file, "w")
+        writer.write(lines)
+        writer.close()    
+                                
+    return phemg
+
+
 
 # PLOTTING FUNCTIONALITY #####################################################
 def plt_lineplot(df, subject, xcol, ycol, ax=-1, color='blue', xlabel='', ylabel='', lw=1):
