@@ -5808,9 +5808,55 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
                     
 
 
-def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1, 
-               break_dur=0.2, thr_perc=99, pemg2=False, vip=False):
-    
+def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=0.1, 
+               break_dur=0.2, thr_perc=99, pemg2=False, vip=False, rm_sp=False, pnorm_spec=True, 
+               add_hpfilter=False):
+    """
+    Detect phasic EMG events during REM sleep episodes. 
+    Phasic EMG events are defined as intervals of duration > $min_phasic with 
+    high frequency content. 
+
+    Note the EMG is first highpass filtered, then rectified (absolute value),
+    then downsampled by a factor of $ndown and then again high-pass filtered to 
+    remove baseline drifts.
+
+        emg_cut = np.abs(my_hpfilter(emg_cut, 0.5))
+        emg_cut = downsample_vec(emg_cut, ndown)
+        emg_cut = np.abs(my_hpfilter(emg_cut, 0.1))
+
+    Parameters
+    ----------
+    ppath : str
+        base recording folder.
+    name : str
+        recording name.
+    min_dur : float, optional
+        Minimum duration for REM sleep episodes. The default is 2.5.
+    ndown : TYPE, optional
+        DESCRIPTION. The default is 50.
+    pplot : TYPE, optional
+        DESCRIPTION. The default is False.
+    min_phasic : float, optional
+        Minimum duration of phasic EMG events. The default is 0.1.
+    break_dur : float, optional
+        Two phasic EMG events that are separated by less then $break_dur seconds are 
+        fused into a single phasic EMG events. The default is 0.2.
+    thr_perc : TYPE, optional
+        Determines threshold (percentile) of EMG amplitude that has to be crossed
+        by the EMG to be considered phasic EMG. The default is 99.
+    pemg2 : TYPE, optional
+        DESCRIPTION. The default is False.
+    vip : TYPE, optional
+        DESCRIPTION. The default is False.
+    rem_sp: boolean
+        If True, delete sp_msp_fine and sp_sp_fine files, and then re-calculate
+
+    Returns
+    -------
+    phemg : TYPE
+        DESCRIPTION.
+
+    """    
     mu = [50, 200]
     M = load_stateidx(ppath, name)[0]
     
@@ -5826,6 +5872,8 @@ def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1,
         rem_idx += list(s)
     
     sr = get_snr(ppath, name)
+    ndown = int(win_down / (1/sr))
+    
     nbin = int(np.round(2.5*sr))
     sdt = nbin*(1/sr)
     ibreak = int(break_dur / (ndown*(1/sr))) + 1
@@ -5849,7 +5897,9 @@ def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1,
 
         emg_cut = np.abs(my_hpfilter(emg_cut, 0.5))
         emg_cut = downsample_vec(emg_cut, ndown)
-        emg_cut = np.abs(my_hpfilter(emg_cut, 0.1))
+        
+        if add_hpfilter:
+            emg_cut = np.abs(my_hpfilter(emg_cut, 0.1))
 
         hp_emg_list += list(emg_cut)
         hp_seq[s[0]] = emg_cut
@@ -5888,7 +5938,6 @@ def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1,
             else:
                 phemg[si] = [ph_idx]
                 
-            #ph_idx_all += list(q + int(offset/ndown))
             tmp = np.array(ph_idx)/ndown
             ph_idx_all += list(tmp.astype('int'))
                 
@@ -5899,8 +5948,13 @@ def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1,
         
         file_sp  = os.path.join(ppath, name,  'sp_fine_%s.mat' % name)
         file_msp = os.path.join(ppath, name, 'msp_fine_%s.mat' % name)
-        
-        
+
+        if rm_sp:
+            if os.path.isfile(file_sp):
+                os.remove(file_sp)
+            if os.path.isfile(file_msp):
+                os.remove(file_msp)
+                
         if (not os.path.isfile(file_sp)):
             EEG = so.loadmat(os.path.join(ppath, name, 'EEG.mat'), squeeze_me=True)['EEG']
             freq, t, SP = scipy.signal.spectrogram(EEG, fs=sr, window='hann', nperseg=int(nsr_seg * sr),
@@ -5933,9 +5987,12 @@ def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1,
         tmp  = so.loadmat(file_msp, squeeze_me=True)
         mSP = tmp['mSP']
         imu = np.where((freq >= mu[0]) & (freq <= mu[1]))[0]
-        ampl = mSP[imu,:].sum(axis=0) * dfreq
-        ampl = my_hpfilter(ampl, 0.2)
-        ampl = np.abs(ampl)        
+        if pnorm_spec:
+            sp_mean = mSP.mean(axis=1)
+            mSP = np.divide(mSP, np.tile(sp_mean, (mSP.shape[1], 1)).T)
+            ampl = mSP[imu,:].mean(axis=0)
+        else:
+            ampl = mSP[imu, :].sum(axis=0)*dfreq        
     
         plt.figure()
         # plot spectrogram
@@ -5957,7 +6014,7 @@ def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1,
                 
         # plot EMG amplitude
         ax = plt.subplot(513, sharex=axes_brs)
-        #ax.plot(tbs, ampl)
+        ax.plot(tbs, ampl)
         plt.xlim([tbs[0], tbs[-1]])
                 
         # plot filtered EMG
@@ -5975,7 +6032,7 @@ def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1,
         plt.xlim((teeg_hp[0], teeg_hp[-1]))
         
         # plot raw EMG
-        ndown_emg =1
+        ndown_emg = 1
 
         plt.subplot(515, sharex=axes_brs)
         EMGdn = downsample_vec(EMG, ndown_emg)
@@ -5991,16 +6048,7 @@ def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1,
         for si in phemg:
             ta = si*nbin
             idx_list = phemg[si]            
-            
-            # for tr in idx_list:            
-            #     idx = range(tr[0], tr[-1]+1)
-            #     idx_dn = [int(i/4) for i in idx]
-                
-            #     eeg = EMGdn[idx_dn]                        
-            #     plt.plot(teeg_dn[idx_dn], eeg, 'k')        
-            # plt.xlim([0, teeg[-1]])
-
-            
+                        
             for idx in idx_list:
                 a = idx[0]
                 b = idx[-1]
@@ -6014,23 +6062,16 @@ def phasic_emg(ppath, name, min_dur=2.5, ndown=50, pplot=False, min_phasic=0.1,
         vip_file = os.path.join(ppath, name, 'vip_phasic_emg.txt')
         
         lines += "@symbols: p-phasic" + "\n" + "\n" + "@t: fdt" + "\n" + "\n"
-        #writer.write()
         
         t_hp = np.arange(0, int(len(EMG)/ndown)) * dt_hp
         ph_dict = {r:'' for r in range(len(t_hp))}
         for r in ph_idx_all:
             ph_dict[r] = 'p'
             
-        for i,t in enumerate(t_hp):
-            
-            #if i in ph_idx_all:
+        for i,t in enumerate(t_hp):            
             sym = ph_dict[i]
-            # if sym == 'p':
-            #     pass
-            #     pdb.set_trace()
             if (i%10000) == True :
-                print(i)
-            
+                print(i)            
             lines += str(round(t, 2)) + '\t' + sym + "\t" + "0" + '\n'
 
         print('writing vip_ file')
@@ -6071,7 +6112,6 @@ def plt_lineplot(df, subject, xcol, ycol, ax=-1, color='blue', xlabel='', ylabel
         plt.xlabel(xlabel)
     else:
         plt.xlabel(str(xcol))
-
 
 
 
