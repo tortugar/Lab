@@ -2440,6 +2440,9 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     :param pnorm: normalization,
                  pnorm = 0, no normalization
                  pnorm = 1, normalize each frequency band by its average power
+                 pnorm = 1.5, normalize each frequency band by its average power, but
+                            only use intervals without laser to calculate the average power
+                            for normalization
                  pnorm = 2, normalize each frequency band by the average power 
                             during the preceding baseline period
     :param vm: float to set saturation level of colormap
@@ -2549,6 +2552,21 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
     if pnorm == 1:
         SPEEG = np.divide(SPEEG, np.repeat(speeg_mean, len(t)).reshape(len(speeg_mean), len(t)))
         SPEMG = np.divide(SPEMG, np.repeat(spemg_mean, len(t)).reshape(len(spemg_mean), len(t)))
+
+    ##########################################################
+    # only use areas without laser to calculate average power for normalizatoin: 
+    if pnorm == 1.5:
+        laser_idx = []
+        for (i,j) in zip(idxs, idxe):
+            laser_idx += list(range(i,j+1))
+        no_laser_idx = np.setdiff1d(np.arange(0, SPEEG.shape[1]), np.array(laser_idx))
+
+        speeg_mean = SPEEG[:,no_laser_idx].mean(axis=1)
+        spemg_mean = SPEMG[:,no_laser_idx].mean(axis=1)
+
+        SPEEG = np.divide(SPEEG, np.repeat(speeg_mean, len(t)).reshape(len(speeg_mean), len(t)))
+        SPEMG = np.divide(SPEMG, np.repeat(spemg_mean, len(t)).reshape(len(spemg_mean), len(t)))            
+    ###########################################################################
 
     speeg_parts = []
     spemg_parts = []
@@ -2668,6 +2686,9 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
     :param pnorm: normalization,
              pnorm = 0, no normalization
              pnorm = 1, normalize each frequency band by its average power
+             pnorm = 1.5, normalize each frequency band by its average power, but
+                       only use intervals without laser to calculate the average power
+                       for normalization
              pnorm = 2, normalize each frequency band by the average power
                         during the preceding baseline period
     :param pplot: pplot==0 - no figure;
@@ -5822,7 +5843,8 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
 
         emg_cut = np.abs(my_hpfilter(emg_cut, 0.5))
         emg_cut = downsample_vec(emg_cut, ndown)
-        emg_cut = np.abs(my_hpfilter(emg_cut, 0.1))
+        if add_hpfilter:
+            emg_cut = np.abs(my_hpfilter(emg_cut, 0.1))
 
     Parameters
     ----------
@@ -5832,8 +5854,8 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
         recording name.
     min_dur : float, optional
         Minimum duration for REM sleep episodes. The default is 2.5.
-    ndown : TYPE, optional
-        DESCRIPTION. The default is 50.
+    win_down : float, optional
+        DESCRIPTION. The default is 0.05 s.
     pplot : TYPE, optional
         DESCRIPTION. The default is False.
     min_phasic : float, optional
@@ -5846,9 +5868,10 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
         by the EMG to be considered phasic EMG. The default is 99.
     pemg2 : TYPE, optional
         DESCRIPTION. The default is False.
-    vip : TYPE, optional
-        DESCRIPTION. The default is False.
-    rem_sp: boolean
+    vip : bool, optional
+        If True, write vip_ called vip_phasic_emg.txt with symbol 'p' to indicate
+        time points with phasic EMG. The default is False.
+    rm_sp: bool
         If True, delete sp_msp_fine and sp_sp_fine files, and then re-calculate
 
     Returns
@@ -5872,7 +5895,10 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
         rem_idx += list(s)
     
     sr = get_snr(ppath, name)
-    ndown = int(win_down / (1/sr))
+    if win_down > 0:
+        ndown = int(win_down / (1/sr))
+    else:
+        ndown = 1
     
     nbin = int(np.round(2.5*sr))
     sdt = nbin*(1/sr)
@@ -5896,7 +5922,8 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
             continue
 
         emg_cut = np.abs(my_hpfilter(emg_cut, 0.5))
-        emg_cut = downsample_vec(emg_cut, ndown)
+        if ndown > 1:
+            emg_cut = downsample_vec(emg_cut, ndown)
         
         if add_hpfilter:
             emg_cut = np.abs(my_hpfilter(emg_cut, 0.1))
@@ -5908,8 +5935,6 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
     # threshold for phasic REM detection:
     thr = np.percentile(hp_emg, thr_perc)
     
-    print('Threshold for recording %s: %f' % (name, thr))
-
     phemg = {}
     ph_idx_all = []
     for si in hp_seq:
@@ -5925,6 +5950,7 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
         for q in cand:
             dur = len(q) * dt_hp
 
+            # if phasic EMG sequence is too short, discard it:
             if dur < min_phasic:
                 continue
             
@@ -5966,16 +5992,32 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
             so.savemat(file_sp, {'SP':SP, 'SP2':[], 'dt':dt, 'freq':freq, 't':t})
 
         if (not os.path.isfile(file_msp)):
-            freq, t, mSP = scipy.signal.spectrogram(EMG, fs=sr, window='hann', nperseg=int(nsr_seg * sr),
-                                                   noverlap=int(nsr_seg * sr * perc_overlap))
+            if not pemg2:
+                freq, t, mSP = scipy.signal.spectrogram(
+                    EMG, fs=sr, window='hann', nperseg=int(nsr_seg * sr),
+                    noverlap=int(nsr_seg * sr * perc_overlap))
+                
+                freq, t, mSP2 = scipy.signal.spectrogram(
+                    so.loadmat(os.path.join(ppath, name, 'EMG2.mat'), squeeze_me=True)['EMG2'], fs=sr, window='hann', nperseg=int(nsr_seg * sr),
+                    noverlap=int(nsr_seg * sr * perc_overlap))
+            else:
+                freq, t, mSP = scipy.signal.spectrogram(
+                    so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG'], fs=sr, window='hann', nperseg=int(nsr_seg * sr),
+                    noverlap=int(nsr_seg * sr * perc_overlap))
+                
+                freq, t, mSP2 = scipy.signal.spectrogram(
+                    EMG, fs=sr, window='hann', nperseg=int(nsr_seg * sr),
+                    noverlap=int(nsr_seg * sr * perc_overlap))
+                
+            
             # for nsr_seg=1 and perc_overlap = 0.9,
             # t = [0.5, 0.6, 0.7 ...]
             dt = t[1]-t[0]
             # Note: sp_name.mat includes keys: SP, SP2, freq, dt, t
-            if not pemg2:
-                so.savemat(file_msp, {'mSP':mSP, 'mSP2':[], 'dt':dt, 'freq':freq, 't':t})
-            else:
-                so.savemat(file_msp, {'mSP':[], 'mSP2':mSP, 'dt':dt, 'freq':freq, 't':t})
+            #if not pemg2:
+            so.savemat(file_msp, {'mSP':mSP, 'mSP2':mSP2, 'dt':dt, 'freq':freq, 't':t})
+            #else:
+            #    so.savemat(file_msp, {'mSP':[], 'mSP2':mSP, 'dt':dt, 'freq':freq, 't':t})
     
         tmp  = so.loadmat(file_sp, squeeze_me=True)
         SP   = tmp['SP']
@@ -5985,7 +6027,10 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
         dt   = tmp['dt']
     
         tmp  = so.loadmat(file_msp, squeeze_me=True)
-        mSP = tmp['mSP']
+        if not pemg2:
+            mSP = tmp['mSP']
+        else:
+            mSP = tmp['mSP2']
         imu = np.where((freq >= mu[0]) & (freq <= mu[1]))[0]
         if pnorm_spec:
             sp_mean = mSP.mean(axis=1)
