@@ -165,9 +165,9 @@ def load_dose_recordings(ppath, rec_file):
     
 
 
-def get_snr(ppath, name):
+def get_sr(ppath, name):
     """
-    read and return sampling rate (SR) from file $ppath/$name/info.txt 
+    read and return sampling rate (SR) from the info.txt file $ppath/$name/info.txt 
     """
     fid = open(os.path.join(ppath, name, 'info.txt'), newline=None)
     lines = fid.readlines()
@@ -178,6 +178,11 @@ def get_snr(ppath, name):
         if a :
             values.append(a.group(1))            
     return float(values[0])
+
+
+
+def get_snr(ppath, name):
+    return get_sr(ppath, name)
 
 
 
@@ -216,7 +221,7 @@ def add_infoparam(ifile, field, vals):
 
 
 
-def laser_start_end(laser, SR=1525.88, intval=5):
+def laser_start_end(laser, SR=1000.0, intval=5):
     """laser_start_end(ppath, name)
     print start and end index of laser stimulation trains: For example,
     if you was stimulated for 2min every 20 min with 20 Hz, return the
@@ -548,8 +553,8 @@ def power_spectrum(data, length, dt):
     The label on the y-axis should say PSD [V**2/Hz]
     
     @Parameters
-        data    -   time series; float vector!
-        length  -   length of hanning window, even integer!
+        data    -   time series; float vector
+        length  -   length of hanning window, even integer
     
     @Return:
         power density, frequencies
@@ -2503,8 +2508,8 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
 
     # interpolate frequencies corresponding to harmonics of $harmcs
     if harmcs > 0:
-        SPEEG = _interpolate_harmonics(SPEEG, freq, f_max, harmcs)
-        SPEMG = _interpolate_harmonics(SPEMG, freq, f_max, harmcs)
+        SPEEG = _interpolate_harmonics(SPEEG, freq, f_max, harmcs, iplt_level)
+        SPEMG = _interpolate_harmonics(SPEMG, freq, f_max, harmcs, iplt_level)
         
     if tend > -1:
         i = np.where((np.array(idxs)*dt >= tstart) & (np.array(idxs)*dt <= tend))[0]
@@ -5212,7 +5217,7 @@ def set_awake(M, MSP, freq, mu=[10, 100]):
 def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-1, 
                           mu=[10,100], ci='sd', pmode=1, pnorm = False, pplot=True, 
                           harmcs=0, harmcs_mode='iplt', iplt_level=0, peeg2=False, 
-                          pemg2=False, exclusive_mode=0, csv_files=[]):
+                          pemg2=False, exclusive_mode=0, round_freq=False, csv_files=[]):
     """
     caluclate EEG power spectrum using pre-calculate spectogram save in ppath/sp_"name".mat
     
@@ -5234,26 +5239,33 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     # What do to with episodes partially overlapping with laser
     :param exclusive_mode: if > 0, apply some exception for episodes of state $istate,
                   that overlap with laser. Say there's a REM period that only partially overlaps with laser.
-                  If $exclusive_mode == 1, then do not use the part w/o laser for the 'no laser' condition;
+
+                  x If $exclusive_mode == 1, then do not use the part w/o laser for the 'no laser' condition;
                   This can be relevant for closed-loop stimulation: The laser turns on after the 
                   spontaneous onset of REM sleep. So, the initial part of REM sleep would be interpreted
                   as 'no laser', potentially inducing a bias, because at the very beginning the REM spectrum
                   looks different than later on.
-                  If $exclusive_mode == 2, then add the part w/o laser to the 'with laser' condition.
-                  If $exclusive_mode == 0, then interprete the part w/o laser as 'w/o laser'.
+                  x If $exclusive_mode == 2, then add the part w/o laser to the 'with laser' condition.
+
+                  x If $exclusive_mode == 0, then interprete the part w/o laser as 'w/o laser'.
 
     # interpolating/discarding harmonics
-    :param harmcs, harmcs_mode, iplt_level: if $harmcs > 0 and $harmcs_mode == 'emg', 
+    :param harmcs, harmcs_mode, iplt_level: 
+                  x If $harmcs > 0 and $harmcs_mode == 'emg', 
                   remove all harmonics of base frequency $harmcs, from the frequencies used
                   for EMG amplitude calculation; do nothing for harmonics in EEG
-                  if $harmcs > 0 and $harmcs_mode == 'iplt', interpolate all harmonics by substituting the power 
-                  at the harmonic by a sum of the neighboring frequencies. If $iplt_level == 1, only
-                  take one neighboring frequency below and above the harmonic, 
-                  if $iplt_level == 2, use the two neighboring frequencies above and below for the
-                  interpolation
+                  
+                  x If $harmcs > 0 and $harmcs_mode == 'iplt', interpolate all harmonics by substituting the power 
+                  at the harmonic by a sum of the neighboring frequencies.                   
+                      -- If $iplt_level == 1, only
+                      take one neighboring frequency below and above the harmonic, 
+                      -- If $iplt_level == 2, use the two neighboring frequencies above and below for the
+                      interpolation
                   
     :parm peeg2: if True, use EEG2.mat instead of EEG.mat for EEG powerspectrum calculation
     :param pemg2: if True, use EMG2 for EMG amplitude calcuation
+    :param round_freq: if True, round frequency values to one digit after ".". 
+                  That's avoid "odd" frequencies when working with TDT.
     :param csv_files: if two file names are provided, the results for EEG power spectrum
     and EMG amplitude are saved to the csv files. The EEG powerspectrum is
     saved to the first file.
@@ -5267,8 +5279,8 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
     def _interpolate_harmonics(SP, freq, f_max, harmcs, iplt_level):
         df = freq[2]-freq[1]
         for h in np.arange(harmcs, f_max, harmcs):
-            i = np.argmin(np.abs(freq - h))
-            if np.abs(freq[i] - h) < df and h != 60: 
+            i = np.argmin(np.abs(np.round(freq,1) - h))
+            if np.abs(freq[i] - h) < df/2 and h != 60: 
                 if iplt_level == 2:
                     SP[i,:] = (SP[i-2:i,:] + SP[i+1:i+3,:]).mean(axis=0) * 0.5
                 elif iplt_level == 1:
@@ -5388,6 +5400,10 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
             sp_mean = np.mean(SP, axis=1)
             SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
         freq = tmp['freq']
+        if round_freq:
+            freq = np.round(freq, 1)
+            
+        
         df = freq[1]-freq[0]
         if fmax > -1:
             ifreq = np.where(freq <= fmax)[0]
@@ -5408,8 +5424,11 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
             
         
         if harmcs > 0 and harmcs_mode == 'iplt':
-            SP  = _interpolate_harmonics(SP, freq, fmax, harmcs, iplt_level)
-            MSP = _interpolate_harmonics(MSP, freq, fmax, harmcs, iplt_level)
+            fmax_harmcs = fmax
+            if fmax < 0:
+                fmax_harmcs = np.round(sr/2, 1)            
+            SP  = _interpolate_harmonics(SP, freq, fmax_harmcs, harmcs, iplt_level)
+            MSP = _interpolate_harmonics(MSP, freq, fmax_harmcs, harmcs, iplt_level)
         
         if harmcs > 0 and harmcs_mode == 'emg':
             harm_freq = np.arange(0, freq_emg.max(), harmcs)
@@ -5528,6 +5547,23 @@ def sleep_spectrum_simple(ppath, recordings, istate=1, tstart=0, tend=-1, fmax=-
 
 
 def _detect_troughs(signal, thr):
+    """
+    detect troughs in time signal.
+
+    Parameters
+    ----------
+    signal : np.array
+        1D vector.
+    thr : float
+        threshold value; all troughs (local minima) in @signal that go below $thr are defined
+        as troughs.
+
+    Returns
+    -------
+    sidx : np.array
+        1D vector with trough indices.
+
+    """
     lidx  = np.where(signal[0:-2] > signal[1:-1])[0]
     ridx  = np.where(signal[1:-1] <= signal[2:])[0]
     thidx = np.where(signal[1:-1] < thr)[0]
@@ -5909,18 +5945,17 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
     hp_emg_list = []
     hp_seq = {}
     for s in seq:
-        ta = s[0]*nbin
-        
+        ta = s[0]*nbin        
         #[0      1         2         3]
         #[0-2500 2500-5000 5000-7500 7500 9999]
         tb = (s[-1]+1)*nbin
         tb = np.min((tb, neeg))
 
         emg_idx = np.arange(ta, tb)        
-        emg_cut = EMG[emg_idx]    
-        if len(emg_cut)*(1/sr) <= min_dur:
+        if len(emg_idx)*(1/sr) <= min_dur:
             continue
 
+        emg_cut = EMG[emg_idx]    
         emg_cut = np.abs(my_hpfilter(emg_cut, 0.5))
         if ndown > 1:
             emg_cut = downsample_vec(emg_cut, ndown)
@@ -6081,7 +6116,6 @@ def phasic_emg(ppath, name, min_dur=2.5, win_down=0.05, pplot=False, min_phasic=
 
         plt.subplot(515, sharex=axes_brs)
         EMGdn = downsample_vec(EMG, ndown_emg)
-        #teeg = np.arange(0, len(EMG)) * (1/sr)
         teeg_dn = np.arange(0, len(EMGdn)) * ((1/sr)*ndown_emg)
 
         for s in seq:
