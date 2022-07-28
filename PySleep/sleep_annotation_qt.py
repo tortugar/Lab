@@ -23,6 +23,7 @@ import sleepy
 import pdb
 
 
+
 def get_cycles(ppath, name):
     """
     extract the time points where dark/light periods start and end
@@ -42,22 +43,24 @@ def get_cycles(ppath, name):
     nswitch = int(np.floor(total_dur / (12*3600)))
     switch_points = [0]
     cycle = {'light': [], 'dark':[]}
-        
     if hour >= 7 and hour < 19:
         # recording starts during light cycle
+        nswitch = int(( ((hour-7)*3600+mi*60+sec) + total_dur ) / (12*3600))
+        
         a = 19*3600 - (hour*3600+mi*60+sec)
         for j in range(nswitch):
             switch_points.append(a+j*12*3600)
-        for j in range(1, nswitch, 2):
+        switch_points.append(total_dur)
+        for j in range(1, nswitch+1, 2):
             cycle['dark'].append(switch_points[j:j+2])
-        for j in range(0, nswitch, 2):
+        for j in range(0, nswitch+1, 2):
             cycle['light'].append(switch_points[j:j+2])
         
     else:
         # recording starts during dark cycle
         a = 0
         if hour < 24:
-            a = 24 - (hour*3600+mi*60+sec) + 7*3600
+            a = 24*3600 - (hour*3600+mi*60+sec) + 7*3600
         else:
             a = 7*3600 - (hour*3600+mi*60+sec)
         for j in range(nswitch):
@@ -66,17 +69,18 @@ def get_cycles(ppath, name):
             cycle['dark'].append(switch_points[j:j+2])
         for j in range(1, nswitch, 2):
             cycle['light'].append(switch_points[j:j+2])
-        
+    
     return cycle
 
 
 
-def load_stateidx(ppath, name):
+def load_stateidx(ppath, name, remidx):
     """ load the sleep state file of recording ppath/name
     @RETURN:
     M     -      sequency of sleep states
     """   
-    file = os.path.join(ppath, name, 'remidx_' + name + '.txt')
+    #file = os.path.join(ppath, name, 'remidx_' + name + '.txt')
+    file = os.path.join(ppath, name, remidx)
     
     f = open(file, newline=None)    
     lines = f.readlines()
@@ -108,17 +112,18 @@ def load_stateidx(ppath, name):
 
 
 
-def rewrite_remidx(M, K, ppath, name, mode=1) :
+def rewrite_remidx(M, K, outfile) :
     """
     rewrite_remidx(idx, states, ppath, name)
     replace the indices idx in the remidx file of recording name
     with the assignment given in states
     """
    
-    if mode == 0 :
-        outfile = os.path.join(ppath, name, 'remidx_' + name + '.txt')
-    else :
-        outfile = os.path.join(ppath, name, 'remidx_' + name + '_corr.txt')
+    #if mode == 0 :
+    #    outfile = os.path.join(ppath, name, 'remidx_' + name + '.txt')
+    #else :
+    #    outfile = os.path.join(ppath, name, 'remidx_' + name + '_corr.txt')
+    outfile = os.path.join(ppath, name, remidx)
 
     f = open(outfile, 'w')
     s = ["%d\t%d\n" % (i,j) for (i,j) in zip(M[0,:],K)]
@@ -214,6 +219,7 @@ class MainWindow(QtGui.QMainWindow):
         self.index = 10
         self.ppath = ppath
         self.name  = name
+        self.remidx = remidx
         self.pcollect_index = False
         self.index_list = [self.index]
         self.tscale = 1
@@ -393,7 +399,6 @@ class MainWindow(QtGui.QMainWindow):
         ax = self.graph_emgampl.getAxis(name='bottom')
         labelStyle = {'color': '#FFF', 'font-size': '12pt'}
         ax.setLabel('Time', units=scale_unit, **labelStyle)
-
 
 
     def plot_brainstate(self, scale=1):
@@ -672,7 +677,8 @@ class MainWindow(QtGui.QMainWindow):
         
         # f - save file
         elif event.key() == 70:    
-            rewrite_remidx(self.M, self.K, self.ppath, self.name, mode=0)
+            #rewrite_remidx(self.M, self.K, self.ppath, self.name, mode=0)
+            rewrite_remidx(self.M, self.K, self.remidx)
             self.plot_brainstate(self.tscale)
             self.plot_eeg()
             
@@ -778,11 +784,11 @@ class MainWindow(QtGui.QMainWindow):
         elif event.key() == 42:
             use_idx = np.where(self.K>=0)[0]
             print("Re-calculating sleep annotation")
-            sleepy.sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=1,
+            sleepy.sleep_state(self.ppath, self.name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=1,
                                pplot=True, pemg=1, vmax=2.5, use_idx=use_idx)
             # reload sleep state
             K_old = self.K.copy()
-            (A,self.K) = load_stateidx(self.ppath, self.name)
+            (A,self.K) = load_stateidx(self.ppath, self.name, self.remidx)
 
             # set undefined states to 4
             #A[np.where(A==0)] = 4
@@ -835,7 +841,8 @@ class MainWindow(QtGui.QMainWindow):
         
     def closeEvent(self, event):
         print("Closing...")
-        rewrite_remidx(self.M, self.K, self.ppath, self.name, mode=0)
+        #rewrite_remidx(self.M, self.K, self.ppath, self.name, mode=0)
+        rewrite_remidx(self.M, self.K, self.remidx)
         
         
     def openFileNameDialog(self):    
@@ -941,10 +948,11 @@ class MainWindow(QtGui.QMainWindow):
             self.fbin += 1
 
         # load brain state
-        if not(os.path.isfile(os.path.join(self.ppath, self.name, 'remidx_' + self.name + '.txt'))):
+        #if not(os.path.isfile(os.path.join(self.ppath, self.name, 'remidx_' + self.name + '.txt'))):
+        if not(os.path.isfile(os.path.join(self.ppath, self.name, self.remidx))): 
             # predict brain state
             M,S = sleepy.sleep_state(self.ppath, self.name, pwrite=1, pplot=0)
-        (A,self.K) = load_stateidx(self.ppath, self.name)
+        (A,self.K) = load_stateidx(self.ppath, self.name, self.remidx)
         # set undefined states to 4
         #A[np.where(A==0)] = 4
         # needs to be packed into 1 x nbin matrix for display
@@ -1062,8 +1070,9 @@ class MainWindow(QtGui.QMainWindow):
 
 
 
-
-# some input parameter management
+###############################################################################
+# some input parameter management #############################################
+###############################################################################
 params = sys.argv[1:]
 if (len(params) == 0) :
     ppath = ''
@@ -1071,10 +1080,16 @@ if (len(params) == 0) :
 elif len(params) == 1:
     if re.match('.*\/$', params[0]):
         params[0] = params[0][:-1]
-    (ppath, name) = os.path.split(params[0])      
-else:
-    ppath = params[0]
-    name  = params[1]
+        
+    if os.path.isdir(params[0]):
+        (ppath, name) = os.path.split(params[0])      
+        remidx = 'remidx_' + name + '.txt'
+    else:
+        (folder, remidx) = os.path.split(params[0])      
+        (ppath, name) = os.path.split(folder)
+        
+
+print('Starting program for recording %s with annotation file %s' % (name, remidx))
 
 app = QtGui.QApplication([])
 w = MainWindow(ppath, name)

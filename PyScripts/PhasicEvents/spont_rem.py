@@ -21,17 +21,24 @@ import re
 from functools import reduce
 
 
-ppath = '/Users/tortugar/Documents/Penn/Data/RawData/'
+ppath = '/Users/tortugar/Documents/Penn/Data/RawData/mPFCData'
 recordings = ['J55_111018n1', 'J53_110718n1', 'J31_101618n1', 'J54_110518n1']
-recordings = ['JS80_050319n1', 'JS79_050319n1']
+#recordings = ['JS80_050319n1', 'JS79_050319n1']
+#recordings = ['JS80_050319n1']
+
+ppath = '/Users/tortugar/Documents/Penn/Data/RawData/'
+wt_rec = 'wt_recordings.txt'
+(recordings,E) = sleepy.load_recordings(ppath, wt_rec)
 
 # minimum duration of REM period
 # to be included in calculation:
-rem_thr = 60
+rem_thr = 30
 pre = 60
 post = 60
 fmax = 150
-mu = [10, 100]
+fmin = 0
+mu = [5, 50]
+peeg = True
 
 # get list of all mice 
 mice = []
@@ -56,19 +63,24 @@ for name in recordings:
       
     # load normalized spectrogram
     #SP, t, freq = sleepy.normalize_spectrogram(ppath, name, fmax, pplot=False)
-    P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'), squeeze_me=True)
-    SP = P['SP']
+    if peeg:
+        P = so.loadmat(os.path.join(ppath, name,  'sp_' + name + '.mat'), squeeze_me=True)
+        SP = P['SP']
+    else:
+        # use EMG
+        P = so.loadmat(os.path.join(ppath, name,  'msp_' + name + '.mat'), squeeze_me=True)
+        SP = P['mSP']
+        
     freq = P['freq']
     t = P['t']
 
-    ifreq = np.where(freq<=fmax)[0]
+    ifreq = np.where((freq<=fmax) & (freq>=fmin))[0]
     SP = SP[ifreq,:]
 
     sp_mean = SP.mean(axis=1)
     SP = np.divide(SP, np.tile(sp_mean, (SP.shape[1], 1)).T)
 
     M = sleepy.load_stateidx(ppath, name)[0]
-    rem_idx = np.where(M==1)[0]
     seq = sleepy.get_sequences(np.where(M==1)[0])
     
     SR = sleepy.get_snr(ppath, name)
@@ -96,8 +108,8 @@ for (i, idf) in zip(range(n), mice):
             
 
 # plot figure ##################
-##
 sns.set()
+plt.ion()
 plt.figure()
 t = np.arange(-ipre, ipost)*dt
 ax = plt.axes([0.1, 0.4, 0.8, 0.5])
@@ -115,7 +127,7 @@ df = pd.DataFrame(columns=['Idf', 'Time', 'Ampl'], data=data)
 
 ax2 = plt.axes([0.1, 0.1, 0.8, 0.2])
 sns.lineplot(data=df, x='Time', y='Ampl', ci='sd')
-plt.plot(t, ampl_mx.mean(axis=0), color='r')
+#plt.plot(t, ampl_mx.mean(axis=0), color='r')
 plt.ylim([0, 30])
 plt.xlabel('Time (s)')
 plt.xlim([t[0], t[-1]])
