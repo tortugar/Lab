@@ -1786,6 +1786,7 @@ def get_sequences(idx, ibreak=1) :
     return seq
 
 
+
 def threshold_crossing(data, th, ilen, ibreak, m):
     """
     seq = threshold_crossing(data, th, ilen, ibreak, m)
@@ -1995,9 +1996,8 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     p_mu    = smooth_data( SPEMG[i_mu,:].mean(axis=0), sf )
     p_sigma = smooth_data( SPEEG[i_sigma,:].mean(axis=0), sf )
     p_gamma = smooth_data( SPEEG[i_gamma,:].mean(axis=0), 0 )
-
+    # theta/delta:
     th_delta = np.divide(p_theta, p_delta)
-    #th_delta = smooth_data(th_delta, 2);
 
     seq = {}
     seq['high_theta'] = threshold_crossing(th_delta, np.nanmean(th_delta[use_idx])+th_delta_std*np.nanstd(th_delta[use_idx]),
@@ -2012,7 +2012,7 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     idx = {}
     for k in seq:
         tmp = [list(range(i,j+1)) for (i,j) in seq[k]]
-        # now idea why this works to flatten a list
+        # no idea why this works to flatten a list
         # idx[k] = sum(tmp, [])
         # alternative that I understand:
         if len(tmp) == 0:
@@ -2120,7 +2120,6 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
         f.close()
         
     # nice plotting
-    plt.ion()
     if pplot:
         plt.figure(figsize=(18,9))
         axes1=plt.axes([0.1, 0.9, 0.8, 0.05])
