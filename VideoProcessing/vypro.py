@@ -20,7 +20,7 @@ import spyke
 import matplotlib.patches as patches
 import seaborn as sns
 import pandas as pd
-#import pdb
+import pdb
 
 
 class Frame:
@@ -421,7 +421,7 @@ def intan_correct_videotiming_highfr(ppath, rec, set_cam_fr, fr=1, pplot=True):
     print('Number of frames according to strobe signal: %d' % len(idxs))
     A = so.loadmat(os.path.join(ppath, rec, timestamp), squeeze_me=True)
     tstamp = A['timelist']
-    #tstamp[np.where(tstamp<0)[0]] += 1000000
+    tstamp[np.where(tstamp<0)[0]] += 1000000
     cam_sr = np.diff(idxs)*(1.0/sr)
     #cam_dt = np.mean(np.diff(idxs)*(1.0/sr))
     cam_dt = 1/set_cam_fr
@@ -485,9 +485,8 @@ def intan_correct_videotiming_highfr(ppath, rec, set_cam_fr, fr=1, pplot=True):
         files = os.listdir(os.path.join(ppath, rec, 'Stack'))
         filesm = [f for f in files if re.match('fig\d+\.jpg', f)]
         print('Number of frames in videostack: %d' % len(filesm))
-        
+    
     return onset, idx_dropped
-
 
 
 
@@ -1637,7 +1636,7 @@ def opto_videoseq(ppath, name, tsegs, nidle=5, fmax=20, emg_legend=1000,
         for ph in phasic_rem:
             events = phasic_rem[ph]
             
-            events_list += [ev[0] for ev in events]
+            event_list += [ev[0] for ev in events]
             
         for (a,b) in zip(ts, te):
             pass

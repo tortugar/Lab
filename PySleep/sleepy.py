@@ -1702,7 +1702,6 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
         data = {'itexp':[], 'itctr':[], 'remexp':[], 'remctr':[]}
 
         for m in mice:
-
             data['itexp'] += itdur_exp[m]
             data['itctr'] += itdur_ctr[m]
             data['remexp'] += remdur_exp[m]
@@ -1765,12 +1764,15 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
 
 
 ### FUNCTIONS USED BY SLEEP_STATE #####################################################
-def get_sequences(idx, ibreak=1) :  
+def get_sequences(idx, ibreak=1, return_empty=False):  
     """
     get_sequences(idx, ibreak=1)
     idx     -    np.vector of indices
     @RETURN:
     seq     -    list of np.vectors
+    
+    NOTE: if there's no sequence, then the function returns a list with
+    an empty np.array ([np.array([])])
     """
     diff = idx[1:] - idx[0:-1]
     breaks = np.nonzero(diff>ibreak)[0]
@@ -1782,8 +1784,12 @@ def get_sequences(idx, ibreak=1) :
         r = list(range(iold, i+1))
         seq.append(idx[r])
         iold = i+1
-        
-    return seq
+    
+    if return_empty:
+        if len(seq) == 1 and seq[0].size == 0:
+            return []
+    else:
+        return seq
 
 
 
@@ -1836,6 +1842,7 @@ def closest_precessor(seq, i):
     return id
 
 
+
 def write_remidx(M, K, ppath, name, mode=1) :
     """
     rewrite_remidx(idx, states, ppath, name)
@@ -1852,8 +1859,8 @@ def write_remidx(M, K, ppath, name, mode=1) :
     s = ["%d\t%d\n" % (i,j) for (i,j) in zip(M[0,:],K)]
     f.writelines(s)
     f.close()
-
 #######################################################################################
+
 
 
 ### MANIPULATING FIGURES ##############################################################
@@ -1862,12 +1869,14 @@ def set_fontsize(fs):
     matplotlib.rcParams.update({'font.size': fs})
 
 
+
 def set_fontarial():
     """
     set Arial as default font
     """
     import matplotlib
     matplotlib.rcParams['font.sans-serif'] = "Arial"
+
 
 
 def save_figure(fig_file):
@@ -1883,6 +1892,7 @@ def save_figure(fig_file):
     #matplotlib.rcParams['text.usetex'] = False
 
 
+
 def box_off(ax):
     """
     similar to Matlab's box off
@@ -1891,8 +1901,7 @@ def box_off(ax):
     ax.spines["right"].set_visible(False)
     ax.get_xaxis().tick_bottom()  
     ax.get_yaxis().tick_left()  
-
-#######################################################################################
+###############################################################################
 
 
 
@@ -3947,7 +3956,10 @@ def sleep_timecourse_list(ppath, recordings, tbin, n, tstart=0, tend=-1, ma_thr=
             M_cut = M[(istart+i*ibin):(istart+(i+1)*ibin)]
             freq = []
             for s in [1,2,3]:
-                tmp = len(get_sequences(np.where(M_cut==s)[0])) * (3600. / (len(M_cut)*dt))
+                # all sequences:
+                tmp = get_sequences(np.where(M_cut==s)[0])
+                tmp = [a for a in tmp if a.size > 0]                
+                tmp = len(tmp) * (3600. / (len(M_cut)*dt))
                 freq.append(tmp)
             freq_time.append(freq)
         
@@ -4573,7 +4585,11 @@ def sleep_timecourse(ppath, trace_file, tbin, n, tstart=0, tend=-1, pplot=True, 
                 if stats == 'perc':
                     perc.append( 100 * len(np.where(M_cut==s)[0]) / (1.0*len(M_cut)) )
                 elif stats == 'freq':
-                    tmp = len(get_sequences(np.where(M_cut==s)[0])) * (3600. / (len(M_cut)*dt))
+                    tmp = get_sequences(np.where(M_cut==s)[0])
+                    tmp = [a for a in tmp if a.size > 0]                
+                    tmp = len(tmp) * (3600. / (len(M_cut)*dt))
+                    #tmp = len(get_sequences(np.where(M_cut==s)[0])) * (3600. / (len(M_cut)*dt))
+                    
                     perc.append(tmp)
                 else:
                     tmp = get_sequences(np.where(M_cut==s)[0])
