@@ -155,7 +155,7 @@ def load_stateidx(ppath, name, remidx):
 
 
 
-def rewrite_remidx(M, K, outfile) :
+def rewrite_remidx(M, K, remidx) :
     """
     rewrite_remidx(idx, states, ppath, name)
     replace the indices idx in the remidx file of recording name
@@ -255,14 +255,17 @@ class Second(QtGui.QMainWindow):
 
 # Object holding the GUI window
 class MainWindow(QtGui.QMainWindow):
-    def __init__(self, ppath, name):
+    def __init__(self, ppath, name, remidx):
         QtGui.QMainWindow.__init__(self)
         #super(MainWindow, self).__init__()
         
         self.index = 10
         self.ppath = ppath
         self.name  = name
-        self.remidx = remidx
+        if self.remidx == '':
+            os.path.join(ppath, name, 'remidx_%s.txt' % name)            
+        else:
+            self.remidx = remidx
         self.pcollect_index = False
         self.index_list = [self.index]
         self.tscale = 1
@@ -893,7 +896,8 @@ class MainWindow(QtGui.QMainWindow):
         name = fileDialog.getExistingDirectory(self, "Choose Recording Directory")
         (self.ppath, self.name) = os.path.split(name)        
         print("Setting base folder %s and recording %s" % (self.ppath, self.name))
-     
+        self.remidx = os.path.join(self.ppath, self.name, 'remidx_' + self.name + '.txt')
+        
         
     def load_recording(self):
         """
@@ -1115,13 +1119,38 @@ class MainWindow(QtGui.QMainWindow):
 ###############################################################################
 # some input parameter management #############################################
 ###############################################################################
+###############################################################################
+# some input parameter management
+# params = sys.argv[1:]
+# if (len(params) == 0) :
+#     ppath = ''
+#     name = ''
+# elif len(params) == 1:
+#     if re.match('.*\/$', params[0]):
+#         params[0] = params[0][:-1]
+#     (ppath, name) = os.path.split(params[0])      
+# else:
+#     ppath = params[0]
+#     name  = params[1]
+
+# app = QtGui.QApplication([])
+# w = MainWindow(ppath, name)
+# w.show()
+# app.exec_()
+
+
+
+
+
+
 params = sys.argv[1:]
 if (len(params) == 0) :
     ppath = ''
     name = ''
+    remidx = ''
 elif len(params) == 1:
     if re.match('.*\/$', params[0]):
-        params[0] = params[0][:-1]
+        params[0] = params[0][:-1]        
         
     if os.path.isdir(params[0]):
         (ppath, name) = os.path.split(params[0])      
