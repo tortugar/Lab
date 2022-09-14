@@ -34,44 +34,88 @@ def get_cycles(ppath, name):
     if len(time_param) == 0 or len(act_dur) == 0:
         return {'light': [(0,0)], 'dark': [(0,0)]}
     
-    hour, mi, sec = [int(i) for i in re.split(':', time_param[0])]
+    hour, mi, sec = [int(i) for i in re.split(':', time_param[0])]  ######start time
     #a = sleepy.get_infoparam(os.path.join(ppath, name, 'info.txt'), 'actual_duration')[0]
-    a,b,c = [int(i[0:-1]) for i in re.split(':', act_dur[0])]
+    a,b,c = [int(i[0:-1]) for i in re.split(':', act_dur[0])]            ######end time
     total_dur = a*3600 + b*60 + c
     
     # number of light/dark switches
-    nswitch = int(np.floor(total_dur / (12*3600)))
-    switch_points = [0]
+    start_time = hour*3600 + mi*60 + sec
+    end_time = start_time + total_dur
+    seven_am = 7*3600
+    seven_pm = 19*3600
+    seven_am2 = 31*3600 # second day morning
+    # start dark (early)
+    
+
+    
+    if (start_time < seven_am):        ##Start before turning on the lights in the morning
+        if end_time < seven_am:          ##end before turning on the lights in the morning
+            nswitch=0
+        else:
+            remainder = end_time - seven_am    ##Not end before turning on the lights in the morning
+            nswitch = 1 + int(np.floor(remainder)/(12*3600))
+    # start light
+    elif (start_time >= seven_am) and (start_time < seven_pm):   ## start After turning on the lights in the morning, and before turning off the lights at night.
+        if end_time < seven_pm:                         ##  end before truring off the light in the evening
+            nswitch = 0
+        else:
+            remainder = end_time - seven_pm            ##  end after truring off the light in the evening
+            nswitch = 1 + int(np.floor(remainder)/(12*3600))
+    else:                                              ## start  after truring off the light in the evening 
+        if end_time < seven_am2:                       ##end before turning on the lights in the morning
+            nswitch=0
+        else:
+            remainder = end_time - seven_am2           ####end after turning on the lights in the morning
+            nswitch = 1 + int(np.floor(remainder)/(12*3600))     
+    
+    switch_points = [0]          
     cycle = {'light': [], 'dark':[]}
+    
     if hour >= 7 and hour < 19:
         # recording starts during light cycle
-        nswitch = int(( ((hour-7)*3600+mi*60+sec) + total_dur ) / (12*3600))
-        
         a = 19*3600 - (hour*3600+mi*60+sec)
         for j in range(nswitch):
             switch_points.append(a+j*12*3600)
-        switch_points.append(total_dur)
-        for j in range(1, nswitch+1, 2):
+        for j in range(1, nswitch, 2):
             cycle['dark'].append(switch_points[j:j+2])
-        for j in range(0, nswitch+1, 2):
+        for j in range(0, nswitch, 2):
             cycle['light'].append(switch_points[j:j+2])
         
-    else:
-        # recording starts during dark cycle
-        a = 0
-        if hour < 24:
-            a = 24*3600 - (hour*3600+mi*60+sec) + 7*3600
-        else:
-            a = 7*3600 - (hour*3600+mi*60+sec)
+        
+        ####################################################################
+        if cycle['light']!=[] and cycle['light'][-1][-1]< (total_dur-1):
+            cycle['dark'].append([cycle['light'][-1][-1],int(total_dur)])
+        #########################I use this to fix the bug we do recording cross the light switch off point #################
+        
+    elif hour < 7:
+        # recording starts during in the earlier morning
+        
+       
+        a = 7*3600 - (hour*3600+mi*60+sec)
         for j in range(nswitch):
             switch_points.append(a+j*12*3600)
         for j in range(0, nswitch, 2):
             cycle['dark'].append(switch_points[j:j+2])
         for j in range(1, nswitch, 2):
             cycle['light'].append(switch_points[j:j+2])
-    
-    return cycle
+        ####################################################################
+        if cycle['light'][-1][-1]< (total_dur-1):
+            cycle['dark'].append([cycle['light'][-1][-1],int(total_dur)])
+        #########################I use this to fix the bug we do long recording 08.15.22#################
+            
+    elif hour < 24:
+        # recording starts after light switch off
+        a = 31*3600 - (hour*3600+mi*60+sec)
+        for j in range(nswitch):
+            switch_points.append(a+j*12*3600)
+        for j in range(0, nswitch, 2):
+            cycle['dark'].append(switch_points[j:j+2])
+        for j in range(1, nswitch, 2):
+            cycle['light'].append(switch_points[j:j+2])      
 
+    return cycle        
+        
 
 
 def load_stateidx(ppath, name, remidx):
@@ -79,7 +123,6 @@ def load_stateidx(ppath, name, remidx):
     @RETURN:
     M     -      sequency of sleep states
     """   
-    #file = os.path.join(ppath, name, 'remidx_' + name + '.txt')
     file = os.path.join(ppath, name, remidx)
     
     f = open(file, newline=None)    
@@ -304,7 +347,6 @@ class MainWindow(QtGui.QMainWindow):
         # self.graph_spectrum contains the image image_spectrum
         self.graph_spectrum = self.lay_brainstate.addPlot()
         self.image_spectrum = pg.ImageItem()     
-        #self.image_spectrum = pg.ImageView()
         self.graph_spectrum.addItem(self.image_spectrum)
         self.lay_brainstate.nextRow()
         
@@ -1095,3 +1137,4 @@ app = QtGui.QApplication([])
 w = MainWindow(ppath, name)
 w.show()
 app.exec_()
+
