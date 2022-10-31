@@ -262,8 +262,9 @@ class MainWindow(QtGui.QMainWindow):
         self.index = 10
         self.ppath = ppath
         self.name  = name
+        self.remidx = ''
         if self.remidx == '':
-            os.path.join(ppath, name, 'remidx_%s.txt' % name)            
+            self.remidx = os.path.join(ppath, name, 'remidx_%s.txt' % name)            
         else:
             self.remidx = remidx
         self.pcollect_index = False
@@ -1163,7 +1164,7 @@ elif len(params) == 1:
 print('Starting program for recording %s with annotation file %s' % (name, remidx))
 
 app = QtGui.QApplication([])
-w = MainWindow(ppath, name)
+w = MainWindow(ppath, name, remidx)
 w.show()
 app.exec_()
 
