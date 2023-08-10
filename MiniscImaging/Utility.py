@@ -151,12 +151,12 @@ def laser_start_end(laser, SR=1525.88, intval=5) :
     
 
 def downsample_vec(x, nbin) :
-    '''
+    """
     y = downsample_vec(x, nbin)
     downsample the vector x by replacing nbin consecutive \
     bin by their mean \
     @RETURN: the downsampled vector 
-    '''
+    """
     n_down = np.floor(len(x) / nbin)
     x = x[0:n_down*nbin]
     x_down = np.zeros((n_down,))
@@ -231,7 +231,8 @@ def smooth_data(x, sig) :
         return x
         
     # gaussian:
-    gauss = lambda (x, sig) : (1/(sig*np.sqrt(2.*np.pi)))*np.exp(-(x*x)/(2.*sig*sig))
+    def gauss(x2, sig2):
+        return (1/(sig2*np.sqrt(2.*np.pi)))*np.exp(-(x2*x2)/(2.*sig2*sig2))
 
     p = 1000000000
     L = 10.
@@ -239,7 +240,7 @@ def smooth_data(x, sig) :
         L = L+10
         p = gauss((L, sig))
 
-    F = map(lambda (x) : gauss((x, sig)), np.arange(-L, L+1.))
+    F = map(lambda x : gauss((x, sig)), np.arange(-L, L+1.))
     F = F / np.sum(F)
     
     return scipy.signal.fftconvolve(x, F, 'same')
@@ -313,7 +314,6 @@ def pca(data,dims=2) :
     # select the first n eigenvectors (n is desired dimension
     # of rescaled data array, or dims_rescaled_data)
     evecs = evecs[:, :dims]
-    print evecs
     # carry out the transformation on the data using eigenvectors
     # and return the re-scaled data, eigenvalues, and eigenvectors
 
@@ -359,118 +359,3 @@ def bootstrap_resample(x, y, nboot=10000):
                
     
 
-
-    
-if __name__ == "__main__":
-    ppath = '/Users/tortugar/Documents/Berkeley/Data/RawData'
-    ppath = '/media/Backup1/Data/RawData'
-    #ppath = '/home/franz/Windows/Data/RawData'
-    #name = 'G23_022114n6'
-    #name = '701_051013n2'
-    #name = 'G34_051614n1'
-    name = 'G18_111213n3'
-    #name = 'G22_030114n1'
-    #name = 'G6_052413n2'
-    #name = 'T1_041914n1'
-    #name = 'G35_042614n1'
-    #name = 'G90_022815n1'
-
-
-    SR = 1525.88
-    M = load_stateidx(ppath, name)
-    eeg = load_eeg(ppath, name)
-    
-    
-    
-
-    # calculate spectrogram
-    #ns = 5;
-    #win_length = int(round(SR)*5)
-    #Pxx,freqs,t = mlab.specgram(eeg, win_length, Fs=round(SR), noverlap=win_length/2)
-    #Pxx = scipy.signal.convolve2d(Pxx, np.ones((ns,ns))/(ns*ns), mode='same')
-    #nPxx = np.array([np.linalg.norm(Pxx[i,:]) for i in range(Pxx.shape[0])])
-    #normPxx = ( Pxx.T / nPxx ).T     
-    Pxx, t, freqs = calculate_spectrogram(eeg, SR, round(SR)*5, ns=5)
-
-
-    #ns = 5
-    #Pxx, tmp, t, freqs = load_spectrogram(ppath, name)
-    #Pxx = scipy.signal.convolve2d(Pxx, np.ones((ns,ns))/(ns*ns), mode='same')
-
-    # calculate ratio 1
-    #n1 = np.mean(Pxx[(freqs>10.5) & (freqs<20)], axis=0)
-    #d1 = np.mean(Pxx[(freqs>0.5) & (freqs<=5)], axis=0)
-    #r1 = d1
-    
-    #n2 = np.mean(Pxx[(freqs>0.5) & (freqs<4.5)], axis=0)
-    #d2 = np.mean(Pxx[(freqs>6) & (freqs<10)], axis=0)
-    #r2 = d2 / n2
-
-    # delta
-    d1 = np.mean(Pxx[(freqs>0.) & (freqs<=5)], axis=0)
-
-    # theta / delta
-    n1 = np.mean(Pxx[(freqs>6) & (freqs<12)], axis=0)
-    th = n1 / d1
-
-    # spindle band, before (freqs>9)
-    s1 = np.mean(Pxx[(freqs>12) & (freqs<20)], axis=0)
-
-    # EMG
-    m1 = np.mean(Pxx[(freqs>200) & (freqs<700)], axis=0)
-
-    MX = np.zeros((len(d1), 4))
-    MX[:,0] = d1
-    MX[:,1] = th
-    MX[:,2] = s1
-    MX[:,3] = m1
-
-    # normalize matrix
-    norm = np.array([np.linalg.norm(MX[:,i]) for i in range(MX.shape[1])])
-    #MX = MX/norm
-
-    pMX = pca(MX.copy(), 3)[0]
-    
-    r1 = pMX[:,0]
-    r2 = pMX[:,1]
-    
-    plt.figure()
-    plt.hold('on')
-    M = M[1:len(t)+1]
-    idx = np.where(M==2)
-    #plt.plot(r2[idx], r1[idx], 'r.')
-    idx = np.where(M==3)
-    plt.plot(r2[idx], r1[idx], 'bo')
-    idx = np.where(M==1)
-    plt.plot(r2[idx], r1[idx], 'go')    
-    plt.show()
-
-
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection='3d')
-    # #ax = Axes3D(fig)
-    # idx = np.where(M==1)
-    # ax.scatter(pMX[idx,0], pMX[idx,1], pMX[idx,2], c='g')
-    # idx = np.where(M==2)
-    # ax.scatter(pMX[idx,0], pMX[idx,1], pMX[idx,2], c='r')
-    # idx = np.where(M==3)
-    # ax.scatter(pMX[idx,0], pMX[idx,1], pMX[idx,2], c='b')
-
-    # plt.show()
-
-    
-
-    plt.figure()
-    pMX = pca(MX, 1)[0]
-    p = pMX[(M==1) | (M==3)]
-    plt.hist(p, 100)
-    plt.show()
-
-    plt.figure()
-    plt.pcolormesh(t, freqs[1:150], Pxx[1:150][:], vmin=0, vmax=5000)
-    plt.ylim((0,20))
-    plt.axis('off')
-    plt.axis('tight')
-    plt.show()
-    
-    

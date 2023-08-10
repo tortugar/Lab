@@ -319,6 +319,7 @@ def intan_correct_videotiming(ppath, rec, fr=1, pplot=True):
     tstamp = A['timelist']
     tstamp[np.where(tstamp<0)[0]] += 1000000
     cam_sr = np.mean(np.diff(idxs)*(1.0/sr))
+    
     print('Camera SR: ' + str(cam_sr))
 
     # list for each videoframe the corresponding index in idxs
@@ -645,7 +646,6 @@ def intan_correct_videotiming2(ppath, rec, fr=1, pplot=True):
             
         print(lag)
 
-    pdb.set_trace()
     print("n = %d frames were dropped" % ndropped)
 
     onset_idx = np.array(onset_idx)
