@@ -388,6 +388,7 @@ def eeg_conversion(ppath, rec, conv_factor=0.195):
         calculate_spectrum(ppath, rec)
 
 
+
 ### DEPRICATED ############################################
 def video_pulse_detection(ppath, rec, SR=1000, iv = 0.01):
     """
@@ -654,7 +655,6 @@ def calculate_spectrum(ppath, name, fres=0.5):
     else:
         so.savemat(spfile, {'SP':Pxx, 'freq':f, 'dt':t[1]-t[0],'t':t})
 
-
     # Calculate EMG spectrogram
     EMG = np.squeeze(so.loadmat(os.path.join(ppath, name, 'EMG.mat'))['EMG'])
     Qxx, f, t = spectral_density(EMG, int(swin), int(fft_win), 1/SR)
@@ -709,6 +709,7 @@ def whiten_spectrogram(ppath, name, fmax=50):
     W = scipy.signal.convolve2d(W, filt, boundary='symm', mode='same')
 
     return W, D, L
+
 
 
 def normalize_spectrogram(ppath, name, fmax=0, band=[], vm=5, pplot=True, sptype='', filt_dim=[]):
@@ -801,8 +802,7 @@ def recursive_spectrogram(ppath, name, sf=0.3, alpha=0.3, pplot=True):
     @Return:
         SE, SM       -    EEG, EMG spectrogram
 
-    """
-    
+    """    
     EEG = np.squeeze(so.loadmat(os.path.join(ppath, name, 'EEG.mat'))['EEG'])
     EMG = np.squeeze(so.loadmat(os.path.join(ppath, name, 'EMG.mat'))['EMG'])
     len_eeg = len(EEG)
@@ -1641,8 +1641,13 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
     remdur_ctr = {m:[] for m in mice}
     itdur_exp = {m:[] for m in mice}
     itdur_ctr = {m:[] for m in mice}
+    # NEW 11/20/22: add number of NREM bouts during inter-REM 
+    itnum_exp = {m:[] for m in mice}
+    itnum_ctr = {m:[] for m in mice}
+    # END 
 
     for rec in recordings:
+        print(rec)
         idf = re.split('_', rec)[0]
         M = load_stateidx(paths[rec], rec)[0]
         sr = get_snr(paths[rec], rec)
@@ -1679,9 +1684,19 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
                 if mode == 0:
                     it_drn = len(it_M)*dt
                 elif mode == 2:
-                    it_drn = len(np.where(it_M==2)[0]) * dt
+                    # NEW 11/20/22:
+                    idx_itm = np.where(it_M == 2)[0]
+                    it_drn = len(idx_itm) * dt
+                    num_seq_it = len(get_sequences(idx_itm))                                        
+                    # OLD:
+                    # it_drn = len(np.where(it_M==2)[0]) * dt
                 else:
-                    it_drn = len(np.where(it_M == 3)[0]) * dt
+                    # NEW 11/20/22:
+                    idx_itm = np.where(it_M == 3)[0]
+                    it_drn = len(idx_itm) * dt
+                    num_seq_it = len(get_sequences(idx_itm))                    
+                    # OLD:
+                    # it_drn = len(np.where(it_M == 3)[0]) * dt                    
 
                 # does the true REM sequence overlap with laser?
                 # by setting overlap to a value > 0, you can
@@ -1690,9 +1705,13 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
                 if len(np.intersect1d(p, laser_idx)) / len(p) > overlap:
                     remdur_exp[idf].append(drn)
                     itdur_exp[idf].append(it_drn)
+                    # NEW 11/20/22
+                    itnum_exp[idf].append(num_seq_it)
                 elif len(np.intersect1d(p, laser_idx)) == 0:
                     remdur_ctr[idf].append(drn)
                     itdur_ctr[idf].append(it_drn)
+                    # NEW 11/20/22
+                    itnum_ctr[idf].append(num_seq_it)
                 else:
                     pass
 
@@ -1706,8 +1725,14 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
             data['itctr'] += itdur_ctr[m]
             data['remexp'] += remdur_exp[m]
             data['remctr'] += remdur_ctr[m]
+            # NEW 11/20/22
+            data['seqexp'] += itnum_exp[m]
+            data['seqctr'] += itnum_ctr[m]            
+            # END
 
-        df = pd.DataFrame({'REM': data['remexp']+data['remctr'], 'iREM':data['itexp']+data['itctr'], 'laser': ['y']*len(data['remexp']) + ['n']*len(data['remctr'])})
+        df = pd.DataFrame({'REM': data['remexp']+data['remctr'], 'iREM':data['itexp']+data['itctr'], 
+                           'nbout': data['seqexp']+data['rseqctr'], # NEW 11/20/22
+                           'laser': ['y']*len(data['remexp']) + ['n']*len(data['remctr'])})
 
     else:
         for idf in mice:
@@ -1715,9 +1740,13 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
             itdur_exp[idf] = np.array(itdur_exp[idf]).mean()
             remdur_ctr[idf] = np.array(remdur_ctr[idf]).mean()
             remdur_exp[idf] = np.array(remdur_exp[idf]).mean()
+            # NEW 11/20/22
+            itnum_exp[idf] = np.array(itnum_exp[idf]).mean()
+            itnum_ctr[idf] = np.array(itnum_ctr[idf]).mean()
+            # END
 
         data = {}
-        for s in ['itexp', 'itctr', 'remexp', 'remctr']:
+        for s in ['itexp', 'itctr', 'remexp', 'remctr', 'seqexp', 'seqctr']:
             data[s] = np.zeros((len(mice),))
         i = 0
         for m in mice:
@@ -1725,10 +1754,15 @@ def online_homeostasis(ppath, recordings, backup='', mode=0, single_mode=False, 
             data['itctr'][i] = itdur_ctr[m]
             data['remexp'][i] = remdur_exp[m]
             data['remctr'][i] = remdur_ctr[m]
+            # NEW 11/20/22
+            data['seqexp'][i] = itnum_exp[m]
+            data['seqctr'][i] = itnum_ctr[m]            
+            # END
             i += 1
 
         df = pd.DataFrame({'REM': np.concatenate((data['remexp'], data['remctr'])),
                            'iREM': np.concatenate((data['itexp'], data['itctr'])),
+                           'nbout': np.concatenate((data['seqexp'], data['seqctr'])),  # NEW 11/20/22
                            'laser': ['y']*len(mice) + ['n']*len(mice), 
                            'mouse': mice+mice})
 
@@ -2902,7 +2936,7 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
 
 
 def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', start_time=0, end_time=-1,
-                     ma_thr=0, edge=0, sf=0, cond=0, single_mode=False, ci=95, backup='', csv_file=''):
+                     ma_thr=0, edge=0, sf=0, cond=0, single_mode=False, ci=95, backup='', csv_file='', round_dt=True):
     """
     calculate laser triggered probability of REM, Wake, NREM
     ppath        -    base folder holding all recording
@@ -2927,6 +2961,7 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
                       to the bootstrapped confidence interval. The default is ci=95
     csv_file     -    if filename (without or including full file path) is provided,
                       save pd.DataFrame df (see @Return) to csv file
+    round_dt     -    if True, round time time step; e.g. 2.499s becomes 2.5s
 
     @Return: 
    
@@ -2968,6 +3003,10 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
         SR = get_snr(ppath, rec)
         NBIN = np.round(2.5*SR)
         dt = NBIN * 1.0/SR
+        
+        if round_dt:
+            dt = round(dt,1)
+        
         istart_time = int(np.round(start_time / dt))
         M = load_stateidx(ppath, rec)[0]
         if end_time == -1:
@@ -3407,7 +3446,7 @@ def _despine_axes(ax):
 
 def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[], ma_thr=10,
                   fontsize=12, cb_ticks=[], emg_ticks=[], r_mu = [10, 100], 
-                  fw_color=True, pemg_ampl=False, raw_ex = [], eegemg_legend=[], eegemg_max=[]):
+                  fw_color=True, pemg_ampl=False, raw_ex=[], eegemg_legend=[], eegemg_max=[]):
     """
     plot sleep example
     :param ppath: base folder
@@ -4763,7 +4802,7 @@ def state_onset(ppath, recordings, istate, min_dur, iseq=0, ma_thr=10, tstart=0,
     :param recordings: list of recordings
     :param istate: 1 = REM, 2 = Wake, 3 = NREM
     :param min_dur: minimum duration in [s] to be counted as first occurance
-    :param iseq: calculate the $iseq-th occurance state $istate
+    :param iseq: calculate the $iseq-th occurence of state $istate
     :param ma_thr: microarousal threshould
     :param tstart: float, quantificiation of sleep starts at $start s
     :param tend: float, quantification of sleep ends at $tend s
@@ -4808,9 +4847,10 @@ def state_onset(ppath, recordings, istate, min_dur, iseq=0, ma_thr=10, tstart=0,
 
         seq = get_sequences(np.where(M==istate)[0])
         seq = [s for s in seq if len(s) * dt >= min_dur]
-        #ifirst = seq[seq[iseq][0]]
-        ifirst = seq[iseq][0]
-
+        if len(seq) > 0:
+            ifirst = seq[iseq][0]
+        else:
+            ifirst = np.nan
         latency[idf].append(ifirst*dt)
 
     for m in mice:
@@ -4837,7 +4877,10 @@ def state_onset(ppath, recordings, istate, min_dur, iseq=0, ma_thr=10, tstart=0,
         box_off(ax)
         plt.show()
 
-    return values
+    data = zip(mice, values)
+    df = pd.DataFrame(data=data, columns=['mouse', 'latency'])
+
+    return df
 
 
 
@@ -5587,7 +5630,7 @@ def _detect_troughs(signal, thr):
 
 
 
-def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
+def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11, phrem_dur_ms=900, thr=[]):
     """
     Detect phasic REM episodes using the algorithm described in 
     Daniel Gomes de Almeida‐Filho et al. 2021, which comes from
@@ -5729,16 +5772,19 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
     trdiff = np.array(trdiff_list)
     trdiff_sm = np.convolve(trdiff, filt, 'same')
 
-    # potential candidates for phasic REM:
-    # the smoothed difference between troughs is less than
-    # the 10th percentile:
-    thr1 = np.percentile(trdiff_sm, 10)
-    # the minimum difference in the candidate phREM is less than
-    # the 5th percentile
-    thr2 = np.percentile(trdiff_sm, 5)
-    # the peak amplitude is larger than the mean of the amplitude
-    # of the REM EEG.
-    thr3 = rem_eeg.mean()
+    if len(thr) == 0:
+        # potential candidates for phasic REM:
+        # the smoothed difference between troughs is less than
+        # the 10th percentile:
+        thr1 = np.percentile(trdiff_sm, 10)
+        # the minimum difference in the candidate phREM is less than
+        # the 5th percentile
+        thr2 = np.percentile(trdiff_sm, 5)
+        # the peak amplitude is larger than the mean of the amplitude
+        # of the REM EEG.
+        thr3 = rem_eeg.mean()
+    else:
+        thr1, thr2, thr3 = thr
 
     phrem = {}
     for si in tridx_seq:
@@ -5755,7 +5801,7 @@ def phasic_rem(ppath, name, min_dur=2.5, pplot=False, plaser=False, nfilt=11):
         for q in cand:
             dur = ( (tridx[q[-1]]-tridx[q[0]]+1)/sr ) * 1000
 
-            if dur > 900 and np.min(sdiff[q]) < thr2 and np.mean(eegh[tridx[q[0]]:tridx[q[-1]]+1]) > thr3:
+            if dur > phrem_dur_ms and np.min(sdiff[q]) < thr2 and np.mean(eegh[tridx[q[0]]:tridx[q[-1]]+1]) > thr3:
                 
                 a = tridx[q[0]]   + offset
                 b = tridx[q[-1]]  + offset
@@ -6198,6 +6244,8 @@ def plt_lineplot(df, subject, xcol, ycol, ax=-1, color='blue', xlabel='', ylabel
     s = np.nanstd(data, axis=0)/np.sqrt(len(subjects))
     ax.plot(x, m, color=color, lw=lw)
     ax.fill_between(x, m+s, m-s, color=color, alpha=0.2)
+
+    #pdb.set_trace()
     if len(ylabel) > 0:
         plt.ylabel(ylabel)
     else:
@@ -6824,6 +6872,7 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
     P = {}
     Mod = {}
     data = []
+    data_stats = []
     S = {}
     irand = random.sample(range(nboot), nboot)
     for si in states:
@@ -6839,9 +6888,6 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
                 a = cum_base[id_trans][:,-1]
                 b = cum_laser[id_trans][:,-1]
             else:
-                #a = np.nanmean(cum_base[id_trans], axis=1)
-                #b = np.nanmean(cum_laser[id_trans], axis=1)
-                #NEW:
                 a = np.nansum(cum_base[id_trans], axis=1)  * tdown
                 b = np.nansum(cum_laser[id_trans], axis=1) * tdown
                 
@@ -6850,6 +6896,11 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
             else:
                 d = b-a
 
+            # normalize area under the cumulative probability curves to 1:
+            if not stats_lastpoint:
+                d = d / laser_tend
+
+            data_stats += zip(d, [id_trans]*len(d))
             p = 2 * np.min([len(np.where(d > 0)[0]) / (1.0 * len(d)), len(np.where(d <= 0)[0]) / (1.0 * len(d))])                
             
             #NEW:
@@ -6883,9 +6934,10 @@ def transition_markov_strength(ppath, rec_file, laser_tend, tdown, dur, bootstra
             data.append([id_trans, P[id_trans], Mod[id_trans], S[id_trans], md, cil, cih])
 
     df = pd.DataFrame(data=data, columns=['trans', 'p-value', 'change', 'sig', 'md', 'cil', 'cih'])
+    df_stats = pd.DataFrame(data=data_stats, columns=['diff', 'trans'])
     print(df)
 
-    return df
+    return df, df_stats
 
 
 
@@ -7100,7 +7152,7 @@ def downsample_states(M, nbin, ptie_break=True):
     """
     downsample brain state sequency by replacing $nbin consecutive bins by the most frequent state
     ptie_break     -    tie break rule: 
-                        if 1, wake wins over NREM which wins over REM (Wake>NREM>REM) in case of tie
+                        if True, wake wins over NREM which wins over REM (Wake>NREM>REM) in case of tie
     """
     n = int(np.floor(len(M))/(1.0*nbin))
     Mds = np.zeros((n,))
