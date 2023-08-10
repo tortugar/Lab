@@ -851,7 +851,6 @@ def brstate_dff_bonf(ipath, mapping, pzscore=False, class_mode='basic', single_m
            (for each time point).
 
     """
-    
     import pingouin as pg
     
     rois = list(mapping['ID'])
@@ -1257,15 +1256,13 @@ def brstate_dff_down(ipath, mapping, pzscore=False, class_mode='basic', single_m
     
     columns = ['ID', 'R', 'W', 'N', 'F-anova', 'P-anova', 'P-tukey', 'Type']
     data = []
-    for r in rois:
-        
+    for r in rois:        
         stateval = roi_stateval[r]
         val = np.concatenate([stateval[1], stateval[2], stateval[3]])
         state = ['R']*len(stateval[1]) + ['W']*len(stateval[2]) + ['N']*len(stateval[3])
         d = {'state':state, 'val':val}
         df = pd.DataFrame(d)
         test_var = 'p'
-
 
         res  = pg.anova(data=df, dv='val', between='state')
         #res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
@@ -1411,6 +1408,7 @@ def brstate_dff_down(ipath, mapping, pzscore=False, class_mode='basic', single_m
     return df_class
 
 
+
 def profile_bootstrap(df, nboots=1000):
     
     val = {}
@@ -1441,7 +1439,94 @@ def profile_bootstrap(df, nboots=1000):
 
     return df_res
 
+
+
+def ROI_stats(df, ID, ipath, ann_name='', pzscore=True, pplot=False):
+    
+    dff_var = 'dff'
+    
+    recordings = list(df.columns)
+    recordings = [r for r in recordings if re.match('^\S+_\d{6}n\d+$', r)]    
+
+    dfs = df[df.ID == ID]
+
+    sessions = []
+    for rec in recordings:
+        if dfs[rec].iloc[0] != 'X':
+            sessions.append(rec)
+    
+    
+    state_idx = {1:[], 2:[], 3:[]}
+    roi_stateval = {1:[], 2:[], 3:[]}
+    for rec in sessions:
+        img_time = imaging_timing(ipath, rec)
+
+        
+        sr = sleepy.get_snr(ipath, rec)
+        nbin = int(np.round(sr)*2.5)
+        sdt = nbin * (1.0/sr)
+        
+        a = df.loc[df.ID == ID, rec].iloc[0]
+
+        #pdb.set_trace()
+        roi_list, roi_num = re.split('-', a)
+        roi_list = int(roi_list)
+        roi_num = int(roi_num)
+
+
+        # load DF/F for recording rec 
+        dff_file = os.path.join(ipath, rec, 'recording_' + rec + '_dffn' + str(roi_list) + '.mat')
+        if not(os.path.isfile(dff_file)):
+            calculate_dff(ipath, rec, roi_list)
+        DFF = so.loadmat(dff_file, squeeze_me=True)[dff_var]        
+        dff = DFF[:,roi_num] 
+
+        if pzscore:
+            dff = (dff-dff.mean()) / dff.std()
+        else:
+            dff = dff*100
+
+
+        # brainstate        
+        M = sleepy.load_stateidx(ipath, rec, ann_name=rec + ann_name)[0]
+        if ann_name != '':
+            print('using annotation %s' % rec + ann_name + '.txt')
+
+
+        for state in [1,2,3]:
+            seq = sleepy.get_sequences(np.where(M==state)[0])
+            for s in seq:                
+                # eeg2img_time: EEG time |---> Frame Indices
+                a = eeg2img_time([s[0]*sdt, s[-1]*sdt], img_time)
+                idx = range(a[0],a[1]+1)                
+                state_idx[state] += list(idx)
+    
+        
+        for state in [1,2,3]:
+            roi_stateval[state].append(dff[state_idx[state]])
             
+        for state in [1,2,3]:
+            roi_stateval[state] = np.concatenate(roi_stateval[state])
+        
+        
+    data = []
+    state_map = {1:'REM', 2:'Wake', 3:'NREM'}
+    for state in [1,2,3]:
+        m = roi_stateval[state]
+        
+        data += zip(m, [state_map[state]] * len(m))
+
+    df = pd.DataFrame(data=data, columns=['dff', 'state'])
+
+    if pplot:
+        plt.figure()
+        sns.barplot(data=df, x='state', y='dff')
+    
+
+
+    return df
+    
+
 
 def time_morph(X, nstates):
     """
@@ -7100,6 +7185,7 @@ def least_squares(x, y, n):
     # r2 = 1 - S_res / S_tot
 
     return p, r2
+
 
 
 def downsample_matrix(X, nbin):
