@@ -25,8 +25,8 @@ from scipy import linalg as LA
 import subprocess
 import pickle
 import scipy
-import plotly
-import plotly.graph_objs as go
+#import plotly
+#import plotly.graph_objs as go
 import sleepy
 import scipy.stats as stats
 import pandas as pd
@@ -87,11 +87,12 @@ def bonferroni_signtest(df, alpha=0.05):
         else:
             reject.append(False)
 
-    results = pd.DataFrame(index = labels, columns=['diffs', 'statisics', 'p-values', 'reject'])
+    results = pd.DataFrame(index = labels, columns=['diffs', 'statistics', 'p-values', 'reject'])
     results['diffs'] = diffs
     results['statistics'] = s
     results['p-values'] = p
     results['reject'] = reject
+    
     return results
 
 
@@ -322,6 +323,7 @@ def get_infoparam(ifile, field):
             values.append(a.group(1))
 
     return values
+
 
 
 def add_unit_annotation(ppath, name, grp, un, typ, driven, quality, comment = ''):
@@ -2113,6 +2115,42 @@ def firing_rate(ppath, name, grp, un):
     return spikesd
 
 
+
+def firing_rate_res(ppath, name, grp, un, dt):
+    """
+    Calculate firing rate using bins of duration $dt.
+
+    Parameters
+    ----------
+    ppath : TYPE
+        DESCRIPTION.
+    name : TYPE
+        DESCRIPTION.
+    grp : TYPE
+        DESCRIPTION.
+    un : TYPE
+        DESCRIPTION.
+    dt : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    spikesd : TYPE
+        DESCRIPTION.
+    dt_corr : TYPE
+        DESCRIPTION.
+
+    """
+
+    SR = get_snr(ppath, name)        
+    NBIN = int(np.round((dt/(1/SR))))
+    dt_corr = NBIN * (1/SR)
+    train = unpack_unit(ppath, name, grp, un)[1]
+    spikesd = downsample_vec(train, NBIN)
+
+    return spikesd, dt_corr
+
+
         
 def state_firing_rate(ppath, name, grp, un, pzscore=False, pplot=1):
     """
@@ -2137,23 +2175,23 @@ def state_firing_rate(ppath, name, grp, un, pzscore=False, pplot=1):
         FR[i] = spikesd[state_idx[i]]
 
     # generate plot using plotly   
-    if pplot==1:
-        data = go.Bar(x = ['Wake','NREM', 'REM'],
-                      y=[FR[i].mean() for i in [2, 3, 1]],
-                      error_y=dict(type='data',
-                                   array=[FR[i].std()/np.sqrt(len(FR[i])) for i in [2, 3, 1]],
-                                   visible=True))
+    # if pplot==1:
+    #     data = go.Bar(x = ['Wake','NREM', 'REM'],
+    #                   y=[FR[i].mean() for i in [2, 3, 1]],
+    #                   error_y=dict(type='data',
+    #                                array=[FR[i].std()/np.sqrt(len(FR[i])) for i in [2, 3, 1]],
+    #                                visible=True))
 
-        layout = go.Layout(yaxis=dict(title='Firing rate (spikes/s)'),
-                           font=dict(size=18),
-                           autosize=False,
-                           width=500, height=700)
+    #     layout = go.Layout(yaxis=dict(title='Firing rate (spikes/s)'),
+    #                        font=dict(size=18),
+    #                        autosize=False,
+    #                        width=500, height=700)
 
-        fig = go.Figure(data=[data], layout = layout)
-        plotly.offline.plot(fig, filename='state_firing_rate.html')
+    #     fig = go.Figure(data=[data], layout = layout)
+    #     plotly.offline.plot(fig, filename='state_firing_rate.html')
 
     # generate plot using matplotlib
-    if pplot==2:
+    if pplot:
         fr_mean = [FR[i].mean() for i in [2, 3, 1]]
         fr_std  = [FR[i].std()/np.sqrt(len(FR[i])) for i in [2, 3, 1]]
         plt.ion()
@@ -2298,7 +2336,7 @@ def write_fr(ppath, name, grp, un):
 
 
 def brstate_fr_plt(ppath, name, units, vm=[], fmax=30, tstart=0, tend=-1, r_mu=[10, 100], 
-                   ma_thr=10, ma_mode=False, emg_ampl=True, emg_corr=0):
+                   ma_thr=10, ma_mode=False, emg_ampl=True, emg_corr=0, tdown_emg=1):
     """
     plot firing rate along spectrogram, brainstate, EMG amplitude using matplotlib
     For example, spyke.brstate_fr_plt(ppath, name, [(1,3)]) to plot unit 1,3 of recording name, located in ppath
@@ -2315,6 +2353,7 @@ def brstate_fr_plt(ppath, name, units, vm=[], fmax=30, tstart=0, tend=-1, r_mu=[
     :param ma_mode: bool, if True plot microarousals in different colors
     :param emg_ampl: bool, if False plot raw EMG
     :param emg_corr: set EMG values > emg_corr to emg_corr; if 0, don't do anything
+    :param tdown_emg: factor to downsample raw EMG, if emg_ampl=False; for down_emg, the EMG stays unchanged
     :return: n/a
     """
     # load brainstate
@@ -2355,7 +2394,6 @@ def brstate_fr_plt(ppath, name, units, vm=[], fmax=30, tstart=0, tend=-1, r_mu=[
     istart_emg = int(istart*nbin)
     iend_emg   = int((iend+1)*nbin)
     ddt = 1.0/sr
-    t_emg = np.arange(0, iend_emg-istart_emg)*ddt
 
     if ma_thr > 0:
         seq = sleepy.get_sequences(np.where(M==2)[0])
@@ -2415,10 +2453,21 @@ def brstate_fr_plt(ppath, name, units, vm=[], fmax=30, tstart=0, tend=-1, r_mu=[
         plt.xlim((t[0], t[-1]+1))
         sleepy.box_off(axes3)
     else:
+        ddt_emg = ddt * tdown_emg
+        #t_emg = np.arange(0, iend_emg-istart_emg)*ddt
+        
         emg = so.loadmat(os.path.join(ppath, name, 'EMG.mat'), squeeze_me=True)['EMG']
+
         if emg_corr>0:
             emg[np.where(np.abs(emg)>emg_corr)] = 0
-        axes3.plot(t_emg, emg[istart_emg:iend_emg], color='black', lw=0.2)
+            
+        emg_cut = emg[istart_emg:iend_emg]
+        if tdown_emg > 1:
+            emg_cut = downsample_mx(emg_cut, tdown_emg)
+        len_emg = emg_cut.shape[0]
+        t_emg = np.arange(0, len_emg) * ddt_emg
+        
+        axes3.plot(t_emg, emg_cut, color='black', lw=0.2)
         plt.xlim((t_emg[0], t_emg[-1] + 1))
 
 
@@ -2456,8 +2505,8 @@ def plot_raw_channels(ppath, name, ch_id, tstart, tend, fig_file=''):
     iend =   int(tend*sr_raw)
     dt = 1.0 / sr_raw
     t = np.arange(0, (iend-istart-1)*dt+dt/2, dt)
-
     ch_shown = channel[istart:iend]
+
     fid.close()
 
     plt.ion()
@@ -2941,6 +2990,287 @@ def unit_classification2(ppath, file_listing, alpha = 0.05, backup=''):
 
 
 
+def unit_classification_res(ppath, file_listing, alpha=0.05, pzscore=True, backup='', dt_fr=2.5, ma_thr=10, sf=0):
+    import pingouin as pg
+    
+    if type(file_listing) == str:
+        units = load_units(ppath, file_listing)
+    else:
+        units = file_listing
+    for k in units:
+        for rec in units[k]:
+            rec.set_path(ppath, backup)
+
+    FR = {k:[] for k in units}
+    for k in units:
+        
+        state_fr = {s:np.array([]) for s in [1,2,3]}
+        state_idx = {1:[], 2:[], 3:[]}
+        for rec in units[k]:
+            if dt_fr == 2.5:
+                spikesd = firing_rate(rec.path, rec.name, rec.grp, rec.un)
+            else:
+                spikesd, dt_corr = firing_rate_res(rec.path, rec.name, rec.grp, rec.un, dt_fr)
+
+
+            if sf > 0:
+                spikesd = sleepy.smooth_data(spikesd, sf)
+
+
+            sr = sleepy.get_snr(rec.path, rec.name)
+            nbin = int(np.round(sr)*2.5)
+            sdt = nbin * (1.0/sr)
+                
+            if pzscore:
+                spikesd = (spikesd-spikesd.mean()) / spikesd.std()
+            
+            M,_ = sleepy.load_stateidx(rec.path, rec.name)
+            if ma_thr > 0:
+                seq = sleepy.get_sequences(np.where(M == 2)[0])
+                for s in seq:
+                    if np.round(len(s)*sdt) < ma_thr:
+                        M[s] = 3
+
+            for state in [1,2,3]:
+                seq = sleepy.get_sequences(np.where(M==state)[0])
+                for s in seq:                
+                    a = s[0]*sdt
+                    b = (s[-1]+1)*sdt
+                    
+                    i = int(a/dt_corr)
+                    j = int(b/dt_corr)
+                    
+                    if j > len(spikesd):
+                        j = len(spikesd)
+                
+                    state_idx[state] += list(range(i,j))
+
+        for state in [1,2,3]:                
+            state_fr[state] = np.concatenate((state_fr[state], spikesd[state_idx[state]]))
+
+        FR[k] = state_fr
+    ###########################################################################
+    columns = ['ID', 'R', 'W', 'N', 'F-anova', 'DOFs', 'P-anova', 'P-tukey', 'Type']
+    data = []    
+    for k in units:
+        
+        stateval = FR[k]
+        val = np.concatenate([stateval[1], stateval[2], stateval[3]])
+        state = ['R']*len(stateval[1]) + ['W']*len(stateval[2]) + ['N']*len(stateval[3])
+        d = {'state':state, 'val':val}
+        df = pd.DataFrame(d)
+
+        res  = pg.anova(data=df, dv='val', between='state')
+        res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
+        ddof = [res.ddof1.iloc[0], res.ddof2.iloc[0]]  
+
+        
+        def _get_mean(s):
+            return df[df['state']==s]['val'].mean()
+ 
+        rmean = _get_mean('R')
+        wmean = _get_mean('W')
+        nmean = _get_mean('N')
+        
+        roi_type = 'X'
+        test_var = 'p-tukey'
+
+        # R>N>W
+        if (rmean > wmean) and (rmean > nmean) and (nmean > wmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+            # NEW
+            cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+
+            if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and cond3[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                #R > N                              R > W                                N > W                               ANOVA
+                roi_type = 'R>N>W'
+                
+        # R>W>N
+        elif (rmean > wmean) and (rmean > nmean) and (wmean > nmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+            # NEW
+            cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+            
+            if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and cond3[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+            #if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                roi_type = 'R>W>N'
+                
+        # W-max
+        elif (wmean > nmean) and (wmean > rmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+
+            if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                roi_type = 'W-max'
+        # N-max 
+        elif (nmean > wmean) and (nmean > rmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+            cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+
+            if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                roi_type = 'N-max'
+                
+        else:
+            roi_type = 'X'
+        
+        tukey_res = [res2[(res2['A'] == 'N') & (res2['B'] == 'R')][test_var].iloc[0], 
+                     res2[(res2['A'] == 'N') & (res2['B'] == 'W')][test_var].iloc[0], 
+                     res2[(res2['A'] == 'R') & (res2['B'] == 'W')][test_var].iloc[0]]
+        
+        tmp = [k, rmean, wmean, nmean, res.F.iloc[0], ddof, res['p-unc'].iloc[0], tukey_res, roi_type]
+        data.append(tmp)
+
+        df_class = pd.DataFrame(data, columns=columns)
+
+    types = df_class.Type.unique()
+    unit_classes = dict()
+    for typ in types:
+        unit_classes[typ] = {}
+
+    for k in units:
+        typ = df_class[df_class.ID == k].Type.iloc[0]        
+        unit_classes[typ][k] = units[k]
+
+    return df_class, unit_classes
+    
+
+
+def unit_classification_anova(ppath, file_listing, alpha=0.05, pzscore=True, backup='', ma_thr=10):
+
+    import pingouin as pg
+    
+    if type(file_listing) == str:
+        units = load_units(ppath, file_listing)
+    else:
+        units = file_listing
+    for k in units:
+        for rec in units[k]:
+            rec.set_path(ppath, backup)
+
+
+    FR = {k:[] for k in units}
+    for k in units:
+        state_fr = {s:np.array([]) for s in [1,2,3]}
+        for rec in units[k]:
+            sr = sleepy.get_snr(rec.path, rec.name)
+            nbin = int(np.round(sr)*2.5)
+            sdt = nbin * (1.0/sr)
+            
+            spikesd = firing_rate(rec.path, rec.name, rec.grp, rec.un)
+            spikesd = sleepy.smooth_data(spikesd, 1)
+            if pzscore:
+                spikesd = (spikesd-spikesd.mean()) / spikesd.std()
+                
+            
+            M,_ = sleepy.load_stateidx(rec.path, rec.name)
+            if ma_thr > 0:
+                seq = sleepy.get_sequences(np.where(M == 2)[0])
+                for s in seq:
+                    if np.round(len(s)*sdt) < ma_thr:
+                        M[s] = 3
+
+                        
+            if len(spikesd) != len(M):
+                n = np.min((len(spikesd), len(M)))
+                M = M[0:n]
+                spikesd = spikesd[0:n]
+
+            
+            for s in [1,2,3]:
+                state_fr[s] = np.concatenate((state_fr[s], spikesd[np.where(M==s)[0]]))
+
+        FR[k] = state_fr
+
+    ###########################################################################
+    columns = ['ID', 'R', 'W', 'N', 'F-anova', 'DOFs', 'P-anova', 'P-tukey', 'Type']
+    data = []    
+    for k in units:
+        
+        stateval = FR[k]
+        val = np.concatenate([stateval[1], stateval[2], stateval[3]])
+        state = ['R']*len(stateval[1]) + ['W']*len(stateval[2]) + ['N']*len(stateval[3])
+        d = {'state':state, 'val':val}
+        df = pd.DataFrame(d)
+
+        res  = pg.anova(data=df, dv='val', between='state')
+        res2 = pg.pairwise_tukey(data=df, dv='val', between='state')
+        ddof = [res.ddof1.iloc[0], res.ddof2.iloc[0]]  
+
+        
+        def _get_mean(s):
+            return df[df['state']==s]['val'].mean()
+ 
+        rmean = _get_mean('R')
+        wmean = _get_mean('W')
+        nmean = _get_mean('N')
+        
+        roi_type = 'X'
+        test_var = 'p-tukey'
+
+        # R>N>W
+        if (rmean > wmean) and (rmean > nmean) and (nmean > wmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+            # NEW
+            cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+
+            if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and cond3[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                #R > N                              R > W                                N > W                               ANOVA
+                roi_type = 'R>N>W'
+                
+        # R>W>N
+        elif (rmean > wmean) and (rmean > nmean) and (wmean > nmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+            # NEW
+            cond3 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+            
+            if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and cond3[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+            #if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                roi_type = 'R>W>N'
+                
+        # W-max
+        elif (wmean > nmean) and (wmean > rmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+            cond2 = res2[(res2['A'] == 'R') & (res2['B'] == 'W')]
+
+            if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                roi_type = 'W-max'
+        # N-max 
+        elif (nmean > wmean) and (nmean > rmean):  
+            cond1 = res2[(res2['A'] == 'N') & (res2['B'] == 'W')]
+            cond2 = res2[(res2['A'] == 'N') & (res2['B'] == 'R')]
+
+            if cond1[test_var].iloc[0] < alpha and cond2[test_var].iloc[0] < alpha and res['p-unc'].iloc[0] < 0.05:
+                roi_type = 'N-max'
+                
+        else:
+            roi_type = 'X'
+        
+        tukey_res = [res2[(res2['A'] == 'N') & (res2['B'] == 'R')][test_var].iloc[0], 
+                     res2[(res2['A'] == 'N') & (res2['B'] == 'W')][test_var].iloc[0], 
+                     res2[(res2['A'] == 'R') & (res2['B'] == 'W')][test_var].iloc[0]]
+        
+        tmp = [k, rmean, wmean, nmean, res.F.iloc[0], ddof, res['p-unc'].iloc[0], tukey_res, roi_type]
+        data.append(tmp)
+
+        df_class = pd.DataFrame(data, columns=columns)
+
+    types = df_class.Type.unique()
+    unit_classes = dict()
+    for typ in types:
+        unit_classes[typ] = {}
+
+    for k in units:
+        typ = df_class[df_class.ID == k].Type.iloc[0]        
+        unit_classes[typ][k] = units[k]
+
+    return df_class, unit_classes
+    
+
+
 def _waveform_params(wvf, dt_spike, pplot=False):
     """
     extract half-amplitude duration and trough to peak duration; called by &waveform_classification
@@ -3373,7 +3703,6 @@ def fr_transitions_singletrials(ppath, unit_listing, transition, pre, post, si_t
 def detect_spindles(ppath, name, M=[], pplot=False, std_thr=1.5, sigma=[7,15]):
     """
     Detect spindles during NREM (only) using the algorithm described in Niethard et al. 2018.
-    
 
     Parameters
     ----------
@@ -3422,8 +3751,7 @@ def detect_spindles(ppath, name, M=[], pplot=False, std_thr=1.5, sigma=[7,15]):
         sj = s[-1]
         
         nrem_idx += list(range(si*nbin, sj*nbin))
-        
-        
+                
     std = np.std(amplitude_envelope[nrem_idx])
     thr = std * std_thr
     
@@ -3454,7 +3782,7 @@ def detect_spindles(ppath, name, M=[], pplot=False, std_thr=1.5, sigma=[7,15]):
         plt.plot(st, M)
         
         ax = plt.subplot(212, sharex=ax)
-        plt.plot(t, EEG)
+        #plt.plot(t, EEG)
         plt.plot(t, EEGbp)
         plt.plot(t, amplitude_envelope)    
         plt.plot(t[spindle_idx], amplitude_envelope[spindle_idx], 'r.')
@@ -4490,6 +4818,96 @@ def laser_reliability(ppath, name, grp, un, win=10, offs=1, iter=1):
     return M.mean()
     
 
+def laser_pulse_raster(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters=1, istate=-1, ntrials=-1, patch_width=-1):
+    import matplotlib.patches as patches
+
+
+    SR_eeg = sleepy.get_snr(ppath, name)
+    dt = nbin*1.0/SR_eeg
+
+    train = unpack_unit(ppath, name, grp, un)[1]
+    len_train = len(train)
+
+    pre  = int(np.round(pre*SR_eeg))
+    post = int(np.round(post*SR_eeg))
+
+    laser = sleepy.load_laser(ppath, name)
+    raster = []
+
+    idx = np.where(np.diff(laser)>0)[0]+1
+    if laser[0]>0:
+        idx = np.concatenate(([0], idx))
+
+    lat = []
+    for i in idx[0:ntrials]:
+        if (i-pre>=0) and (i+post<len_train):
+            raster.append(train[i-pre:i+post+1])
+            a = np.where(train[i:i+post+1]>0)[0]
+            if len(a) > 0:
+                lat.append(a[0]*dt)
+
+    nwin = int(np.round(0.02*SR_eeg))
+    M = np.array(raster)[:,pre:pre+nwin+1].sum(axis=1)                
+    t = np.arange(0, M.shape[0])*(1.0/SR_eeg) 
+    M[np.where(M>0)] = 1
+
+    # time x trials
+    raster = np.array(raster)   
+    #if nbin > 1:
+    #    raster = downsample_matrix(raster, nbin)        
+    t = np.arange(0, raster.shape[1])*dt-pre*(1.0/SR_eeg) 
+
+    #delay = raster.mean(axis=1)
+    #rt = [t[np.argmax(delay)]]
+    
+    x, y = [], []
+    if ntrials < 0:
+        ntrials = raster.shape[0]
+    
+    for i in range(ntrials):
+        r = raster[i,:]
+        idx = np.where(r>0)[0]
+        
+        for j in idx:
+            x.append(i)
+            y.append((j-pre) * (1/SR_eeg))
+    
+    ###
+    plt.figure()
+    ax = plt.axes([0.2, 0.55, 0.5, 0.4])
+    # R = raster.copy()
+    # R[np.where(raster>0)] = 1
+    # cmap = plt.cm.jet
+    # my_map = cmap.from_list('ha', [[1, 1, 1], [0, 0, 0]], 2)
+    # ax.pcolorfast(t, range(R.shape[0]), R, cmap=my_map)
+    plt.xticks([0])
+    ax.set_xticks([0], [''])
+    plt.yticks([])    
+    # ax.spines["bottom"].set_visible(False)
+    plt.ylabel('Trials')
+    sleepy.box_off(ax)
+    if patch_width > -1:
+        ax.add_patch(
+        patches.Rectangle((0, 0), patch_width, ntrials, facecolor=[0.6, 0.6, 1], edgecolor=[0.6, 0.6, 1]))
+
+    ax.scatter(y,x,s=0.5, color='black')
+    #if patch_width > 0:
+    ax.set_xlim((t[0], t[-1]))
+    ax.set_ylim([0, ntrials])
+
+
+    ax = plt.axes([0.2, 0.15, 0.5, 0.3])
+    ax.plot(t*1000, raster[0:ntrials,:].mean(axis=0), color='black')
+    ax.set_xlim((t[0]*1000, t[-1]*1000))
+    ax.set_xlabel('Time (ms)')
+    sleepy.box_off(ax)
+    ax.set_ylabel('FR (spikes/s)')
+                    
+    pdb.set_trace()
+    print('Latency: %f' % np.array(lat).mean())
+    
+    return raster
+    
 
 def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters=1, istate=-1):
     """
@@ -4563,7 +4981,6 @@ def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters
     t = np.arange(0, raster.shape[1]) * dt - pre*(1.0/sr)
 
 
-    plt.ion()
     sleepy.set_fontarial()
     plt.figure()
     ax = plt.axes([0.15, 0.4, 0.8, 0.25])
