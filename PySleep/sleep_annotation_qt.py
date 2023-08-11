@@ -12,7 +12,7 @@ import sys
 # exactly this combination of imports works with py2.7; otherwise problem importing
 # pyqtgraph
 from PyQt5 import QtGui, QtCore
-from PyQt5.QtWidgets import QFileDialog
+from PyQt5.QtWidgets import QFileDialog, QMainWindow, QApplication
 import pyqtgraph as pg
 import numpy as np
 import scipy.io as so
@@ -248,15 +248,15 @@ def load_pull(ppath, name) :
     return np.squeeze(triggered)
 
 
-class Second(QtGui.QMainWindow):
+class Second(QMainWindow):
     def __init__(self, parent=None):
         super(Second, self).__init__(parent)
 
 
 # Object holding the GUI window
-class MainWindow(QtGui.QMainWindow):
+class MainWindow(QMainWindow):
     def __init__(self, ppath, name, remidx):
-        QtGui.QMainWindow.__init__(self)
+        QMainWindow.__init__(self)
         #super(MainWindow, self).__init__()
         
         self.index = 10
@@ -920,9 +920,23 @@ class MainWindow(QtGui.QMainWindow):
         #self.eeg_amp_list = []
         
         # load EEG1 and EMG1
-        EEG1 = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EEG.mat'))['EEG']).astype(np.float32)
+        try:
+            EEG1 = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EEG.mat'))['EEG']).astype(np.float32)
+        except:
+            EEGfile = h5py.File(os.path.join(self.ppath, self.name, 'EEG.mat'), 'r+')
+            EEG1 = np.squeeze(EEGfile['EEG'])
+            EEGfile.close()
+        #w0 = 1/500
+        #w1 = 50 / 500
+        #EEG1 = sleepy.my_bpfilter(EEG1, w0, w1)        
         self.EEG_list.append(EEG1)
-        EMG1 = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EMG.mat'))['EMG']).astype(np.float32)
+        
+        try:
+            EMG1 = np.squeeze(so.loadmat(os.path.join(self.ppath, self.name, 'EMG.mat'))['EMG']).astype(np.float32)
+        except:
+            EMGfile = h5py.File(os.path.join(self.ppath, self.name, 'EMG.mat'), 'r+')
+            EMG1 = np.squeeze(EMGfile['EMG'])
+            EMGfile.close()            
         self.EMG_list.append(EMG1)
         # if existing, also load EEG2 and EMG2
         if os.path.isfile(os.path.join(self.ppath, self.name, 'EEG2.mat')):
@@ -976,13 +990,19 @@ class MainWindow(QtGui.QMainWindow):
         # get all LFP files
         self.lfp_pointer = -1
         self.LFP_list = []
-        lfp_files = [f for f in os.listdir(os.path.join(self.ppath, self.name)) if re.match('^LFP', f)]
+        lfp_files = [f for f in os.listdir(os.path.join(self.ppath, self.name)) if re.match('^LFP2', f)]
         lfp_files.sort()
         if len(lfp_files) > 0:
             self.lfp_pointer = -1
             for f in lfp_files:
                 key = re.split('\\.', f)[0]
-                LFP = so.loadmat(os.path.join(self.ppath, self.name, f), squeeze_me=True)[key]
+                try:
+                    LFP = so.loadmat(os.path.join(self.ppath, self.name, f), squeeze_me=True)[key]
+                except:
+                    fid = h5py.File(os.path.join(self.ppath, self.name, f), 'r+')
+                    LFP = np.squeeze(fid['LFP'])
+                    fid.close()
+
                 self.LFP_list.append(LFP)
             #self.LFP_list.append((self.LFP_list[0]-self.LFP_list[1]))
 
@@ -1163,7 +1183,7 @@ elif len(params) == 1:
 
 print('Starting program for recording %s with annotation file %s' % (name, remidx))
 
-app = QtGui.QApplication([])
+app = QApplication([])
 w = MainWindow(ppath, name, remidx)
 w.show()
 app.exec_()
