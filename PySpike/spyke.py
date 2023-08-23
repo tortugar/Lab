@@ -4051,9 +4051,8 @@ def phrem_correlation(ppath, unit_listing, pre, post, xdt=0.1, pzscore=False, ba
                 print('ERROR: something wrong')
             train = unpack_unit(unit.path, unit.name, unit.grp, unit.un)[1]
             if pzscore:
-                train = (train - train.mean()) / train.std()
                 train = sleepy.downsample_vec(train, ndown)
-
+                train = (train - train.mean()) / train.std()
 
             for rem_id in phrem_in_name:
                 for phrem in phrem_in_name[rem_id]:
@@ -4862,6 +4861,7 @@ def laser_reliability(ppath, name, grp, un, win=10, offs=1, iter=1):
     return M.mean()
     
 
+
 def laser_pulse_raster(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters=1, istate=-1, ntrials=-1, patch_width=-1):
     import matplotlib.patches as patches
 
@@ -5058,6 +5058,101 @@ def laser_triggered_train(ppath, name, grp, un, pre, post, nbin=1, offs=0, iters
     ax.set_xticklabels(['pre', 'laser', 'post'])
     plt.ylabel('FR (spikes/s)')
     sleepy.box_off(ax)
+
+
+
+def salt(spt_baseline, spt_test, dt, wn=0.01):
+    # Input argument check
+    if len(spt_baseline.shape) != 2 or len(spt_test.shape) != 2:
+        raise ValueError("Input matrices must be 2D arrays.")
+    
+    tno, st = spt_baseline.shape  # number of trials and number of baseline (pre-stim) data points
+    nmbn = int(wn / dt)  # number of bins for latency histograms
+    edges = np.arange(nmbn + 2)  # bin boundaries
+    nm = int(st / nmbn)  # size of the null dist. sample
+    
+    lsi = np.zeros((tno, nm))
+    slsi = np.zeros((tno, nm))
+    hlsi = np.zeros((nmbn + 1, nm))
+    nhlsi = np.zeros((nmbn + 1, nm))
+    next = 0
+    
+    # Latency histogram - baseline
+    for t in range(0, nm * nmbn, nmbn):
+        for k in range(tno):
+            cspt = spt_baseline[k, t:t + nmbn]  # current baseline window
+            pki = np.argmax(cspt)  # first spike in the window
+            if cspt[pki]:
+                lsi[k, next] = pki  # latencies
+            else:
+                lsi[k, next] = 0  # 0 if no spike in the window
+        
+        slsi[:, next] = np.sort(lsi[:, next])  # sorted latencies
+        hst, _ = np.histogram(slsi[:, next], bins=edges)
+        hlsi[:, next] = hst[:-1]  # latency histogram
+        nhlsi[:, next] = hlsi[:, next] / np.sum(hlsi[:, next])  # normalized latency histogram
+        next += 1
+    
+    # ISI histogram - test
+    tno_test = spt_test.shape[0]  # number of trials
+    lsi_tt = np.zeros((tno_test, 1))
+    
+    for k in range(tno_test):
+        cspt = spt_test[k, :nmbn]  # current test window
+        pki = np.argmax(cspt)  # first spike in window
+        if cspt[pki]:
+            lsi_tt[k, 0] = pki  # latencies
+        else:
+            lsi_tt[k, 0] = 0  # 0 if no spike in the window
+    
+    slsi_tt = np.sort(lsi_tt[:, 0])  # sorted latencies
+    hst, _ = np.histogram(slsi_tt, bins=edges)
+    hlsi[:, next] = hst[:-1]  # latency histogram
+    nhlsi[:, next] = hlsi[:, next] / np.sum(hlsi[:, next])  # normalized latency histogram
+    
+    # JS-divergence
+    kn = nm + 1  # number of all windows (nm baseline win. + 1 test win.)
+    jsd = np.empty((kn, kn))
+    
+    for k1 in range(kn):
+        D1 = nhlsi[:, k1]  # 1st latency histogram
+        for k2 in range(k1 + 1, kn):
+            D2 = nhlsi[:, k2]  # 2nd latency histogram
+            jsd[k1, k2] = np.sqrt(JSdiv(D1, D2) * 2)  # pairwise modified JS-divergence (real metric!)
+    
+    # Calculate p-value and information difference
+    p, I = makep(jsd, kn)
+    
+    return p, I
+
+def makep(kld, kn):
+    # Calculates p value from distance matrix.
+    pnhk = kld[:kn - 1, :kn - 1]
+    nullhypkld = pnhk[~np.isnan(pnhk)]  # nullhypothesis
+    testkld = np.median(kld[:kn - 1, kn])  # value to test
+    sno = len(nullhypkld)  # sample size for nullhyp. distribution
+    p_value = len(np.where(nullhypkld >= testkld)[0]) / sno
+    Idiff = testkld - np.median(nullhypkld)  # information difference between baseline and test latencies
+    
+    return p_value, Idiff
+
+def JSdiv(P, Q):
+    # Jensen-Shannon divergence
+    M = (P + Q) / 2
+    D1 = KLdist(P, M)
+    D2 = KLdist(Q, M)
+    D = (D1 + D2) / 2
+    return D
+
+def KLdist(P, Q):
+    # Kullbach-Leibler distance
+    P2 = P[P * Q > 0]  # restrict to the common support
+    Q2 = Q[P * Q > 0]
+    P2 = P2 / np.sum(P2)  # renormalize
+    Q2 = Q2 / np.sum(Q2)
+    D = np.sum(P2 * np.log(P2 / Q2))
+    return D
+###############################################################################
 
 
 
