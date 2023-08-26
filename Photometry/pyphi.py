@@ -16,11 +16,9 @@ import pandas as pd
 import seaborn as sns
 from scipy.stats import linregress
 from functools import reduce
+import pdb
 #import plotly
 #import plotly.graph_objs as go
-
-
-import pdb
 
 
 
@@ -755,7 +753,6 @@ def avg_activity(ppath, name, tstart = 10, tend = -1, awake=False, mu=[10,100]):
         dff_mean[4] = np.mean(dff[qwk_idx])*100       
         dff_std[4]  = np.std(dff[qwk_idx]*100)/np.sqrt(len(qwk_idx))
         
-        pdb.set_trace()
         plt.ion()
         plt.figure()
         ax = plt.axes([0.3, 0.1, 0.35, 0.8])
@@ -1335,7 +1332,7 @@ def bandpass_corr(ppath, name, band, win=120, state=3, tbreak=60, pemg=False):
 def bandpass_corr_state(ppath, name, band, fft_win=2.5, perc_overlap=0.8, win=120, state=3, 
                         tbreak=10, mode='cross', pzscore=True, pnorm_spec=True, pemg=False, pplot=True, sr=0):
     """
-    correlate band in EEG spectrogram with calcium activity;
+    Correlate band in EEG spectrogram with calcium activity;
     plot cross-correlation for all intervals of brain state $state.
     Negative time points in the cross-correlation mean that the calcium activity
     precedes the EEG.
@@ -2315,8 +2312,8 @@ def activity_transitions_ma(ppath, recordings, transitions, pre, post, si_thresh
 
 def downsample_mx(X, nbin):
     """
-    y = downsample_vec(x, nbin)
-    downsample the vector x by replacing nbin consecutive
+    y = downsample_mx(x, nbin)
+    downsample the matrix X by replacing nbin consecutive
     bin by their mean
     @RETURN: the downsampled vector
     """
@@ -3421,7 +3418,6 @@ def event_detection(ppath, name, nskip=5, tstart=0, tend=-1, nstd=2, pplot=True)
         n = len(A)
         ta = np.arange(0, len(A)) * ((1.0/sr)*20)
         tb = np.arange(0, len(B)) * ((1.0/sr)*20)
-        pdb.set_trace()
         plt.plot(ta, A)
         plt.plot(tb, B)
         plt.plot(ta, np.ones((n,))*th)
@@ -3496,6 +3492,88 @@ def avg_events(ppath, recs, nstd=2, tstart=0, tend=-1):
     plt.ylabel('Events/s')
 
     return df
+
+
+
+def count_state_peaks(dff, M, dt, ma_thr=20, prom=0.1):
+    
+    seq = sleepy.get_sequences(np.where(M==2)[0])    
+    for s in seq:
+        if len(s)*dt <= ma_thr:
+           M[s] = 3
+           
+    p = np.percentile(dff, (1,99))
+    p = (p[1] - p[0]) * prom
+    print(p)
+    idx = scipy.signal.find_peaks(dff, prominence=p)[0]
+
+    seq = sleepy.get_sequences(np.where(M==3)[0])
+    nrem_idx = []
+    for s in seq:
+        nrem_idx += list(s)
+    
+    
+    nrem_peaks = np.intersect1d(idx, np.array(nrem_idx))    
+    peak_freq = len(nrem_peaks) / (len(nrem_idx) * dt/ 60)
+
+ 
+    return idx, peak_freq
+
+
+
+def count_calcium_transients(ppath, name, ma_thr=10, prom=0.1, wfreq=1/15, pplot=True, 
+                             tstart=0, tend=-1):
+    sr = sleepy.get_snr(ppath, name)
+    nbin = int(np.round(sr)*2.5)
+    dt = (1.0/sr)*nbin
+    sr_is = 1/dt
+    w1 = wfreq/(sr_is/2.0)
+    
+    
+    dffd = so.loadmat(os.path.join(ppath, name, 'DFF.mat'), squeeze_me=True)['dffd']
+    dffd_smooth = sleepy.my_lpfilter(dffd, w1)
+    M = sleepy.load_stateidx(ppath, name)[0]
+    
+    istart = int(tstart/dt)
+    if tend < 0:
+        iend = len(M)
+    else:
+        iend = int(tend/dt)
+    M = M[istart:iend]
+    dffd_smooth = dffd_smooth[istart:iend]
+    dffd[istart:iend] = dffd[istart:iend]
+    
+    
+    m = np.min((len(M), len(dffd)))
+    M = M[0:m]
+    dffd = dffd[0:m]
+    dffd_smooth = dffd_smooth[0:m]
+    
+    idx, peak_freq = count_state_peaks(dffd_smooth, M, dt, prom=prom)
+
+    if pplot:
+        plt.figure()
+        t = np.arange(0, m)*dt
+        
+        cmap = plt.cm.jet
+        my_map = cmap.from_list('brs', [[0, 0, 0], [153 / 255.0, 76 / 255.0, 9 / 255.0],
+                                                [120 / 255.0, 120 / 255.0, 120 / 255.0], [1, 0.75, 0]], 4)
+        axes_brs = plt.subplot(211)
+        tmp = axes_brs.pcolorfast(t, [0, 1], np.array([M]), vmin=0, vmax=3)
+        tmp.set_cmap(my_map)
+        axes_brs.axis('tight')
+        sleepy._despine_axes(axes_brs)
+        
+        
+        plt.subplot(212, sharex=axes_brs)
+        print('We have  %f peaks per minute' % (peak_freq))
+        plt.plot(t, dffd)
+        plt.plot(t, dffd_smooth)
+        plt.plot(t[idx], dffd_smooth[idx], 'r.')
+
+
+    return idx, peak_freq
+
 
 
 
@@ -3612,8 +3690,8 @@ def dff_spectrum(ppath, recordings, twin=30, tstart=0, tend=-1, ma_thr=20, pnorm
 
 
 ### SPECTRALFIELDS #####################################################################################################
-def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0,
-                          states=[1,2,3], nsr_seg=2, perc_overlap=0.75, pzscore=False, pplot=True):
+def spectralfield_highres(ppath, name, pre, post, fmax=60, theta=0,
+                          states=[1,2,3], nsr_seg=2, perc_overlap=0.75, pzscore=False, ma_thr=10, pplot=True):
     """
     Calculate the "receptive field = spectral field" best mapping the EEG spectrogram onto the neural activity
     The spectrogram calculation is flexible, i.e. can be adjusted by the paramters nsr_seg and perc_overlap.
@@ -3649,7 +3727,7 @@ def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0,
     ipre  =  int(np.round(pre/dt))
     ipost = int(np.round(post/dt))
 
-    pfilt=True
+    pfilt=False
     if pfilt:
         filt = np.ones((6,1))
         filt = filt / np.sum(filt)
@@ -3676,6 +3754,13 @@ def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0,
 
     ibin = np.array([], dtype='int64')
     M,K = sleepy.load_stateidx(ppath, name)
+    if ma_thr > 0:
+        seq = sleepy.get_sequences(np.where(M==2)[0])
+        for s in seq:
+            if len(s)*dt <= ma_thr:
+                M[s] = 3
+
+    
     for s in states:
         seq = sleepy.get_sequences(np.where(M==s)[0])
         for p in seq:
@@ -3730,7 +3815,7 @@ def spectralfield_highres(ppath, name, pre, post, fmax = 60, theta=0,
 
 
 
-def spectralfield(ppath, name, pre, post, fmax=20, theta=0, states=[1,2,3], sp_norm=True, pzscore=False, pplot=True, pfilt=True):
+def spectralfield(ppath, name, pre, post, fmax=20, theta=0, states=[1,2,3], sp_norm=True, pzscore=False, pplot=True, pfilt=True, peeg2=False):
     """
     Calculate the "receptive field = spectral field" best matching the EEG spectrogram onto the neural activity
     :param ppath: base folder
@@ -3750,7 +3835,11 @@ def spectralfield(ppath, name, pre, post, fmax=20, theta=0, states=[1,2,3], sp_n
         theta = [theta]
 
     P = so.loadmat(os.path.join(ppath, name, 'sp_%s.mat' % name), squeeze_me=True)
-    SP = P['SP']
+    if not peeg2:
+        SP = P['SP']
+    else:
+        SP = P['SP2']
+        
     N = SP.shape[1]
     freq = P['freq']
     fdt = P['dt']
@@ -3812,6 +3901,7 @@ def spectralfield(ppath, name, pre, post, fmax=20, theta=0, states=[1,2,3], sp_n
         plt.ion()
         plt.figure()
         ax = plt.subplot(111)
+        pdb.set_trace()
         plt.scatter(np.dot(MX,k)+rmean, dffd+rmean)
         plt.xlabel('Prediction $(\Delta F/F)$')
         plt.ylabel('Data $(\Delta F/F)$')
