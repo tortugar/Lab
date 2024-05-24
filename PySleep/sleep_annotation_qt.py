@@ -429,6 +429,8 @@ class MainWindow(QMainWindow):
         labelStyle = {'color': '#FFF', 'font-size': '12pt'}
         ax.setLabel('Freq', units='Hz', **labelStyle)
         ax.setTicks([[(0, '0'), (10, '10'), (20, '20')]])
+        # NEW:
+        ax.setWidth(50)
         
         # colormap
         self.image_spectrum.setLookupTable(self.lut_spectrum)
@@ -446,6 +448,8 @@ class MainWindow(QMainWindow):
         ax = self.graph_emgampl.getAxis(name='left')
         labelStyle = {'color': '#FFF', 'font-size': '12pt'}
         ax.setLabel('EMG Ampl.', units='V', **labelStyle)
+        #NEW:
+        ax.setWidth(50)
         # x-axis        
         ax = self.graph_emgampl.getAxis(name='bottom')
         labelStyle = {'color': '#FFF', 'font-size': '12pt'}
@@ -477,6 +481,8 @@ class MainWindow(QMainWindow):
         labelStyle = {'color': '#FFF', 'font-size': '12pt'}
         ax.setLabel('Brainstate', units='', **labelStyle)
         ax.setTicks([[(0, ''), (1, '')]])
+        #NEW:
+        ax.setWidth(50)
         
         ax = self.graph_brainstate.getAxis(name='bottom')
         ax.setTicks([[]])
@@ -503,10 +509,13 @@ class MainWindow(QMainWindow):
         ax.setTicks([[(0, ''), (1, '')]])
         limits = {'xMin': -1*self.fdt*scale, 'xMax': self.ftime[-1]*scale, 'yMin': -1.1, 'yMax': 1.1}
         self.graph_treck.vb.setLimits(**limits)
+        # NEW:
+        ax.setWidth(50)
+
         # remove ticks on x-axis
         ax = self.graph_treck.getAxis(name='bottom')
         ax.setTicks([[]])
-
+            
         # plot supplmental signal; for example, rem-online detection
         if self.psuppl:
             self.graph_treck.plot(self.ftime * scale, self.suppl_treck * 0.3, pen=(255, 150, 150))
@@ -552,6 +561,8 @@ class MainWindow(QMainWindow):
         self.graph_eeg.setRange(xRange=(t[0],t[-1]), padding=None)
         self.graph_eeg.plot(t,self.EEG[ii]) 
         ax = self.graph_eeg.getAxis(name='left')
+        # NEW:
+        ax.setWidth(50)
         labelStyle = {'color': '#FFF', 'font-size': '12pt'}
         ax.setLabel('EEG' + ' ' + str(self.eeg_pointer+1), units='V', **labelStyle)
         self.graph_eeg.vb.setMouseEnabled(x=False, y=True)
@@ -567,9 +578,10 @@ class MainWindow(QMainWindow):
         self.graph_emg.setRange(xRange=(t[0],t[-1]), padding=None)
         self.graph_emg.plot(t,self.EMG[ii])     
         ax = self.graph_emg.getAxis(name='left')
+        # NEW:
+        ax.setWidth(50)
         labelStyle = {'color': '#FFF', 'font-size': '12pt'}
         ax.setLabel('EMG' + ' ' + str(self.emg_pointer+1), units='V', **labelStyle)
-        
         ax = self.graph_emg.getAxis(name='bottom')
         #labelStyle = {'color': '#FFF', 'font-size': '12pt'}
         #ax.setLabel('Time', units='s', **labelStyle)
@@ -597,12 +609,14 @@ class MainWindow(QMainWindow):
         
         # set y-axis
         ax = self.graph_fft.getAxis(name='left')
+        # NEW:
+        ax.setWidth(50)
         labelStyle = {'color': '#FFF', 'font-size': '12pt'}
         ax.setLabel('Freq', units='Hz', **labelStyle)
         ax.setTicks([[(0, '0'), (10, '10'), (20, '20')]])
         limits = {'yMin': 0, 'yMax': self.freq[self.ifreq]}
-        
         self.graph_fft.vb.setLimits(**limits)
+
         # set x-axis
         ax = self.graph_fft.getAxis(name='bottom')
         ax.setTicks([[]])   
@@ -617,6 +631,8 @@ class MainWindow(QMainWindow):
         self.graph_ann.setRange(yRange=(1, 3), xRange=(0,5), padding=None)
         self.graph_ann.plot(np.arange(0,5)+0.5, self.M[0,ii], name = 'Ann', pen=(255,0,0), symbolPen='w')
         ax = self.graph_ann.getAxis(name='left')
+        # NEW:
+        ax.setWidth(50)
         labelStyle = {'color': '#FFF', 'font-size': '12pt'} 
         ax.setLabel('State', units='', **labelStyle)       
         ax.setTicks([[(1, 'R'), (2, 'W'), (3, 'S')]])
@@ -1007,7 +1023,8 @@ class MainWindow(QMainWindow):
         # get all LFP files
         self.lfp_pointer = -1
         self.LFP_list = []
-        lfp_files = [f for f in os.listdir(os.path.join(self.ppath, self.name)) if re.match('^LFP2', f)]
+        lfp_files = [f for f in os.listdir(os.path.join(self.ppath, self.name)) if re.match('^LFP', f)]
+
         lfp_files.sort()
         if len(lfp_files) > 0:
             self.lfp_pointer = -1
