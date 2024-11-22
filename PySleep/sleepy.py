@@ -135,6 +135,10 @@ def load_dose_recordings(ppath, rec_file):
     
     E \s recording_name \s dose_1
     E \s recording_name \s dose_2
+    
+    
+    @RETURN: Tuple with control reocrdings (C's') and experimental recordings
+    
     """
     
     rfile = os.path.join(ppath, rec_file)
@@ -627,8 +631,7 @@ def calculate_spectrum(ppath, name, fres=0.5):
     
     all data saved in "true" mat files
     :return  EEG Spectrogram, EMG Spectrogram, frequency axis, time axis
-    """
-    
+    """    
     SR = get_snr(ppath, name)
     swin = round(SR)*5
     fft_win = round(swin/5) # approximate number of data points per second
@@ -1489,7 +1492,7 @@ def rem_online_analysis(ppath, recordings, backup='', single_mode=False, fig_fil
     for rec in recordings:
         idf = re.split('_', rec)[0]
         M,S = load_stateidx(paths[rec], rec)
-        sr = get_snr(paths[rec], rec)
+        sr = get_sr(paths[rec], rec)
         nbin = int(np.round(sr)*2.5)
         dt = (1.0/sr)*nbin
 
@@ -2143,6 +2146,13 @@ def sleep_state(ppath, name, th_delta_std=1, mu_std=0, sf=1, sf_delta=3, pwrite=
     S['awake']  = wake_motion_idx
     S['qwake']  = wake_nomotion_idx
     
+    rem_idx = rem_idx.astype('int')
+    wake_idx = wake_idx.astype('int')
+    sws_idx = sws_idx.astype('int')
+    undef_idx = undef_idx.astype('int')
+        
+    #pdb.set_trace()
+    
     M = np.zeros((N,))
     if len(rem_idx) > 0:
         M[rem_idx]           = 1
@@ -2518,7 +2528,7 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
                     SP[i,:] = (SP[i-1,:] + SP[i+1,:]) * 0.5
         return SP
     
-    SR = get_snr(ppath, name)
+    SR = get_sr(ppath, name)
     NBIN = np.round(2.5*SR)
     lsr = load_laser(ppath, name)
     idxs, idxe = laser_start_end(lsr)
@@ -2557,9 +2567,9 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
         i = np.where((np.array(idxs)*dt >= tstart) & (np.array(idxs)*dt <= tend))[0]
     else:
         i = np.where(np.array(idxs)*dt >= tstart)[0]
-
     idxs = [idxs[j] for j in i]
     idxe = [idxe[j] for j in i]
+    print('Number of remaining trials: %d' % len(idxs))
 
     skips = []
     skipe = []
@@ -2674,10 +2684,8 @@ def laser_triggered_eeg(ppath, name, pre, post, f_max, pnorm=2, pplot=False, psa
         plt.plot(f,EEGLsr[:,ilsr].mean(axis=1), color='blue', label='laser', lw=2)
         box_off(ax)
         plt.xlabel('Freq. (Hz)')
-        plt.ylabel('Power (uV^2)')
-        #plt.legend(loc=0)
-        #plt.legend(bbox_to_anchor=(1.05, 1), loc=2, borderaxespad=0.)
-        plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, borderaxespad=0.)
+        plt.ylabel(r'Power ($\mathrm{\mu V^2}$)')
+        plt.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc=3, ncol=2, borderaxespad=0., frameon=False)
         
         ax = plt.axes([0.1, 0.1, 0.4, 0.35])
         plt.pcolormesh(t,f,EMGLsr, cmap='jet')
@@ -2936,11 +2944,12 @@ def laser_triggered_eeg_avg(ppath, recordings, pre, post, f_max, laser_dur, pnor
 
 
 def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', start_time=0, end_time=-1,
-                     ma_thr=0, edge=0, sf=0, cond=0, single_mode=False, ci=95, backup='', csv_file='', round_dt=True):
+                     ma_thr=0, edge=0, sf=0, cond=0, single_mode=False, ci=95, 
+                     backup='', csv_file='', round_dt=True, intval=5):
     """
     calculate laser triggered probability of REM, Wake, NREM
     ppath        -    base folder holding all recording
-    recordings   -    list of recording
+    recordings   -    list of recordings
     pre          -    time before laser onset
     post         -    time after laser onset
 
@@ -2962,6 +2971,8 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
     csv_file     -    if filename (without or including full file path) is provided,
                       save pd.DataFrame df (see @Return) to csv file
     round_dt     -    if True, round time time step; e.g. 2.499s becomes 2.5s
+    intval       -    time interval between two consecutive laser pulses to be considered
+                      as part of two different pulse trains.
 
     @Return: 
    
@@ -2970,7 +2981,7 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
 
                       Lsr has three values: 0 - before laser, 1 - during laser, 2 - after laser
                       if laser was on for laser_dur s, then
-                      df[df['Lsr'] == 0]['REM'] is the average % of REM sleep during laser stimulation for each mouse
+                      df[df['Lsr'] == 1]['REM'] is the average % of REM sleep during laser stimulation for each mouse
                       df[df['Lsr'] == 0]['REM'] is the average % of REM sleep
                       during the laser_dur s long time interval preceding laser onset.
                       df[df['Lsr'] == 2]['REM'] is the average during the time inverval of duration laser_dur that
@@ -3019,7 +3030,7 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
             if len(s)*dt <= ma_thr:
                 M[s] = 3
 
-        (idxs, idxe) = laser_start_end(load_laser(ppath, rec))
+        (idxs, idxe) = laser_start_end(load_laser(ppath, rec), intval=intval)
         idf = re.split('_', rec)[0]
 
         ipre  = int(np.round(pre/dt))
@@ -3079,7 +3090,7 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
     for s in state_map:
         df = nparray2df(BS[:, :, s - 1], mouse_order, t, 'perc', 'mouse', 'time')
         df['state'] = state_map[s]
-        df_timecourse = df_timecourse.append(df)
+        df_timecourse = pd.concat((df_timecourse, df))
 
     nmice = imouse
     if pplot:
@@ -6234,6 +6245,7 @@ def plt_lineplot(df, subject, xcol, ycol, ax=-1, color='blue', xlabel='', ylabel
 
         data.append(list(y))
 
+
     data = np.array(data)
 
     if ax == -1:
@@ -7175,7 +7187,7 @@ def downsample_states(M, nbin, ptie_break=True):
 
 
 
-def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
+def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur=180,
                      band=[10,15], state=3, win=64, pplot=True, pflipx=True, pnorm='mean',
                      spec_norm=True, spec_filt=False, box=[1,4],
                      tstart=0, tend=-1, peeg2=False):
@@ -7190,7 +7202,8 @@ def infraslow_rhythm(ppath, recordings, ma_thr=20, min_dur = 180,
     ma_thr       -       microarousal threshold; wake periods <= $min_dur are transferred to NREM
     min_dur      -       minimal duration [s] of a NREM period
     band         -       frequency band used for calculation
-    win          -       window (number of indices) for FFT calculation
+    win          -       window (number of indices) for FFT calculation; the larger the value, the 
+                         more frequencies are estimated, but the noisier the result
     pplot        -       if True, plot window showing result
     pflipx       -       if True, plot wavelength instead of frequency on x-axis
     pnorm        -       string, if pnorm == 'mean', normalize spectrum by the mean power, 
