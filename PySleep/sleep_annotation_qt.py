@@ -1058,6 +1058,11 @@ class MainWindow(QMainWindow):
         #A[np.where(A==0)] = 4
         # needs to be packed into 1 x nbin matrix for display
         self.M = np.zeros((1,self.nbin))
+        if A.shape[0] < self.nbin:
+            A = np.pad(A, (0, self.nbin - len(A)), mode='constant', constant_values=0)
+            self.K = np.pad(self.K, (0, self.nbin - len(self.K)), mode='constant', constant_values=0)
+        
+        
         self.M[0,:] = A[0:self.nbin]
         # backup for brainstate in case somethin goes wrong
         self.M_old = self.M.copy()

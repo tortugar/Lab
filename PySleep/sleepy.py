@@ -277,7 +277,7 @@ def laser_protocol(ppath, name):
         iinter-stimulation intervals, avg. inter-stimulation interval, frequency
     """
     laser = load_laser(ppath, name)
-    SR = get_snr(ppath, name)
+    SR = get_sr(ppath, name)
     
     # first get inter-stimulation interval
     (istart, iend) = laser_start_end(laser, SR)
@@ -632,7 +632,7 @@ def calculate_spectrum(ppath, name, fres=0.5):
     all data saved in "true" mat files
     :return  EEG Spectrogram, EMG Spectrogram, frequency axis, time axis
     """    
-    SR = get_snr(ppath, name)
+    SR = get_sr(ppath, name)
     swin = round(SR)*5
     fft_win = round(swin/5) # approximate number of data points per second
     if (fres == 1.0) or (fres == 1):
@@ -3118,7 +3118,7 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
                 plt.xlabel('Time (s)')
                 plt.ylabel('Probability')
                 #plt.legend(bbox_to_anchor=(0., 1.02, 0.5, .102), loc=3, ncol=3, borderaxespad=0.)
-                plt.draw()
+                #plt.draw()
             else:
                 bs_colors = {'REM': [0, 1, 1], 'Wake': [0.5, 0, 1], 'NREM': [0.6, 0.6, 0.6]}
                 dfm = df_timecourse.groupby(['mouse', 'state', 'time']).mean().reset_index()
@@ -3155,21 +3155,20 @@ def laser_brainstate(ppath, recordings, pre, post, pplot=True, fig_file='', star
         # figure showing all trials
         plt.figure(figsize=(4,6))
         set_fontarial()
-        plt.ion()
         ax = plt.axes([0.15, 0.1, 0.8, 0.8])
         cmap = plt.cm.jet
         my_map = cmap.from_list('ha', [[0,1,1],[0.5,0,1], [0.6, 0.6, 0.6]], 3)
         x = list(range(Trials.shape[0]))
-        plt.pcolormesh(t,np.array(x), np.flipud(Trials), cmap=my_map, vmin=1, vmax=3)
+        #plt.pcolormesh(t,np.array(x), np.flipud(Trials), cmap=my_map, vmin=1, vmax=3)
+        ax.pcolorfast(t,np.array(x), np.flipud(Trials), cmap=my_map, vmin=1, vmax=3)
         plt.plot([0,0], [0, len(x)-1], color='white')
         plt.plot([laser_dur,laser_dur], [0, len(x)-1], color='white')
-        ax.axis('tight')
-        plt.draw()
+        #ax.axis('tight')
         plt.xlabel('Time (s)')
         plt.ylabel('Trial No.')
         box_off(ax)
+        plt.subplots_adjust(left=0.3, right=0.8, top=0.8, bottom=0.3)
 
-        plt.show()
         if len(fig_file)>0:
             plt.savefig(fig_file)
 
@@ -7463,8 +7462,38 @@ def nparray2df(mx, rows, cols, mx_label='', row_label='', column_label=''):
     return df
 
 
+### statistical tests #########################################################
+def pairwise_bootstrap(a, b, nboot=1000, paired=True):
+    """
+    perform pairwise test (comparison of mean) using bootstrapping
+    @param a: np.array, sample 1
+    @param b: np.array, sample 2
+    @param paired; bool, if True, perform paired test
+    Optional:
+    @param nboot: int, number of iterations for bootstrap
+    """
+    n = len(a)
+    m = len(b)
+    data = np.zeros((nboot,))
+    Airand = np.random.randint(n, size=(nboot,n))
+    if not paired:
+        Birand = np.random.randint(m, size=(nboot,m))
+    else:
+        Birand = Airand
 
+    for i in range(nboot):
+        c = a[Airand[i,:]]
+        d = b[Birand[i,:]]
+        data[i] = np.mean(c)-np.mean(d)
+
+    p = 2 * np.min([len(np.where(data > 0)[0]) / nboot, len(np.where(data <= 0)[0]) / nboot])
+
+    mmean = data.mean()
+    cil = np.percentile(data, 2.5)
+    cih = np.percentile(data, 100-2.5)
     
+    return p, mmean, [cil, cih]
+
 
 
 
