@@ -3607,7 +3607,7 @@ def sleep_example(ppath, name, tlegend, tstart, tend, fmax=30, fig_file='', vm=[
 
     # colorbar for EEG spectrogram
     cb = plt.colorbar(im, ax=axes_cbar, pad=0.0, aspect=10.0)
-    cb.set_label('Power ($\mathrm{\mu}$V$^2$s)')
+    cb.set_label('Power ($\mathrm{\mu}$V$^2$/Hz)')
     if len(cb_ticks) > 0:
         cb.set_ticks(cb_ticks)
     axes_cbar.set_alpha(0.0)
